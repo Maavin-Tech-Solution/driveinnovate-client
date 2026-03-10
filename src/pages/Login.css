@@ -1,0 +1,20 @@
+@keyframes drive       { 0%   { transform: translateX(-320px); }             100% { transform: translateX(110vw); } }
+@keyframes driveBack   { 0%   { transform: translateX(110vw) scaleX(-1); }   100% { transform: translateX(-320px) scaleX(-1); } }
+@keyframes cloudDrift  { 0%   { transform: translateX(0); }                  100% { transform: translateX(-130px); } }
+@keyframes dashScroll  { 0%   { background-position: 0 0; }                  100% { background-position: -120px 0; } }
+@keyframes fadeUp      { from { opacity: 0; transform: translateY(18px); }   to   { opacity: 1; transform: translateY(0); } }
+@keyframes wheelSpin   { from { transform: rotate(0deg); }                   to   { transform: rotate(360deg); } }
+@keyframes starTwinkle { 0%, 100% { opacity: 0.9; }  50% { opacity: 0.15; } }
+@keyframes orbit       { from { transform: rotate(0deg)   translateX(90px)  rotate(0deg); }   to { transform: rotate(360deg)  translateX(90px)  rotate(-360deg); } }
+@keyframes orbit2      { from { transform: rotate(0deg)   translateX(140px) rotate(0deg); }   to { transform: rotate(360deg)  translateX(140px) rotate(-360deg); } }
+@keyframes rocketFly   { 0%  { transform: translate(-200px, 200px) rotate(-35deg); opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { transform: translate(110vw, -200px) rotate(-35deg); opacity: 0; } }
+@keyframes meteor      { 0%   { transform: translate(0, 0);       opacity: 1; } 100% { transform: translate(260px, 260px); opacity: 0; } }
+@keyframes sunRise     { 0%   { bottom: -40px;  opacity: 0.6; }              100% { bottom: 200px; opacity: 1; } }
+@keyframes birdFly     { 0%   { transform: translateX(-80px); }              100% { transform: translateX(110vw); } }
+@keyframes wavePulse   { 0%, 100% { transform: scaleY(1); }    50% { transform: scaleY(1.08); } }
+@keyframes planetSpin  { from { transform: rotate(0deg); }                   to   { transform: rotate(360deg); } }
+@keyframes float       { 0%, 100% { transform: translateY(0); }  50% { transform: translateY(-10px); } }
+@keyframes glowPulse   {
+  0%, 100% { box-shadow: 0 0 30px 8px rgba(253, 230, 138, 0.3); }
+  50%      { box-shadow: 0 0 60px 20px rgba(253, 230, 138, 0.6); }
+}

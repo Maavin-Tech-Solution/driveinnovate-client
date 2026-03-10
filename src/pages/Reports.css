@@ -1,0 +1,69 @@
+/* Reports page specific styles */
+
+.reports-container {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.chart-container {
+  position: relative;
+  height: 300px;
+  margin: 20px 0;
+}
+
+.violation-timeline {
+  position: relative;
+  padding: 20px 0;
+}
+
+.severity-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.severity-critical {
+  background: rgba(220, 38, 38, 0.15);
+  color: #dc2626;
+  border: 1px solid rgba(220, 38, 38, 0.3);
+}
+
+.severity-high {
+  background: rgba(234, 88, 12, 0.15);
+  color: #ea580c;
+  border: 1px solid rgba(234, 88, 12, 0.3);
+}
+
+.severity-medium {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.severity-low {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+@media print {
+  .no-print {
+    display: none;
+  }
+  
+  .report-header {
+    page-break-before: always;
+  }
+  
+  table {
+    page-break-inside: auto;
+  }
+  
+  tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+}
