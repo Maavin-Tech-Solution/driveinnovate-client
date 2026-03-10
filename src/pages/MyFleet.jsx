@@ -11,6 +11,18 @@ const statusBadge = { active: 'badge-success', inactive: 'badge-gray', deleted: 
 
 const INDIA_CENTER = [22.9734, 78.6569];
 
+// Vehicle icon emoji mapping
+const VEHICLE_ICON_MAP = {
+  car: '🚗',
+  suv: '🚙',
+  truck: '🚛',
+  bus: '🚌',
+  bike: '🏍️',
+  auto: '🛺',
+  van: '🚐',
+  ambulance: '🚑',
+};
+
 // Map controller component to handle zoom/focus
 const MapController = ({ focusedVehicle, mapVehicles }) => {
   const map = useMap();
@@ -1528,6 +1540,131 @@ const MyFleet = () => {
                       </div>
                     </div>
                   )}
+
+                  {/* FMB125 - Fuel Monitoring */}
+                  {detailViewVehicle.deviceStatus?.fuel && (
+                    detailViewVehicle.deviceStatus.fuel.level !== null || detailViewVehicle.deviceStatus.fuel.used !== null || detailViewVehicle.deviceStatus.fuel.rate !== null
+                  ) && (
+                    <div style={{ marginBottom: '24px' }}>
+                      <h3 style={{ fontSize: '14px', fontWeight: 700, color: '#1e3a5f', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        ⛽ Fuel Monitoring
+                      </h3>
+                      <div style={{ 
+                        background: '#fefce8', 
+                        borderRadius: '12px', 
+                        padding: '20px',
+                        border: '1px solid #fde68a'
+                      }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '12px' }}>
+                          {detailViewVehicle.deviceStatus.fuel.level !== null && detailViewVehicle.deviceStatus.fuel.level !== undefined && (
+                            <>
+                              <div style={{ fontWeight: 600, color: '#a16207' }}>Fuel Level:</div>
+                              <div style={{ color: '#854d0e', fontWeight: 600 }}>
+                                <span style={{
+                                  padding: '2px 10px',
+                                  borderRadius: '6px',
+                                  background: detailViewVehicle.deviceStatus.fuel.level > 20 ? '#dcfce7' : '#fee2e2',
+                                  color: detailViewVehicle.deviceStatus.fuel.level > 20 ? '#166534' : '#dc2626',
+                                }}>
+                                  {detailViewVehicle.deviceStatus.fuel.level}%
+                                </span>
+                              </div>
+                            </>
+                          )}
+                          {detailViewVehicle.deviceStatus.fuel.used !== null && detailViewVehicle.deviceStatus.fuel.used !== undefined && (
+                            <>
+                              <div style={{ fontWeight: 600, color: '#a16207' }}>Fuel Used:</div>
+                              <div style={{ color: '#854d0e', fontFamily: 'monospace' }}>{detailViewVehicle.deviceStatus.fuel.used} L</div>
+                            </>
+                          )}
+                          {detailViewVehicle.deviceStatus.fuel.rate !== null && detailViewVehicle.deviceStatus.fuel.rate !== undefined && (
+                            <>
+                              <div style={{ fontWeight: 600, color: '#a16207' }}>Fuel Rate:</div>
+                              <div style={{ color: '#854d0e', fontFamily: 'monospace' }}>{detailViewVehicle.deviceStatus.fuel.rate} L/h</div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* FMB125 - Engine Data */}
+                  {detailViewVehicle.deviceStatus?.engine && (
+                    detailViewVehicle.deviceStatus.engine.speed !== null || detailViewVehicle.deviceStatus.engine.temperature !== null || detailViewVehicle.deviceStatus.engine.load !== null
+                  ) && (
+                    <div style={{ marginBottom: '24px' }}>
+                      <h3 style={{ fontSize: '14px', fontWeight: 700, color: '#1e3a5f', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        🔧 Engine Data
+                      </h3>
+                      <div style={{ 
+                        background: '#f0f9ff', 
+                        borderRadius: '12px', 
+                        padding: '20px',
+                        border: '1px solid #bae6fd'
+                      }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '12px' }}>
+                          {detailViewVehicle.deviceStatus.engine.speed !== null && detailViewVehicle.deviceStatus.engine.speed !== undefined && (
+                            <>
+                              <div style={{ fontWeight: 600, color: '#0369a1' }}>Engine RPM:</div>
+                              <div style={{ color: '#0c4a6e', fontFamily: 'monospace', fontWeight: 600 }}>{detailViewVehicle.deviceStatus.engine.speed} RPM</div>
+                            </>
+                          )}
+                          {detailViewVehicle.deviceStatus.engine.temperature !== null && detailViewVehicle.deviceStatus.engine.temperature !== undefined && (
+                            <>
+                              <div style={{ fontWeight: 600, color: '#0369a1' }}>Engine Temp:</div>
+                              <div style={{ color: detailViewVehicle.deviceStatus.engine.temperature > 100 ? '#dc2626' : '#0c4a6e', fontFamily: 'monospace', fontWeight: 600 }}>
+                                {detailViewVehicle.deviceStatus.engine.temperature}°C
+                              </div>
+                            </>
+                          )}
+                          {detailViewVehicle.deviceStatus.engine.load !== null && detailViewVehicle.deviceStatus.engine.load !== undefined && (
+                            <>
+                              <div style={{ fontWeight: 600, color: '#0369a1' }}>Engine Load:</div>
+                              <div style={{ color: '#0c4a6e', fontFamily: 'monospace' }}>{detailViewVehicle.deviceStatus.engine.load}%</div>
+                            </>
+                          )}
+                          {detailViewVehicle.deviceStatus.engine.hours !== null && detailViewVehicle.deviceStatus.engine.hours !== undefined && (
+                            <>
+                              <div style={{ fontWeight: 600, color: '#0369a1' }}>Engine Hours:</div>
+                              <div style={{ color: '#0c4a6e', fontFamily: 'monospace' }}>{detailViewVehicle.deviceStatus.engine.hours} hrs</div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* FMB125 - Driver Info */}
+                  {detailViewVehicle.deviceStatus?.driver && (
+                    detailViewVehicle.deviceStatus.driver.iButtonId || detailViewVehicle.deviceStatus.driver.name
+                  ) && (
+                    <div style={{ marginBottom: '24px' }}>
+                      <h3 style={{ fontSize: '14px', fontWeight: 700, color: '#1e3a5f', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        👤 Driver Information
+                      </h3>
+                      <div style={{ 
+                        background: '#fdf4ff', 
+                        borderRadius: '12px', 
+                        padding: '20px',
+                        border: '1px solid #f0abfc'
+                      }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '12px' }}>
+                          {detailViewVehicle.deviceStatus.driver.name && (
+                            <>
+                              <div style={{ fontWeight: 600, color: '#a21caf' }}>Driver Name:</div>
+                              <div style={{ color: '#86198f', fontWeight: 600 }}>{detailViewVehicle.deviceStatus.driver.name}</div>
+                            </>
+                          )}
+                          {detailViewVehicle.deviceStatus.driver.iButtonId && (
+                            <>
+                              <div style={{ fontWeight: 600, color: '#a21caf' }}>iButton ID:</div>
+                              <div style={{ color: '#86198f', fontFamily: 'monospace', fontSize: '13px' }}>{detailViewVehicle.deviceStatus.driver.iButtonId}</div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
@@ -1597,11 +1734,9 @@ const MyFleet = () => {
                         position: 'relative',
                         boxShadow: '0 2px 4px rgba(0,0,0,0.04)'
                       }}>
-                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <path d="M5 17h14v2H5v-2zm0-5.5V13h3v2h8v-2h3v-1.5l-1-4.5H6l-1 4.5zM6.5 9h11l.5 2h-12l.5-2z" fill="#3b82f6"/>
-                          <circle cx="8.5" cy="16" r="1.5" fill="#1e3a5f"/>
-                          <circle cx="15.5" cy="16" r="1.5" fill="#1e3a5f"/>
-                        </svg>
+                        <span style={{ fontSize: '28px', lineHeight: 1 }}>
+                          {VEHICLE_ICON_MAP[v.vehicleIcon] || VEHICLE_ICON_MAP['car']}
+                        </span>
                         {status?.ignition && (
                           <div style={{
                             position: 'absolute',
@@ -1705,6 +1840,42 @@ const MyFleet = () => {
                             gap: '4px'
                           }}>
                             🔋 {status.battery}%
+                          </div>
+                        )}
+
+                        {/* FMB125 - Fuel Level */}
+                        {v.deviceStatus?.fuel?.level !== null && v.deviceStatus?.fuel?.level !== undefined && (
+                          <div style={{ 
+                            padding: '6px 10px', 
+                            borderRadius: '8px',
+                            background: v.deviceStatus.fuel.level > 20 ? '#fefce8' : '#fee2e2',
+                            border: `1px solid ${v.deviceStatus.fuel.level > 20 ? '#fde68a' : '#fecaca'}`,
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            color: v.deviceStatus.fuel.level > 20 ? '#a16207' : '#dc2626',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}>
+                            ⛽ {v.deviceStatus.fuel.level}%
+                          </div>
+                        )}
+
+                        {/* FMB125 - Engine RPM */}
+                        {v.deviceStatus?.engine?.speed !== null && v.deviceStatus?.engine?.speed !== undefined && (
+                          <div style={{ 
+                            padding: '6px 10px', 
+                            borderRadius: '8px',
+                            background: '#faf5ff',
+                            border: '1px solid #e9d5ff',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            color: '#7c3aed',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}>
+                            🔧 {v.deviceStatus.engine.speed} RPM
                           </div>
                         )}
                         

@@ -22,6 +22,11 @@ const AddVehicle = () => {
     chasisNumber: '',
     engineNumber: '',
     imei: '',
+    deviceName: '',
+    deviceType: '',
+    serverIp: '',
+    serverPort: '',
+    vehicleIcon: 'car',
   });
   const [loading, setLoading] = useState(false);
 
@@ -43,7 +48,7 @@ const AddVehicle = () => {
     }
   };
 
-  const handleReset = () => setForm({ vehicleNumber: '', chasisNumber: '', engineNumber: '', imei: '' });
+  const handleReset = () => setForm({ vehicleNumber: '', chasisNumber: '', engineNumber: '', imei: '', deviceName: '', deviceType: '', serverIp: '', serverPort: '', vehicleIcon: 'car' });
 
   const filled = Object.values(form).filter(Boolean).length;
   const total = Object.keys(form).length;
@@ -177,8 +182,120 @@ const AddVehicle = () => {
                   Dial *#06# on the tracker SIM phone to get the IMEI
                 </span>
               </div>
+            </div>
 
-              <div style={{ display: 'flex', gap: '12px', paddingTop: '4px' }}>
+            {/* Section divider: Device Configuration */}
+            <div style={{ borderTop: '1px solid #f1f5f9', padding: '20px 24px 0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '18px' }}>
+                <span style={{ background: '#fef3c7', borderRadius: '8px', padding: '7px 9px', fontSize: '16px' }}>⚙️</span>
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>Device Configuration</div>
+                  <div style={{ fontSize: '12px', color: '#94a3b8' }}>Device details and server connection settings</div>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ padding: '0 24px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 18px' }}>
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>Device Name</label>
+                  <input
+                    name="deviceName"
+                    style={inputStyle}
+                    placeholder="e.g. GT06N, FMB125"
+                    value={form.deviceName}
+                    onChange={handleChange}
+                  />
+                </div>
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>Device Type</label>
+                  <select
+                    name="deviceType"
+                    style={{ ...inputStyle, cursor: 'pointer' }}
+                    value={form.deviceType}
+                    onChange={handleChange}
+                  >
+                    <option value="">Select Device Type</option>
+                    <option value="GT06">GT06</option>
+                    <option value="GT06N">GT06N</option>
+                    <option value="FMB125">FMB125</option>
+                    <option value="FMB920">FMB920</option>
+                    <option value="FMB130">FMB130</option>
+                    <option value="WeTrack2">WeTrack2</option>
+                    <option value="TK103">TK103</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '0 18px' }}>
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>Server IP</label>
+                  <input
+                    name="serverIp"
+                    style={{ ...inputStyle, fontFamily: 'monospace' }}
+                    placeholder="e.g. 103.21.58.192"
+                    value={form.serverIp}
+                    onChange={handleChange}
+                  />
+                </div>
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>Port</label>
+                  <input
+                    name="serverPort"
+                    type="number"
+                    style={{ ...inputStyle, fontFamily: 'monospace' }}
+                    placeholder="e.g. 5023"
+                    value={form.serverPort}
+                    onChange={handleChange}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Section divider: Vehicle Icon */}
+            <div style={{ borderTop: '1px solid #f1f5f9', padding: '20px 24px 0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '18px' }}>
+                <span style={{ background: '#ede9fe', borderRadius: '8px', padding: '7px 9px', fontSize: '16px' }}>🎨</span>
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>Vehicle Icon</div>
+                  <div style={{ fontSize: '12px', color: '#94a3b8' }}>Choose an icon to represent this vehicle on the map</div>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ padding: '0 24px 24px' }}>
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                {[
+                  { value: 'car', emoji: '🚗', label: 'Car' },
+                  { value: 'suv', emoji: '🚙', label: 'SUV' },
+                  { value: 'truck', emoji: '🚛', label: 'Truck' },
+                  { value: 'bus', emoji: '🚌', label: 'Bus' },
+                  { value: 'bike', emoji: '🏍️', label: 'Bike' },
+                  { value: 'auto', emoji: '🛺', label: 'Auto' },
+                  { value: 'van', emoji: '🚐', label: 'Van' },
+                  { value: 'ambulance', emoji: '🚑', label: 'Ambulance' },
+                ].map(({ value, emoji, label }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setForm({ ...form, vehicleIcon: value })}
+                    style={{
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px',
+                      padding: '12px 16px', borderRadius: '12px', cursor: 'pointer',
+                      border: form.vehicleIcon === value ? '2px solid #2563eb' : '1px solid #e2e8f0',
+                      background: form.vehicleIcon === value ? '#eff6ff' : '#fff',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    <span style={{ fontSize: '24px' }}>{emoji}</span>
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: form.vehicleIcon === value ? '#2563eb' : '#94a3b8' }}>{label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ padding: '0 24px 24px' }}>
                 <button
                   type="submit"
                   disabled={loading || !form.vehicleNumber}
@@ -203,7 +320,6 @@ const AddVehicle = () => {
                   Reset
                 </button>
               </div>
-            </div>
           </form>
         </div>
 
@@ -220,6 +336,11 @@ const AddVehicle = () => {
               { key: 'chasisNumber', label: 'Chassis Number', required: false },
               { key: 'engineNumber', label: 'Engine Number', required: false },
               { key: 'imei', label: 'IMEI Number', required: false },
+              { key: 'deviceName', label: 'Device Name', required: false },
+              { key: 'deviceType', label: 'Device Type', required: false },
+              { key: 'serverIp', label: 'Server IP', required: false },
+              { key: 'serverPort', label: 'Port', required: false },
+              { key: 'vehicleIcon', label: 'Vehicle Icon', required: false },
             ].map(({ key, label, required }) => {
               const done = !!form[key];
               return (
