@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 
 const navItems = [
   { to: '/dashboard',     label: 'Dashboard',      icon: '🏠' },
-  { to: '/my-fleet',      label: 'My Fleet',        icon: '🚗' },
+  { to: '/my-fleet',      label: 'Tracking',        icon: '🚗' },
   { to: '/add-vehicle',   label: 'Add Vehicle',     icon: '➕' },
   { to: '/add-client',    label: 'Add Client',      icon: '👥' },
   { to: '/rto-details',   label: 'RTO Details',     icon: '📋' },
@@ -111,6 +111,30 @@ const Sidebar = ({ collapsed }) => {
             {!collapsed && <span>{item.label}</span>}
           </NavLink>
         ))}
+        {/* Debug menu item for parent users */}
+        {user && (user.parent_id === 0 || user.parentId === 0) && (
+          <NavLink
+            key="/debug"
+            to="/debug"
+            style={({ isActive }) => ({
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              padding: collapsed ? '12px 0' : '11px 20px',
+              justifyContent: collapsed ? 'center' : 'flex-start',
+              color: isActive ? '#fff' : 'rgba(255,255,255,0.6)',
+              background: isActive ? 'rgba(37,99,235,0.45)' : 'transparent',
+              borderLeft: isActive ? '3px solid #60a5fa' : '3px solid transparent',
+              fontWeight: isActive ? 600 : 400,
+              fontSize: '14px',
+              transition: 'all 0.15s',
+              cursor: 'pointer',
+            })}
+          >
+            <span style={{ fontSize: '17px', flexShrink: 0 }}>🐞</span>
+            {!collapsed && <span>Debug</span>}
+          </NavLink>
+        )}
       </nav>
 
       {/* Logout */}

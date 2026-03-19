@@ -414,9 +414,34 @@ const MyFleet = () => {
               <button onClick={closeGpsModal} style={{ background: 'none', border: 'none', color: '#fff', fontSize: '24px', cursor: 'pointer', lineHeight: 1 }}>✕</button>
             </div>
 
+            {/* VISIBLE DEBUG BANNER */}
+            {(() => {
+              const gpsData = selectedVehicle.deviceStatus?.gpsData || selectedVehicle.gpsData;
+              const deviceType = selectedVehicle.deviceStatus?.deviceType || gpsData?.deviceType || selectedVehicle.deviceType;
+              const ioElements = gpsData?.ioElements;
+              return (
+                <div style={{ background: '#fef3c7', color: '#92400e', padding: '8px 16px', fontSize: '13px', fontWeight: 600, borderBottom: '1px solid #fde68a', letterSpacing: '0.03em' }}>
+                  <span>DEBUG: DeviceType: <b>{String(deviceType)}</b> | IMEI: <b>{selectedVehicle.imei}</b> | ioElements: <b>{ioElements ? 'YES' : 'NO'}</b></span>
+                </div>
+              );
+            })()}
+
             {/* Modal Body */}
             <div style={{ padding: '24px' }}>
               {/* Vehicle Info */}
+                              {(() => {
+                                // Always log when modal is open
+                                const gpsData = selectedVehicle.deviceStatus?.gpsData || selectedVehicle.gpsData;
+                                const deviceType = selectedVehicle.deviceStatus?.deviceType || gpsData?.deviceType || selectedVehicle.deviceType;
+                                const ioElements = gpsData?.ioElements;
+                                console.log('[VEHICLE MODAL DEBUG]', {
+                                  deviceType,
+                                  gpsData,
+                                  ioElements,
+                                  selectedVehicle
+                                });
+                                return null;
+                              })()}
               <div style={{ marginBottom: '24px' }}>
                 <h3 style={{ fontSize: '14px', fontWeight: 700, color: '#1e3a5f', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                   🚗 Vehicle Information
@@ -428,6 +453,35 @@ const MyFleet = () => {
                   <div><strong style={{ fontSize: '12px', color: '#64748b' }}>Engine:</strong> <span style={{ fontSize: '14px', color: '#1e3a5f' }}>{selectedVehicle.engineNumber || '—'}</span></div>
                   <div><strong style={{ fontSize: '12px', color: '#64748b' }}>Status:</strong> <span className={`badge ${statusBadge[selectedVehicle.status]}`}>{selectedVehicle.status}</span></div>
                 </div>
+                {/* Parameters section for FMB125 devices */}
+                {(() => {
+                  const gpsData = selectedVehicle.deviceStatus?.gpsData || selectedVehicle.gpsData;
+                  const deviceType = selectedVehicle.deviceStatus?.deviceType || gpsData?.deviceType || selectedVehicle.deviceType;
+                  const ioElements = gpsData?.ioElements;
+                  if (deviceType && deviceType.toLowerCase() === 'fmb125') {
+                    // Show debug output for ioElements
+                    return (
+                      <div style={{ marginTop: '18px' }}>
+                        <h3 style={{ fontSize: '14px', fontWeight: 700, color: '#1e3a5f', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>🧩 Parameters</h3>
+                        <div style={{ background: '#f1f5f9', padding: '14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                          {ioElements && typeof ioElements === 'object' && Object.keys(ioElements).length > 0 ? (
+                            Object.entries(ioElements).map(([key, value]) => (
+                              <div key={key} style={{ marginBottom: '8px', fontSize: '13px', color: '#334155' }}>
+                                <strong style={{ color: '#0f172a', fontWeight: 600 }}>{value.name || key}:</strong> <span style={{ marginLeft: '8px', color: '#2563eb', fontWeight: 500 }}>{String(value.value ?? value)}</span>
+                              </div>
+                            ))
+                          ) : (
+                            <div style={{ color: '#991b1b', fontSize: '13px', marginBottom: '8px' }}>
+                              <strong>No ioElements found.</strong>
+                            </div>
+                          )}
+                          <pre style={{ fontSize: '11px', color: '#64748b', background: '#e2e8f0', padding: '8px', borderRadius: '6px', marginTop: '6px' }}>{JSON.stringify(ioElements, null, 2)}</pre>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
 
               {/* Device Info */}

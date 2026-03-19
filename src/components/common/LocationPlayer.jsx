@@ -1,3 +1,15 @@
+// Haversine formula for distance between two lat/lng points in km
+function haversineDistance(lat1, lon1, lat2, lon2) {
+  const toRad = x => x * Math.PI / 180;
+  const R = 6371; // Earth radius in km
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
 import React, { useState, useEffect, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from 'react-leaflet';
 import { toast } from 'react-toastify';
@@ -58,6 +70,7 @@ const LocationPlayer = ({ vehicle, onClose }) => {
     { min: 120, max: 999, color: '#dc2626', label: 'Overspeed' },
   ]);
   const [showLegend, setShowLegend] = useState(true);
+  const [totalDistance, setTotalDistance] = useState(0);
   const playbackTimerRef = useRef(null);
 
   // Fetch user settings for speed ranges
@@ -130,16 +143,24 @@ const LocationPlayer = ({ vehicle, onClose }) => {
       console.log('7. locationsList[0]:', locationsList[0]);
       
       if (locationsList.length > 0) {
-        console.log('8. Setting locations state with', locationsList.length, 'items');
+        // Calculate total distance
+        let dist = 0;
+        for (let i = 1; i < locationsList.length; i++) {
+          dist += haversineDistance(
+            locationsList[i - 1].latitude,
+            locationsList[i - 1].longitude,
+            locationsList[i].latitude,
+            locationsList[i].longitude
+          );
+        }
+        setTotalDistance(dist);
         setLocations(locationsList);
         setTotalRecords(actualData.totalRecords || locationsList.length);
         setCurrentIndex(0);
         setShowDatePicker(false); // Auto-hide date picker after loading
-        console.log('9. State updates queued');
         toast.success(`Loaded ${locationsList.length} location points`);
       } else {
-        console.warn('No locations found in response');
-        toast.warning('No location data found for the selected date range');
+        setTotalDistance(0);
         setLocations([]);
         setTotalRecords(0);
       }
@@ -727,6 +748,20 @@ const LocationPlayer = ({ vehicle, onClose }) => {
             flexShrink: 0,
             overflowY: 'auto'
           }}>
+            {/* Distance Covered */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              marginBottom: 8,
+              fontSize: 14,
+              color: '#2563eb',
+              fontWeight: 600,
+            }}>
+              <span>Distance Covered:</span>
+              <span>{totalDistance.toFixed(2)} km</span>
+            </div>
+            {/* ...existing code... */}
             {/* Timeline info */}
             <div style={{ 
               display: 'flex', 

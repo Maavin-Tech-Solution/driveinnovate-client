@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -17,6 +17,8 @@ import Profile from './pages/Profile';
 import UserActivity from './pages/UserActivity';
 import Reports from './pages/Reports';
 import VehicleSettings from './pages/VehicleSettings';
+// import React, { Suspense } from 'react';
+const Debug = React.lazy(() => import('./pages/Debug'));
 
 // Component to handle root redirect
 const RootRedirect = () => {
@@ -55,6 +57,7 @@ function App() {
             <Route path="profile" element={<Profile />} />
             <Route path="user-activity" element={<UserActivity />} />
             <Route path="vehicle-settings" element={<VehicleSettings />} />
+            <Route path="debug" element={<ProtectedRoute><Suspense fallback={<div>Loading...</div>}><Debug /></Suspense></ProtectedRoute>} />
           </Route>
 
           {/* Fallback - redirect based on auth status */}
