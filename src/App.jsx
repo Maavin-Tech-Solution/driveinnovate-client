@@ -20,10 +20,10 @@ import VehicleSettings from './pages/VehicleSettings';
 // import React, { Suspense } from 'react';
 const Debug = React.lazy(() => import('./pages/Debug'));
 
-// Component to handle root redirect
+// Show Login at root, or redirect to dashboard if already authenticated
 const RootRedirect = () => {
   const { token, loading } = useAuth();
-  
+
   if (loading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
@@ -31,8 +31,8 @@ const RootRedirect = () => {
       </div>
     );
   }
-  
-  return <Navigate to={token ? "/dashboard" : "/login"} replace />;
+
+  return token ? <Navigate to="/dashboard" replace /> : <Login />;
 };
 
 function App() {
@@ -40,13 +40,12 @@ function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          {/* Public routes */}
-          <Route path="/login" element={<Login />} />
+          {/* Landing page — Login at root */}
+          <Route path="/" element={<RootRedirect />} />
           <Route path="/register" element={<Register />} />
 
           {/* Protected routes */}
-          <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-            <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="my-fleet" element={<MyFleet />} />
             <Route path="add-vehicle" element={<AddVehicle />} />
@@ -60,8 +59,8 @@ function App() {
             <Route path="debug" element={<ProtectedRoute><Suspense fallback={<div>Loading...</div>}><Debug /></Suspense></ProtectedRoute>} />
           </Route>
 
-          {/* Fallback - redirect based on auth status */}
-          <Route path="*" element={<RootRedirect />} />
+          {/* Fallback */}
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
       <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} />

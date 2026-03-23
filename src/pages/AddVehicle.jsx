@@ -19,6 +19,7 @@ const AddVehicle = () => {
   const navigate = useNavigate();
   const [form, setForm] = useState({
     vehicleNumber: '',
+    vehicleName: '',
     chasisNumber: '',
     engineNumber: '',
     imei: '',
@@ -48,7 +49,7 @@ const AddVehicle = () => {
     }
   };
 
-  const handleReset = () => setForm({ vehicleNumber: '', chasisNumber: '', engineNumber: '', imei: '', deviceName: '', deviceType: '', serverIp: '', serverPort: '', vehicleIcon: 'car' });
+  const handleReset = () => setForm({ vehicleNumber: '', vehicleName: '', chasisNumber: '', engineNumber: '', imei: '', deviceName: '', deviceType: '', serverIp: '', serverPort: '', vehicleIcon: 'car' });
 
   const filled = Object.values(form).filter(Boolean).length;
   const total = Object.keys(form).length;
@@ -130,6 +131,18 @@ const AddVehicle = () => {
                   required
                 />
                 <span style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px', display: 'block' }}>Enter exactly as printed on the RC book</span>
+              </div>
+
+              <div style={fieldStyle}>
+                <label style={labelStyle}>Vehicle Name <span style={{ fontSize: '10px', fontWeight: 400, color: '#94a3b8', textTransform: 'none' }}>(optional)</span></label>
+                <input
+                  name="vehicleName"
+                  style={inputStyle}
+                  placeholder="e.g. Company Truck, Office Cab"
+                  value={form.vehicleName}
+                  onChange={handleChange}
+                />
+                <span style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px', display: 'block' }}>A friendly display name shown in fleet view</span>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 18px' }}>
@@ -333,6 +346,7 @@ const AddVehicle = () => {
             </div>
             {[
               { key: 'vehicleNumber', label: 'Registration Number', required: true },
+              { key: 'vehicleName', label: 'Vehicle Name', required: false },
               { key: 'chasisNumber', label: 'Chassis Number', required: false },
               { key: 'engineNumber', label: 'Engine Number', required: false },
               { key: 'imei', label: 'IMEI Number', required: false },

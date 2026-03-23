@@ -50,7 +50,7 @@ const FitBounds = ({ locations }) => {
   return null;
 };
 
-const LocationPlayer = ({ vehicle, onClose }) => {
+const LocationPlayer = ({ vehicle, onClose, initialFrom, initialTo }) => {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [locations, setLocations] = useState([]);
@@ -88,12 +88,23 @@ const LocationPlayer = ({ vehicle, onClose }) => {
     fetchUserSettings();
   }, []);
 
-  // Set default date range (last 24 hours)
+  // Ref to trigger auto-fetch once dates are initialised from props
+  const autoFetchRef = useRef(false);
+
+  // Set date range: use initialFrom/initialTo if provided, else last 24 hours
   useEffect(() => {
-    const now = new Date();
-    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    setToDate(formatDateTimeLocal(now));
-    setFromDate(formatDateTimeLocal(yesterday));
+    if (initialFrom && initialTo) {
+      setFromDate(formatDateTimeLocal(new Date(initialFrom)));
+      setToDate(formatDateTimeLocal(new Date(initialTo)));
+      setShowDatePicker(false);
+      autoFetchRef.current = true;
+    } else {
+      const now = new Date();
+      const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      setToDate(formatDateTimeLocal(now));
+      setFromDate(formatDateTimeLocal(yesterday));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Debug: Monitor locations state changes
@@ -200,6 +211,15 @@ const LocationPlayer = ({ vehicle, onClose }) => {
       }
     };
   }, [isPlaying, locations, playbackSpeed]);
+
+  // Auto-fetch once after dates are populated from initialFrom/initialTo props
+  useEffect(() => {
+    if (autoFetchRef.current && fromDate && toDate) {
+      autoFetchRef.current = false;
+      handleFetchData();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fromDate, toDate]);
 
   const togglePlayPause = () => {
     if (currentIndex >= locations.length - 1) {

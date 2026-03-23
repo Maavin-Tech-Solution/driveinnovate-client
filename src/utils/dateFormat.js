@@ -99,7 +99,7 @@ export const toISTCompactDate = (date) => {
  */
 export const toISTMonthYear = (date) => {
   if (!date) return '—';
-  
+
   try {
     return new Date(date).toLocaleDateString('en-IN', {
       timeZone: 'Asia/Kolkata',
@@ -111,3 +111,20 @@ export const toISTMonthYear = (date) => {
     return '—';
   }
 };
+
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000; // UTC+5:30
+
+/**
+ * Today's date in IST as 'YYYY-MM-DD' — use as date picker default.
+ * Works correctly on any server/browser timezone.
+ */
+export const getISTToday = () =>
+  new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
+
+/**
+ * Date N calendar days ago in IST as 'YYYY-MM-DD' — use as date picker default.
+ */
+export const getISTDaysAgo = (days) =>
+  new Date(Date.now() + IST_OFFSET_MS - days * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
