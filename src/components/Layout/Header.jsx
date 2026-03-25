@@ -1,16 +1,24 @@
 import React from 'react';
 import { useLocation } from 'react-router-dom';
 import { toISTDateString } from '../../utils/dateFormat';
+import { Bars3Icon, CalendarDaysIcon } from '@heroicons/react/24/outline';
+import NotificationBell from '../common/NotificationBell';
 
 const pageTitles = {
-  '/dashboard':     { title: 'Dashboard',     subtitle: 'Overview of your fleet' },
-  '/my-fleet':      { title: 'My Fleet',       subtitle: 'All registered vehicles' },
-  '/add-vehicle':   { title: 'Add Vehicle',    subtitle: 'Register a new vehicle' },
-  '/rto-details':   { title: 'RTO Details',    subtitle: 'Insurance, fitness & compliance' },
-  '/challans':      { title: 'Challans',       subtitle: 'Traffic violations & penalties' },
-  '/vehicle-settings': { title: 'Vehicle Settings', subtitle: 'Configure speed ranges & alerts' },
-  '/profile':       { title: 'Profile',        subtitle: 'Account settings & preferences' },
-  '/user-activity': { title: 'User Activity',  subtitle: 'Action logs & history' },
+  '/dashboard':        { title: 'Dashboard',       subtitle: 'Fleet overview & live tracking' },
+  '/my-fleet':         { title: 'My Fleet',         subtitle: 'All registered vehicles' },
+  '/groups':           { title: 'Groups',           subtitle: 'Organize vehicles into monitored groups' },
+  '/add-vehicle':      { title: 'Add Vehicle',      subtitle: 'Register a new vehicle' },
+  '/add-client':       { title: 'Add Client',       subtitle: 'Register a new client' },
+  '/rto-details':      { title: 'RTO Details',      subtitle: 'Insurance, fitness & compliance' },
+  '/challans':         { title: 'Challans',         subtitle: 'Traffic violations & penalties' },
+  '/reports':          { title: 'Reports',          subtitle: 'Analytics & insights' },
+  '/vehicle-settings': { title: 'Vehicle Settings', subtitle: 'Configure speed & alerts' },
+  '/alerts':           { title: 'Alerts',           subtitle: 'Real-time fleet monitoring rules' },
+  '/notifications':    { title: 'Notifications',    subtitle: 'Alert history & inbox' },
+  '/support':          { title: 'Support Center',   subtitle: 'Raise and track support tickets' },
+  '/profile':          { title: 'Profile',          subtitle: 'Account settings & preferences' },
+  '/user-activity':    { title: 'User Activity',    subtitle: 'Action logs & history' },
 };
 
 const Header = ({ onToggleSidebar }) => {
@@ -20,44 +28,58 @@ const Header = ({ onToggleSidebar }) => {
   return (
     <header style={{
       height: '64px',
-      background: '#fff',
-      borderBottom: '1px solid #e2e8f0',
+      background: 'var(--theme-sidebar-bg)',
+      borderBottom: '1px solid rgba(255,255,255,0.10)',
       display: 'flex',
       alignItems: 'center',
-      paddingLeft: '20px',
-      paddingRight: '24px',
-      gap: '16px',
+      paddingLeft: '14px',
+      paddingRight: '22px',
+      gap: '14px',
       position: 'sticky',
       top: 0,
       zIndex: 50,
+      flexShrink: 0,
+      boxShadow: '0 2px 12px rgba(0,0,0,0.22)',
     }}>
       <button
         onClick={onToggleSidebar}
-        style={{
-          background: 'none', border: 'none', cursor: 'pointer',
-          display: 'flex', flexDirection: 'column', gap: '4px', padding: '4px',
-        }}
         title="Toggle sidebar"
+        style={{
+          background: 'rgba(255,255,255,0.10)',
+          border: '1px solid rgba(255,255,255,0.18)',
+          cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: '7px', borderRadius: '8px',
+          color: '#fff',
+          transition: 'background 0.1s',
+          flexShrink: 0,
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.18)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.10)'; }}
       >
-        <span style={{ display: 'block', width: '20px', height: '2px', background: '#64748b', borderRadius: '1px' }} />
-        <span style={{ display: 'block', width: '20px', height: '2px', background: '#64748b', borderRadius: '1px' }} />
-        <span style={{ display: 'block', width: '20px', height: '2px', background: '#64748b', borderRadius: '1px' }} />
+        <Bars3Icon style={{ width: '21px', height: '21px' }} />
       </button>
 
+      <div style={{ width: '1px', height: '24px', background: 'rgba(255,255,255,0.18)', flexShrink: 0 }} />
+
       <div>
-        <h1 style={{ margin: 0, fontSize: '17px', fontWeight: 700, color: '#1e293b' }}>{meta.title}</h1>
-        {meta.subtitle && (
-          <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>{meta.subtitle}</p>
-        )}
+        <div style={{ fontSize: '16px', fontWeight: 800, color: '#fff', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{meta.title}</div>
+        {meta.subtitle && <div style={{ fontSize: '11.5px', color: 'rgba(255,255,255,0.65)', marginTop: '1px' }}>{meta.subtitle}</div>}
       </div>
 
-      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px' }}>
         <div style={{
-          fontSize: '12px', color: '#64748b',
-          background: '#f1f5f9', padding: '4px 10px', borderRadius: '6px',
+          display: 'flex', alignItems: 'center', gap: '7px',
+          fontSize: '12.5px', color: 'rgba(255,255,255,0.9)',
+          background: 'rgba(255,255,255,0.12)',
+          border: '1px solid rgba(255,255,255,0.18)',
+          padding: '5px 13px', borderRadius: '20px',
+          fontWeight: 600,
         }}>
+          <CalendarDaysIcon style={{ width: '13px', height: '13px' }} />
           {toISTDateString(new Date())}
         </div>
+        <NotificationBell />
       </div>
     </header>
   );

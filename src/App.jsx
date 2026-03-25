@@ -17,6 +17,11 @@ import Profile from './pages/Profile';
 import UserActivity from './pages/UserActivity';
 import Reports from './pages/Reports';
 import VehicleSettings from './pages/VehicleSettings';
+import Groups from './pages/Groups';
+import SharePlayer from './pages/SharePlayer';
+import Alerts from './pages/Alerts';
+import Notifications from './pages/Notifications';
+import Support from './pages/Support';
 // import React, { Suspense } from 'react';
 const Debug = React.lazy(() => import('./pages/Debug'));
 
@@ -44,10 +49,17 @@ function App() {
           <Route path="/" element={<RootRedirect />} />
           <Route path="/register" element={<Register />} />
 
+          {/* Public share player — no auth required */}
+          <Route path="/share/:token" element={<SharePlayer />} />
+
           {/* Protected routes */}
           <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="my-fleet" element={<MyFleet />} />
+            <Route path="groups" element={<Groups />} />
+            <Route path="alerts" element={<Alerts />} />
+            <Route path="notifications" element={<Notifications />} />
+            <Route path="support" element={<Support />} />
             <Route path="add-vehicle" element={<AddVehicle />} />
             <Route path="add-client" element={<AddClient />} />
             <Route path="rto-details" element={<RtoDetails />} />

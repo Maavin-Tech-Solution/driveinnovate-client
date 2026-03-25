@@ -112,7 +112,7 @@ const Profile = () => {
 
       {/* ── Hero Banner ── */}
       <div style={{
-        background: 'linear-gradient(135deg, #1e3a5f 0%, #2563eb 60%, #3b82f6 100%)',
+        background: 'var(--theme-header-bg)',
         borderRadius: '16px', padding: '36px 32px 0', marginBottom: '0',
         position: 'relative', overflow: 'hidden',
       }}>

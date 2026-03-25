@@ -577,44 +577,44 @@ const Reports = () => {
                   <div style={{ fontSize: '13px', marginTop: '8px' }}>Try adjusting your filters or click "Detect New Violations"</div>
                 </div>
               ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--theme-table-body-font-size, 14px)' }}>
                   <thead>
-                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                    <tr style={{ background: 'var(--theme-table-header-bg, #f8fafc)', borderBottom: '2px solid var(--theme-table-border, #e2e8f0)' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         Date & Time
                       </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         Vehicle
                       </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         Speed
                       </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         Limit
                       </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         Excess
                       </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         Duration
                       </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         Location
                       </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         Severity
                       </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         Status
                       </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         Action
                       </th>
                     </tr>
                   </thead>
                   <tbody>
                     {violations.map((v) => (
-                      <tr key={v.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                      <tr key={v.id} style={{ borderBottom: '1px solid var(--theme-table-border, #e2e8f0)', transition: 'background 0.1s' }} onMouseEnter={e => { e.currentTarget.style.background = getComputedStyle(document.documentElement).getPropertyValue('--theme-table-hover-bg').trim() || '#eff6ff'; }} onMouseLeave={e => { e.currentTarget.style.background = ''; }}>
                         <td style={{ padding: '12px', fontSize: '13px', color: '#1e3a5f' }}>
                           {toISTString(v.timestamp)}
                         </td>
@@ -783,41 +783,41 @@ const Reports = () => {
                   <div style={{ fontSize: '13px', marginTop: '8px' }}>Try adjusting your filters or click "Analyze New Trips"</div>
                 </div>
               ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--theme-table-body-font-size, 14px)' }}>
                   <thead>
-                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                    <tr style={{ background: 'var(--theme-table-header-bg, #f8fafc)', borderBottom: '2px solid var(--theme-table-border, #e2e8f0)' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         Start Time
                       </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         End Time
                       </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         Vehicle
                       </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         Duration
                       </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         Distance
                       </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         Avg Speed
                       </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         Max Speed
                       </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         Start Location
                       </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         End Location
                       </th>
                     </tr>
                   </thead>
                   <tbody>
                     {trips.map((trip) => (
-                      <tr key={trip.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                      <tr key={trip.id} style={{ borderBottom: '1px solid var(--theme-table-border, #e2e8f0)', transition: 'background 0.1s' }} onMouseEnter={e => { e.currentTarget.style.background = getComputedStyle(document.documentElement).getPropertyValue('--theme-table-hover-bg').trim() || '#eff6ff'; }} onMouseLeave={e => { e.currentTarget.style.background = ''; }}>
                         <td style={{ padding: '12px', fontSize: '13px', color: '#1e3a5f' }}>
                           {toISTString(trip.startTime)}
                         </td>
@@ -968,35 +968,35 @@ const Reports = () => {
                   <div style={{ fontSize: '13px', marginTop: '8px' }}>Try adjusting your filters or click "Analyze New Stops"</div>
                 </div>
               ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--theme-table-body-font-size, 14px)' }}>
                   <thead>
-                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                    <tr style={{ background: 'var(--theme-table-header-bg, #f8fafc)', borderBottom: '2px solid var(--theme-table-border, #e2e8f0)' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         Start Time
                       </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         End Time
                       </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         Vehicle
                       </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         Duration
                       </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         Location
                       </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         Type
                       </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         Engine Status
                       </th>
                     </tr>
                   </thead>
                   <tbody>
                     {stops.map((stop) => (
-                      <tr key={stop.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                      <tr key={stop.id} style={{ borderBottom: '1px solid var(--theme-table-border, #e2e8f0)', transition: 'background 0.1s' }} onMouseEnter={e => { e.currentTarget.style.background = getComputedStyle(document.documentElement).getPropertyValue('--theme-table-hover-bg').trim() || '#eff6ff'; }} onMouseLeave={e => { e.currentTarget.style.background = ''; }}>
                         <td style={{ padding: '12px', fontSize: '13px', color: '#1e3a5f' }}>
                           {toISTString(stop.startTime)}
                         </td>
@@ -1124,29 +1124,29 @@ const Reports = () => {
                   <div style={{ fontSize: '13px', marginTop: '8px' }}>Make sure you have analyzed trips and stops first</div>
                 </div>
               ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--theme-table-body-font-size, 14px)' }}>
                   <thead>
-                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                    <tr style={{ background: 'var(--theme-table-header-bg, #f8fafc)', borderBottom: '2px solid var(--theme-table-border, #e2e8f0)' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         Vehicle
                       </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         Running Hours
                       </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         Idle Hours
                       </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         Total Hours
                       </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontSize: 'var(--theme-table-header-font-size, 12px)', fontWeight: 700, color: 'var(--theme-table-header-text, #64748b)', textTransform: 'uppercase', background: 'var(--theme-table-header-bg, #f8fafc)', position: 'sticky', top: 0, zIndex: 1 }}>
                         Idle %
                       </th>
                     </tr>
                   </thead>
                   <tbody>
                     {engineHours.map((record, index) => (
-                      <tr key={index} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                      <tr key={index} style={{ borderBottom: '1px solid var(--theme-table-border, #e2e8f0)', transition: 'background 0.1s' }} onMouseEnter={e => { e.currentTarget.style.background = getComputedStyle(document.documentElement).getPropertyValue('--theme-table-hover-bg').trim() || '#eff6ff'; }} onMouseLeave={e => { e.currentTarget.style.background = ''; }}>
                         <td style={{ padding: '12px', fontSize: '13px', color: '#1e3a5f', fontWeight: 600 }}>
                           {record.vehicle?.vehicleNumber || 'N/A'}
                         </td>

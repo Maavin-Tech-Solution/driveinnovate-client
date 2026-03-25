@@ -60,44 +60,37 @@ const AddVehicle = () => {
 
       {/* ── Hero Banner ── */}
       <div style={{
-        background: 'linear-gradient(135deg, #1e3a5f 0%, #2563eb 60%, #3b82f6 100%)',
+        background: 'var(--theme-header-bg)',
         borderRadius: '16px', padding: '32px', marginBottom: '24px',
         position: 'relative', overflow: 'hidden',
       }}>
-        <div style={{ position: 'absolute', top: '-50px', right: '-50px', width: '240px', height: '240px', borderRadius: '50%', background: 'rgba(255,255,255,0.06)' }} />
-        <div style={{ position: 'absolute', bottom: '-60px', right: '160px', width: '180px', height: '180px', borderRadius: '50%', background: 'rgba(255,255,255,0.04)' }} />
+        <div style={{ position: 'absolute', top: '-45px', right: '-45px', width: '220px', height: '220px', borderRadius: '50%', background: 'rgba(255,255,255,0.07)' }} />
+        <div style={{ position: 'absolute', bottom: '-55px', right: '140px', width: '180px', height: '180px', borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }} />
 
-        <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', gap: '20px' }}>
-          <div style={{
-            width: '68px', height: '68px', borderRadius: '16px',
-            background: 'rgba(255,255,255,0.18)', border: '2px solid rgba(255,255,255,0.4)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: '30px', flexShrink: 0,
-          }}>
+        <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', gap: '18px' }}>
+          <div style={{ width: '68px', height: '68px', borderRadius: '16px', background: 'rgba(255,255,255,0.18)', border: '2px solid rgba(255,255,255,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '30px', flexShrink: 0 }}>
             🚗
           </div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: '22px', fontWeight: 800, color: '#fff' }}>Register New Vehicle</div>
-            <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.72)', marginTop: '4px' }}>
-              Add a vehicle to your fleet — fill in identification and tracker details
+            <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.74)', marginTop: '4px' }}>
+              Add a GPS-tracked vehicle to your fleet with device configuration
             </div>
             <div style={{ marginTop: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              <span style={{ background: 'rgba(255,255,255,0.18)', color: '#fff', fontSize: '11px', fontWeight: 600, padding: '3px 12px', borderRadius: '20px' }}>
-                🔒 Secure Registration
-              </span>
-              <span style={{ background: 'rgba(255,255,255,0.18)', color: '#fff', fontSize: '11px', fontWeight: 600, padding: '3px 12px', borderRadius: '20px' }}>
-                📡 GPS Enabled
-              </span>
+              <span style={{ background: 'rgba(255,255,255,0.18)', color: '#fff', fontSize: '11px', fontWeight: 600, padding: '3px 12px', borderRadius: '20px' }}>📡 GPS Linked</span>
+              <span style={{ background: 'rgba(255,255,255,0.18)', color: '#fff', fontSize: '11px', fontWeight: 600, padding: '3px 12px', borderRadius: '20px' }}>🛰️ Live Tracking</span>
+              <span style={{ background: 'rgba(255,255,255,0.18)', color: '#fff', fontSize: '11px', fontWeight: 600, padding: '3px 12px', borderRadius: '20px' }}>📊 Fleet Reports</span>
             </div>
           </div>
-
-          {/* Progress pill */}
-          <div style={{ textAlign: 'center', background: 'rgba(255,255,255,0.12)', borderRadius: '14px', padding: '16px 24px', flexShrink: 0 }}>
-            <div style={{ fontSize: '28px', fontWeight: 800, color: '#fff' }}>{progress}%</div>
-            <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)', marginTop: '2px' }}>Form Filled</div>
-            <div style={{ marginTop: '8px', width: '80px', height: '5px', background: 'rgba(255,255,255,0.25)', borderRadius: '3px', overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${progress}%`, background: '#22c55e', borderRadius: '3px', transition: 'width 0.3s' }} />
+          {/* Progress indicator in banner */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+            <div style={{ width: '56px', height: '56px', borderRadius: '50%', border: `3px solid ${progress === 100 ? '#34d399' : 'rgba(255,255,255,0.5)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.12)' }}>
+              <span style={{ fontSize: '14px', fontWeight: 800, color: '#fff', fontVariantNumeric: 'tabular-nums' }}>{progress}%</span>
             </div>
+            <div style={{ width: '72px', height: '4px', background: 'rgba(255,255,255,0.25)', borderRadius: '2px', overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${progress}%`, background: progress === 100 ? '#34d399' : '#fff', borderRadius: '2px', transition: 'width 0.3s' }} />
+            </div>
+            <span style={{ fontSize: '10px', fontWeight: 600, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Filled</span>
           </div>
         </div>
       </div>
@@ -106,7 +99,7 @@ const AddVehicle = () => {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '20px', alignItems: 'start' }}>
 
         {/* ── Form Card ── */}
-        <div style={{ background: '#fff', borderRadius: '14px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+        <div style={{ background: '#fff', borderRadius: '2px', border: '1px solid #E2E8F0', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
           {/* Section: Vehicle Identification */}
           <div style={{ padding: '20px 24px 0', borderBottom: '1px solid #f1f5f9' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '18px' }}>
