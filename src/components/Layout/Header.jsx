@@ -38,7 +38,7 @@ const Header = ({ onToggleSidebar }) => {
       gap: '14px',
       position: 'sticky',
       top: 0,
-      zIndex: 50,
+      zIndex: 700,
       flexShrink: 0,
       boxShadow: '0 2px 12px rgba(0,0,0,0.22)',
     }}>
