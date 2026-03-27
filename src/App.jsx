@@ -22,6 +22,7 @@ import SharePlayer from './pages/SharePlayer';
 import Alerts from './pages/Alerts';
 import Notifications from './pages/Notifications';
 import Support from './pages/Support';
+import Geofence from './pages/Geofence';
 // import React, { Suspense } from 'react';
 const Debug = React.lazy(() => import('./pages/Debug'));
 
@@ -57,6 +58,7 @@ function App() {
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="my-fleet" element={<MyFleet />} />
             <Route path="groups" element={<Groups />} />
+            <Route path="geofences" element={<Geofence />} />
             <Route path="alerts" element={<Alerts />} />
             <Route path="notifications" element={<Notifications />} />
             <Route path="support" element={<Support />} />

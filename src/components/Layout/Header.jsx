@@ -14,6 +14,7 @@ const pageTitles = {
   '/challans':         { title: 'Challans',         subtitle: 'Traffic violations & penalties' },
   '/reports':          { title: 'Reports',          subtitle: 'Analytics & insights' },
   '/vehicle-settings': { title: 'Vehicle Settings', subtitle: 'Configure speed & alerts' },
+  '/geofences':        { title: 'Geofences',         subtitle: 'Virtual boundaries for vehicles & groups' },
   '/alerts':           { title: 'Alerts',           subtitle: 'Real-time fleet monitoring rules' },
   '/notifications':    { title: 'Notifications',    subtitle: 'Alert history & inbox' },
   '/support':          { title: 'Support Center',   subtitle: 'Raise and track support tickets' },

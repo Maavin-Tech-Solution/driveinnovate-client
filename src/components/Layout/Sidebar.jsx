@@ -17,12 +17,14 @@ import {
   RectangleGroupIcon,
   BellAlertIcon,
   LifebuoyIcon,
+  MapPinIcon,
 } from '@heroicons/react/24/outline';
 
 const navItems = [
   { to: '/dashboard',        label: 'Dashboard',    Icon: Squares2X2Icon },
   { to: '/my-fleet',         label: 'Tracking',     Icon: MapIcon },
   { to: '/groups',           label: 'Groups',       Icon: RectangleGroupIcon },
+  { to: '/geofences',        label: 'Geofences',    Icon: MapPinIcon },
   { to: '/alerts',           label: 'Alerts',       Icon: BellAlertIcon },
   { to: '/support',          label: 'Support',      Icon: LifebuoyIcon },
   { to: '/add-vehicle',      label: 'Add Vehicle',  Icon: PlusCircleIcon },
@@ -213,7 +215,7 @@ const Sidebar = ({ collapsed }) => {
       {/* Nav */}
       <nav style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', position: 'relative', zIndex: 1, paddingTop: collapsed ? '6px' : '0' }}>
         {navItems.map((item) => <NavItem key={item.to} item={item} collapsed={collapsed} />)}
-        {user && (user.parent_id === 0 || user.parentId === 0) && (
+        {user && (user.id === 1 || user.parent_id === 0 || user.parentId === 0) && (
           <NavItem item={{ to: '/debug', label: 'Debug', Icon: BugAntIcon }} collapsed={collapsed} />
         )}
       </nav>

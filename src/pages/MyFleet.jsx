@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { MapContainer, TileLayer, Marker, Tooltip, useMap } from 'react-leaflet';
 import MarkerClusterGroup from 'react-leaflet-cluster';
-import 'leaflet/dist/leaflet.css';
 import 'react-leaflet-cluster/dist/assets/MarkerCluster.css';
 import 'react-leaflet-cluster/dist/assets/MarkerCluster.Default.css';
 import L from 'leaflet';
@@ -13,6 +12,7 @@ import {
   getVehicleReportSummary, getVehicleReportDaily, getVehicleReportEngineHours,
   getVehicleReportTrips, getVehicleReportFuelFillings, exportVehicleReportExcel, reprocessVehicleData,
 } from '../services/vehicle.service';
+import api from '../services/api';
 import { getGroups, createGroup, updateGroup, deleteGroup, addVehicleToGroup, removeVehicleFromGroup } from '../services/group.service';
 import { createTripShare } from '../services/share.service';
 import LocationPlayer from '../components/common/LocationPlayer';
@@ -231,6 +231,21 @@ const MapController = ({ center }) => {
   return null;
 };
 
+// ─── MapResizer: invalidates map size so tiles load after container renders ───
+const MapResizer = () => {
+  const map = useMap();
+  useEffect(() => {
+    // Immediate invalidate for initial render
+    setTimeout(() => map.invalidateSize(), 0);
+    // ResizeObserver handles sidebar toggle / window resize
+    const container = map.getContainer();
+    const ro = new ResizeObserver(() => map.invalidateSize());
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [map]);
+  return null;
+};
+
 // ─── Vehicle Hover Tooltip ────────────────────────────────────────────────────
 const VehicleTooltip = ({ vehicle }) => {
   const ign    = getIgnition(vehicle);
@@ -406,6 +421,53 @@ const MyFleet = () => {
     getGroups().then(r => setGroups(r.data || [])).catch(() => {});
   };
   useEffect(() => { fetchVehicles(); fetchGroups(); }, []);
+
+  // ─── Live-position auto-refresh (5 s, differential, pauses when tab hidden) ──
+  useEffect(() => {
+    // Track the latest packet time we've seen so the server only returns changed vehicles
+    let lastSince = null;
+
+    const poll = async () => {
+      // Skip when tab is not visible — saves requests, battery, CPU
+      if (document.visibilityState === 'hidden') return;
+      try {
+        const url = lastSince
+          ? `/vehicles/live-positions?since=${encodeURIComponent(lastSince)}`
+          : '/vehicles/live-positions';
+        const res = await api.get(url);
+        const positions = Array.isArray(res.data) ? res.data : [];
+        // Empty means nothing changed since last poll — skip re-render entirely
+        if (!positions.length) return;
+
+        // Advance the cursor to the max packet time in this batch
+        const maxTime = positions.reduce((m, p) => {
+          if (!p.lastPacketTime) return m;
+          return m === null || new Date(p.lastPacketTime) > new Date(m) ? p.lastPacketTime : m;
+        }, lastSince);
+        if (maxTime) lastSince = maxTime;
+
+        setVehicles(prev => prev.map(v => {
+          const p = positions.find(x => x.id === v.id);
+          if (!p) return v; // unchanged — keep existing reference (no re-render for this vehicle)
+          return {
+            ...v,
+            deviceStatus: {
+              ...v.deviceStatus,
+              status: { ...(v.deviceStatus?.status || {}), ignition: p.engineOn },
+              gpsData: {
+                ...(v.deviceStatus?.gpsData || {}),
+                latitude: p.lat, longitude: p.lng, speed: p.speed, timestamp: p.lastPacketTime,
+              },
+              lastUpdate: p.lastPacketTime,
+            },
+          };
+        }));
+      } catch (_) { /* silently ignore poll errors */ }
+    };
+
+    const id = setInterval(poll, 5000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     if (!selectedVehicle) { setSensors([]); return; }
@@ -1250,7 +1312,7 @@ const MyFleet = () => {
 
   /* ══════ MAP VIEW (original) ══════ */
   return (
-    <div style={{ position: 'relative', height: '100%', minHeight: 0, overflow: 'hidden', fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif' }}>
+    <div style={{ position: 'relative', height: '100%', minHeight: 0, overflow: 'hidden', margin: '-24px', width: 'calc(100% + 48px)', fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif' }}>
 
       {/* ══════ MAP BACKGROUND (light tiles) ══════ */}
       <div style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
@@ -1261,6 +1323,7 @@ const MyFleet = () => {
             subdomains="abcd"
             maxZoom={20}
           />
+          <MapResizer />
           {mapCenter && <MapController center={mapCenter} />}
           <MarkerClusterGroup
             chunkedLoading
