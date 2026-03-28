@@ -10,6 +10,7 @@ const pageTitles = {
   '/groups':           { title: 'Groups',           subtitle: 'Organize vehicles into monitored groups' },
   '/add-vehicle':      { title: 'Add Vehicle',      subtitle: 'Register a new vehicle' },
   '/add-client':       { title: 'Add Client',       subtitle: 'Register a new client' },
+  '/my-clients':       { title: 'My Clients',       subtitle: 'Manage clients & permissions' },
   '/rto-details':      { title: 'RTO Details',      subtitle: 'Insurance, fitness & compliance' },
   '/challans':         { title: 'Challans',         subtitle: 'Traffic violations & penalties' },
   '/reports':          { title: 'Reports',          subtitle: 'Analytics & insights' },
@@ -24,7 +25,11 @@ const pageTitles = {
 
 const Header = ({ onToggleSidebar }) => {
   const location = useLocation();
-  const meta = pageTitles[location.pathname] || { title: 'DriveInnovate', subtitle: '' };
+  let meta = pageTitles[location.pathname];
+  if (!meta && location.pathname.startsWith('/my-clients/')) {
+    meta = { title: 'Client Detail', subtitle: 'View client profile & vehicles' };
+  }
+  meta = meta || { title: 'DriveInnovate', subtitle: '' };
 
   return (
     <header style={{
@@ -38,7 +43,7 @@ const Header = ({ onToggleSidebar }) => {
       gap: '14px',
       position: 'sticky',
       top: 0,
-      zIndex: 700,
+      zIndex: 5000,
       flexShrink: 0,
       boxShadow: '0 2px 12px rgba(0,0,0,0.22)',
     }}>

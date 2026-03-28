@@ -7,5 +7,8 @@ export const getDashboardStats = () => api.get('/dashboard/stats');
 export const getDashboardUserStats = () => api.get('/dashboard/user-stats');
 
 /** GET /api/dashboard/overspeed-vehicles?threshold=80 */
-export const getOverspeedVehicles = (speedThreshold) => 
+export const getOverspeedVehicles = (speedThreshold) =>
   api.get(`/dashboard/overspeed-vehicles?threshold=${speedThreshold}`);
+
+/** GET /api/dashboard/network-stats */
+export const getNetworkStats = () => api.get('/dashboard/network-stats');

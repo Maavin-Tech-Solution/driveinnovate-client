@@ -469,6 +469,22 @@ const MyFleet = () => {
     return () => clearInterval(id);
   }, []);
 
+  // Keep selectedVehicle and drawerVehicle in sync with the live vehicles list.
+  // The live poll updates `vehicles` but not these derived states, causing the
+  // detail panel to show stale ignition/speed data while the list is already updated.
+  useEffect(() => {
+    setSelectedVehicle(sel => {
+      if (!sel) return sel;
+      const latest = vehicles.find(v => v.id === sel.id);
+      return latest ?? sel;
+    });
+    setDrawerVehicle(dv => {
+      if (!dv) return dv;
+      const latest = vehicles.find(v => v.id === dv.id);
+      return latest ?? dv;
+    });
+  }, [vehicles]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!selectedVehicle) { setSensors([]); return; }
     setLoadingSensors(true);

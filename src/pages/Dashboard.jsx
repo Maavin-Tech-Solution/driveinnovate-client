@@ -3,10 +3,11 @@ import { Link } from 'react-router-dom';
 import { MapContainer, TileLayer, CircleMarker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import StatCard from '../components/common/StatCard';
-import { getDashboardUserStats, getOverspeedVehicles } from '../services/dashboard.service';
+import { getDashboardUserStats, getOverspeedVehicles, getNetworkStats } from '../services/dashboard.service';
 import { getVehicles } from '../services/vehicle.service';
 import { getSettings } from '../services/settings.service';
 import { toISTString } from '../utils/dateFormat';
+import { useAuth } from '../context/AuthContext';
 import {
   SignalIcon,
   ExclamationTriangleIcon,
@@ -247,7 +248,11 @@ function getVisibleDashCards() {
 
 /* ── Dashboard ─────────────────────────────────────── */
 const Dashboard = () => {
+  const { user } = useAuth();
+  const isNetworkUser = user?.role === 'papa' || user?.role === 'dealer' || Number(user?.parentId) === 0;
+
   const [stats, setStats] = useState(null);
+  const [networkStats, setNetworkStats] = useState(null);
   const [vehicles, setVehicles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [speedThreshold, setSpeedThreshold] = useState(80);
@@ -264,6 +269,14 @@ const Dashboard = () => {
       window.removeEventListener('dashboard-cards-updated', onFocus);
     };
   }, []);
+
+  useEffect(() => {
+    if (isNetworkUser) {
+      getNetworkStats()
+        .then(res => setNetworkStats(res.data || null))
+        .catch(() => {});
+    }
+  }, [isNetworkUser]);
 
   useEffect(() => {
     Promise.all([getDashboardUserStats(), getVehicles(), getSettings()])
@@ -398,6 +411,37 @@ const Dashboard = () => {
         </div>
       ) : (
         <>
+          {/* ── Network stat cards (papa / dealer only) ── */}
+          {isNetworkUser && networkStats && (
+            <div style={{
+              background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '2px',
+              padding: '14px 18px', marginBottom: '14px',
+            }}>
+              <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: '12px' }}>
+                Network Overview
+              </div>
+              <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
+                {[
+                  { label: 'Total Clients',    value: networkStats.totalClients,    icon: '👥', bg: '#EDE9FE', color: '#7C3AED' },
+                  { label: 'Network Vehicles', value: networkStats.totalVehicles,   icon: '🚗', bg: '#DBEAFE', color: '#2563EB' },
+                  { label: 'Active Vehicles',  value: networkStats.activeVehicles,  icon: '✅', bg: '#D1FAE5', color: '#059669' },
+                  { label: 'Inactive Vehicles',value: networkStats.inactiveVehicles,icon: '⏸️', bg: '#FEF3C7', color: '#D97706' },
+                ].map(({ label, value, icon, bg, color }) => (
+                  <div key={label} style={{
+                    flex: '1', minWidth: '130px', padding: '12px 16px', borderRadius: '2px',
+                    background: bg, display: 'flex', alignItems: 'center', gap: '10px',
+                  }}>
+                    <span style={{ fontSize: '20px' }}>{icon}</span>
+                    <div>
+                      <div style={{ fontSize: '20px', fontWeight: 800, color, lineHeight: 1 }}>{value ?? '—'}</div>
+                      <div style={{ fontSize: '11px', color, opacity: 0.75, marginTop: '2px', fontWeight: 500 }}>{label}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* ── Stat cards ───────────────────────────── */}
           <div className="stat-cards-row" style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginBottom: '18px' }}>
             {statCards.map((card) => (

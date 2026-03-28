@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { getUnreadCount, getNotifications, markAsRead, markAllAsRead } from '../../services/notification.service';
 
@@ -27,7 +28,9 @@ const NotificationBell = () => {
   const [open, setOpen] = useState(false);
   const [recent, setRecent] = useState([]);
   const [loadingRecent, setLoadingRecent] = useState(false);
-  const dropRef = useRef(null);
+  const [dropPos, setDropPos] = useState({ top: 0, right: 0 });
+  const dropRef = useRef(null);    // wraps the portal dropdown div
+  const bellRef = useRef(null);
   const pollRef = useRef(null);
 
   // Poll unread count
@@ -54,10 +57,13 @@ const NotificationBell = () => {
       .finally(() => setLoadingRecent(false));
   }, [open]);
 
-  // Close on outside click
+  // Close on outside click — must check both the bell wrapper and the portal dropdown
+  const portalRef = useRef(null);
   useEffect(() => {
     const handler = (e) => {
-      if (dropRef.current && !dropRef.current.contains(e.target)) setOpen(false);
+      const inBell = dropRef.current && dropRef.current.contains(e.target);
+      const inPortal = portalRef.current && portalRef.current.contains(e.target);
+      if (!inBell && !inPortal) setOpen(false);
     };
     if (open) document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -83,13 +89,22 @@ const NotificationBell = () => {
   const goToAll = () => { setOpen(false); navigate('/notifications'); };
   const goToAlerts = () => { setOpen(false); navigate('/alerts'); };
 
+  const handleToggle = () => {
+    if (!open && bellRef.current) {
+      const rect = bellRef.current.getBoundingClientRect();
+      setDropPos({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
+    }
+    setOpen(o => !o);
+  };
+
   const unreadInDropdown = recent.filter(n => !n.isRead).length;
 
   return (
     <div ref={dropRef} style={{ position: 'relative' }}>
       {/* Bell button */}
       <button
-        onClick={() => setOpen(o => !o)}
+        ref={bellRef}
+        onClick={handleToggle}
         title="Notifications"
         style={{
           position: 'relative',
@@ -126,16 +141,16 @@ const NotificationBell = () => {
         )}
       </button>
 
-      {/* Dropdown */}
-      {open && (
-        <div style={{
-          position: 'absolute', top: 'calc(100% + 8px)', right: 0,
+      {/* Dropdown — rendered as a portal into document.body so it escapes any stacking context */}
+      {open && createPortal(
+        <div ref={portalRef} style={{
+          position: 'fixed', top: `${dropPos.top}px`, right: `${dropPos.right}px`,
           width: 380, maxWidth: '95vw',
           background: '#fff',
           borderRadius: 12,
           boxShadow: '0 8px 32px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.12)',
           border: '1px solid #e2e8f0',
-          zIndex: 500,
+          zIndex: 9999,
           overflow: 'hidden',
           fontFamily: "'Plus Jakarta Sans', sans-serif",
         }}>
@@ -212,7 +227,8 @@ const NotificationBell = () => {
               View All Notifications →
             </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
