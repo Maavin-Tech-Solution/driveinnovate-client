@@ -21,6 +21,7 @@ const pageTitles = {
   '/support':          { title: 'Support Center',   subtitle: 'Raise and track support tickets' },
   '/profile':          { title: 'Profile',          subtitle: 'Account settings & preferences' },
   '/user-activity':    { title: 'User Activity',    subtitle: 'Action logs & history' },
+  '/master-settings':  { title: 'Master Settings',  subtitle: 'Device types & vehicle state definitions' },
 };
 
 const Header = ({ onToggleSidebar }) => {

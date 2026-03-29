@@ -15,6 +15,7 @@ import {
   ArrowRightOnRectangleIcon,
   BugAntIcon,
   RectangleGroupIcon,
+  AdjustmentsHorizontalIcon,
   BellAlertIcon,
   LifebuoyIcon,
   MapPinIcon,
@@ -292,6 +293,11 @@ const Sidebar = ({ collapsed }) => {
         {/* Account */}
         {accountItems.length > 0 && (
           <NavGroup label="Account" Icon={UserCircleIcon} items={accountItems} collapsed={collapsed} defaultOpen={false} />
+        )}
+
+        {/* Master Settings — papa only */}
+        {isPapa && (
+          <NavItem item={{ to: '/master-settings', label: 'Master Settings', Icon: AdjustmentsHorizontalIcon }} collapsed={collapsed} />
         )}
 
         {/* Debug — papa / id=1 only */}

@@ -26,6 +26,7 @@ import Support from './pages/Support';
 import Geofence from './pages/Geofence';
 import MyClients from './pages/MyClients';
 import ClientDetail from './pages/ClientDetail';
+import MasterSettings from './pages/MasterSettings';
 const Debug = React.lazy(() => import('./pages/Debug'));
 
 const G = ({ p, role, children }) => (
@@ -74,6 +75,7 @@ function App() {
             <Route path="my-clients"        element={<G role="dealer_or_papa"><MyClients /></G>} />
             <Route path="my-clients/:id"   element={<G role="dealer_or_papa"><ClientDetail /></G>} />
             <Route path="add-client"       element={<G role="dealer_or_papa" p="canAddClient"><AddClient /></G>} />
+            <Route path="master-settings"  element={<G role="papa"><MasterSettings /></G>} />
             {/* Always accessible */}
             <Route path="support"          element={<Support />} />
             <Route path="vehicle-settings" element={<VehicleSettings />} />

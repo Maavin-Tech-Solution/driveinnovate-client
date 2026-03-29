@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { MapContainer, TileLayer, Marker, Tooltip, useMap } from 'react-leaflet';
@@ -13,6 +13,8 @@ import {
   getVehicleReportTrips, getVehicleReportFuelFillings, exportVehicleReportExcel, reprocessVehicleData,
 } from '../services/vehicle.service';
 import api from '../services/api';
+import { getVehicleState } from '../utils/vehicleState';
+import { getDeviceConfigs } from '../services/master.service';
 import { getGroups, createGroup, updateGroup, deleteGroup, addVehicleToGroup, removeVehicleFromGroup } from '../services/group.service';
 import { createTripShare } from '../services/share.service';
 import LocationPlayer from '../components/common/LocationPlayer';
@@ -103,6 +105,19 @@ const getVehicleCoords = (v) => {
 
 const getIgnition  = (v) => v.deviceStatus?.status?.ignition ?? null;
 const getSpeed     = (v) => Number(v.deviceStatus?.gpsData?.speed || v.deviceStatus?.gpsData?.spd || 0);
+
+// Evaluates vehicle state via DB-defined conditions; falls back to ignition-based logic
+const getVState = (v, statesMap) => {
+  const states = statesMap?.[v.deviceType?.toUpperCase()];
+  if (states?.length) {
+    const result = getVehicleState(v.deviceStatus, states);
+    if (result) return result;
+  }
+  const ign = getIgnition(v);
+  if (ign === true)  return { stateName: 'Running',  stateColor: '#059669', stateIcon: '🟢' };
+  if (ign === false) return { stateName: 'Stopped',  stateColor: '#ef4444', stateIcon: '🔴' };
+  return { stateName: 'Unknown', stateColor: '#94a3b8', stateIcon: '' };
+};
 const vehicleDisplayName = (v) => v.vehicleName || v.vehicleNumber || `Vehicle #${v.id}`;
 
 // ─── Configurable fleet stat chips ───────────────────────────────────────────
@@ -224,11 +239,58 @@ const btn = (bg, disabled) => ({
 const inp = { width: '100%', padding: '8px 11px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, boxSizing: 'border-box', outline: 'none', color: C.text, background: C.white };
 const lbl = { display: 'block', fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' };
 
-// ─── MapController ────────────────────────────────────────────────────────────
+// ─── MapController — flies to a position once (on vehicle click) ─────────────
 const MapController = ({ center }) => {
   const map = useMap();
   useEffect(() => { if (center) map.flyTo(center, 15, { duration: 1 }); }, [center, map]);
   return null;
+};
+
+// ─── TrackingController — keeps selected vehicle in view while it moves ───────
+// Uses panTo (not flyTo) so zoom is preserved.  Only pans when the vehicle
+// drifts within 20 % of any edge — avoids unnecessary movement when the
+// vehicle is already comfortably centred.
+const TrackingController = ({ position }) => {
+  const map = useMap();
+  useEffect(() => {
+    if (!position) return;
+    const latlng = L.latLng(position[0], position[1]);
+    const b   = map.getBounds();
+    const ne  = b.getNorthEast();
+    const sw  = b.getSouthWest();
+    const pad = 0.2;
+    const inner = L.latLngBounds(
+      [sw.lat + (ne.lat - sw.lat) * pad, sw.lng + (ne.lng - sw.lng) * pad],
+      [ne.lat - (ne.lat - sw.lat) * pad, ne.lng - (ne.lng - sw.lng) * pad],
+    );
+    if (!inner.contains(latlng)) {
+      map.panTo(latlng, { animate: true, duration: 0.5 });
+    }
+  }, [position, map]);
+  return null;
+};
+
+// ─── SmoothMarker — animates position changes via CSS transition ──────────────
+// Leaflet positions markers with CSS transform: translate3d(x,y,0).  Adding a
+// transition to that element makes the marker glide to the new coordinates
+// instead of snapping.  The transition duration is set just under the 5-second
+// poll interval so each animation completes before the next position arrives.
+// The effect intentionally has no dependency array so it re-applies after every
+// render — this ensures the transition survives icon element replacements (which
+// happen when ignition state changes).
+const SmoothMarker = ({ position, icon, eventHandlers, children }) => {
+  const markerRef = useRef(null);
+  useEffect(() => {
+    const m = markerRef.current;
+    if (!m) return;
+    if (m._icon)   m._icon.style.transition   = 'transform 4.8s linear';
+    if (m._shadow) m._shadow.style.transition = 'transform 4.8s linear';
+  });
+  return (
+    <Marker ref={markerRef} position={position} icon={icon} eventHandlers={eventHandlers}>
+      {children}
+    </Marker>
+  );
 };
 
 // ─── MapResizer: invalidates map size so tiles load after container renders ───
@@ -343,7 +405,11 @@ const MyFleet = () => {
   const [savingGroup, setSavingGroup] = useState(false);
   const [showManageVehicles, setShowManageVehicles] = useState(null);
 
+  const [deviceStatesByType, setDeviceStatesByType] = useState({});
+
   const [selectedVehicle, setSelectedVehicle] = useState(null);
+  const [trackedVehicleId, setTrackedVehicleId] = useState(null);
+  const [trackedPosition, setTrackedPosition] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState(new Set(['Running', 'Stopped', 'Unknown']));
@@ -420,7 +486,15 @@ const MyFleet = () => {
   const fetchGroups = () => {
     getGroups().then(r => setGroups(r.data || [])).catch(() => {});
   };
-  useEffect(() => { fetchVehicles(); fetchGroups(); }, []);
+  useEffect(() => {
+    fetchVehicles();
+    fetchGroups();
+    getDeviceConfigs().then(res => {
+      const map = {};
+      (res.data || []).forEach(d => { if (d.states?.length) map[d.type] = d.states; });
+      setDeviceStatesByType(map);
+    }).catch(() => {});
+  }, []);
 
   // ─── Live-position auto-refresh (5 s, differential, pauses when tab hidden) ──
   useEffect(() => {
@@ -484,6 +558,16 @@ const MyFleet = () => {
       return latest ?? dv;
     });
   }, [vehicles]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Update tracked position whenever vehicles list refreshes (live poll).
+  // TrackingController reads this to keep the selected vehicle in view.
+  useEffect(() => {
+    if (!trackedVehicleId) { setTrackedPosition(null); return; }
+    const v = vehicles.find(x => x.id === trackedVehicleId);
+    if (!v) return;
+    const coords = getVehicleCoords(v);
+    if (coords) setTrackedPosition([coords.lat, coords.lng]);
+  }, [vehicles, trackedVehicleId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!selectedVehicle) { setSensors([]); return; }
@@ -553,6 +637,7 @@ const MyFleet = () => {
 
   const selectVehicle = (v) => {
     setSelectedVehicle(v);
+    setTrackedVehicleId(v.id);
     setActiveTab('overview');
     setReportData(null);
     const coords = getVehicleCoords(v);
@@ -694,11 +779,7 @@ const MyFleet = () => {
       list = list.filter(v => (v.vehicleNumber || '').toLowerCase().includes(q) || (v.vehicleName || '').toLowerCase().includes(q) || (v.imei || '').toLowerCase().includes(q));
     }
     if (statusFilter.size < 3) {
-      list = list.filter(v => {
-        const ign = getIgnition(v);
-        const lbl = ign === true ? 'Running' : ign === false ? 'Stopped' : 'Unknown';
-        return statusFilter.has(lbl);
-      });
+      list = list.filter(v => statusFilter.has(getVState(v, deviceStatesByType).stateName));
     }
     if (sortCol) {
       const dir = sortDir === 'asc' ? 1 : -1;
@@ -708,7 +789,7 @@ const MyFleet = () => {
             case 'vehicle':    return vehicleDisplayName(v).toLowerCase();
             case 'regNo':      return (v.vehicleNumber || '').toLowerCase();
             case 'imei':       return (v.imei || '').toLowerCase();
-            case 'status':     { const i = getIgnition(v); return i === true ? 0 : i === false ? 1 : 2; }
+            case 'status':     { const s = getVState(v, deviceStatesByType).stateName; return s === 'Running' ? 0 : s === 'Stopped' ? 1 : 2; }
             case 'speed':      return v.deviceStatus?.gpsData?.speed ?? -1;
             case 'fuel':       return v.deviceStatus?.fuel?.level ?? v.deviceStatus?.fuel?.llsLevel ?? -1;
             case 'battery':    return v.deviceStatus?.status?.battery ?? -1;
@@ -728,13 +809,13 @@ const MyFleet = () => {
       });
     }
     return list;
-  }, [vehicles, groups, selectedGroupId, search, statusFilter, sortCol, sortDir]);
+  }, [vehicles, groups, selectedGroupId, search, statusFilter, sortCol, sortDir, deviceStatesByType]);
 
   const mapVehicles = useMemo(() => filteredVehicles.map(v => ({ ...v, coords: getVehicleCoords(v) })).filter(v => v.coords), [filteredVehicles]);
-  const runningCount   = vehicles.filter(v => getIgnition(v) === true).length;
-  const stoppedCount   = vehicles.filter(v => getIgnition(v) === false).length;
+  const runningCount   = vehicles.filter(v => getVState(v, deviceStatesByType).stateName === 'Running').length;
+  const stoppedCount   = vehicles.filter(v => getVState(v, deviceStatesByType).stateName === 'Stopped').length;
   const noGpsCount     = vehicles.filter(v => !getVehicleCoords(v)).length;
-  const idleCount      = vehicles.filter(v => getIgnition(v) === true && getSpeed(v) === 0).length;
+  const idleCount      = vehicles.filter(v => getVState(v, deviceStatesByType).stateName === 'Idle').length;
   const fleetSpeedThresh = parseInt(localStorage.getItem('fleet-speed-threshold') || '80');
   const overspeedCount = vehicles.filter(v => getSpeed(v) > fleetSpeedThresh).length;
 
@@ -812,7 +893,7 @@ const MyFleet = () => {
                       })} />
                     <span style={{ color, fontWeight: 600, fontSize: '13px' }}>● {label}</span>
                     <span style={{ marginLeft: 'auto', fontSize: '12px', color: '#94a3b8' }}>
-                      {vehicles.filter(v => { const i = getIgnition(v); return (i === true ? 'Running' : i === false ? 'Stopped' : 'Unknown') === label; }).length}
+                      {vehicles.filter(v => getVState(v, deviceStatesByType).stateName === label).length}
                     </span>
                   </label>
                 ))}
@@ -958,8 +1039,9 @@ const MyFleet = () => {
                     const odometer   = tripObj?.odometer;
                     const lastUpdate = gps?.timestamp;
 
-                    const statusColor = ign === true ? '#059669' : ign === false ? '#DC2626' : '#94A3B8';
-                    const statusLabel = ign === true ? 'Running' : ign === false ? 'Stopped' : 'Unknown';
+                    const vs          = getVState(v, deviceStatesByType);
+                    const statusColor = vs.stateColor;
+                    const statusLabel = vs.stateName;
 
                     const cells = {
                       vehicle: (
@@ -1152,9 +1234,10 @@ const MyFleet = () => {
           const gps      = dv.deviceStatus?.gpsData;
           const dst      = dv.deviceStatus?.status;
           const dfuel    = dv.deviceStatus?.fuel;
-          const ignColor = ign === true ? '#16a34a' : ign === false ? '#dc2626' : '#94a3b8';
+          const dvs      = getVState(dv, deviceStatesByType);
+          const ignColor = dvs.stateColor;
           const ignBg    = ign === true ? '#f0fdf4' : ign === false ? '#fef2f2' : '#f8fafc';
-          const ignLabel = ign === true ? 'Running' : ign === false ? 'Stopped' : 'Unknown';
+          const ignLabel = dvs.stateName;
           const statItems = [
             gps?.speed      != null && { icon: '🏎️', label: 'Speed',      val: String(gps.speed),              unit: 'km/h', accent: gps.speed > 80 ? '#dc2626' : '#2563eb' },
             dfuel?.level    != null && { icon: '⛽',  label: 'Fuel',       val: String(Math.round(dfuel.level)), unit: '%',    accent: dfuel.level < 20 ? '#dc2626' : dfuel.level < 40 ? '#d97706' : '#16a34a' },
@@ -1341,6 +1424,7 @@ const MyFleet = () => {
           />
           <MapResizer />
           {mapCenter && <MapController center={mapCenter} />}
+          <TrackingController position={trackedPosition} />
           <MarkerClusterGroup
             chunkedLoading
             iconCreateFunction={createClusterCustomIcon}
@@ -1352,7 +1436,7 @@ const MyFleet = () => {
             {mapVehicles.map(v => {
               const isSel = selectedVehicle?.id === v.id;
               return (
-                <Marker
+                <SmoothMarker
                   key={`${v.id}-${isSel}`}
                   position={[v.coords.lat, v.coords.lng]}
                   icon={makeVehicleIcon(v, isSel)}
@@ -1361,7 +1445,7 @@ const MyFleet = () => {
                   <Tooltip direction="auto" className="fv-tooltip" interactive={true}>
                     <VehicleTooltip vehicle={v} />
                   </Tooltip>
-                </Marker>
+                </SmoothMarker>
               );
             })}
           </MarkerClusterGroup>
@@ -1476,13 +1560,13 @@ const MyFleet = () => {
           </div>
           {loading && <div style={{ padding: '20px 0', textAlign: 'center', color: '#94A3B8', fontSize: 13 }}>Loading…</div>}
           {filteredVehicles.map(v => {
-            const ign = getIgnition(v);
             const isSel = selectedVehicle?.id === v.id;
             const fuel = v.deviceStatus?.fuel?.level;
             const speed = v.deviceStatus?.gpsData?.speed;
             const hasGps = !!getVehicleCoords(v);
-            const statusColor = ign === true ? '#059669' : ign === false ? '#DC2626' : '#94A3B8';
-            const statusLabel = ign === true ? 'Running' : ign === false ? 'Stopped' : 'Unknown';
+            const lvs = getVState(v, deviceStatesByType);
+            const statusColor = lvs.stateColor;
+            const statusLabel = lvs.stateName;
             return (
               <div key={v.id}
                 onClick={() => selectVehicle(v)}
@@ -1543,7 +1627,7 @@ const MyFleet = () => {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 14, fontWeight: 800, color: '#0F172A' }}>{vehicleDisplayName(selectedVehicle)}</span>
-                    <DarkStatusPill on={getIgnition(selectedVehicle)} />
+                    <DarkStatusPill vs={getVState(selectedVehicle, deviceStatesByType)} />
                     {selectedVehicle.deviceType && (
                       <span style={{ fontSize: 10, background: '#EFF6FF', color: '#2563EB', padding: '2px 7px', borderRadius: 20, fontWeight: 600, border: '1px solid #BFDBFE' }}>{selectedVehicle.deviceType}</span>
                     )}
@@ -1720,16 +1804,19 @@ const DarkItem = ({ active, onClick, children }) => (
   </div>
 );
 
-const DarkStatusPill = ({ on }) => (
-  <span style={{
-    display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700,
-    background: on === true ? '#D1FAE5' : on === false ? '#FEF2F2' : '#F1F5F9',
-    color: on === true ? '#059669' : on === false ? '#DC2626' : '#94A3B8',
-  }}>
-    <span style={{ width: 5, height: 5, borderRadius: '50%', background: on === true ? '#059669' : on === false ? '#DC2626' : '#94A3B8' }} />
-    {on === true ? 'Running' : on === false ? 'Stopped' : 'Unknown'}
-  </span>
-);
+const DarkStatusPill = ({ vs }) => {
+  const color = vs?.stateColor || '#94A3B8';
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+      background: color + '22', color,
+    }}>
+      <span style={{ width: 5, height: 5, borderRadius: '50%', background: color }} />
+      {vs?.stateIcon ? <span>{vs.stateIcon}</span> : null}
+      {vs?.stateName || 'Unknown'}
+    </span>
+  );
+};
 
 const HudChip = ({ value, label, dot }) => (
   <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 20 }}>
