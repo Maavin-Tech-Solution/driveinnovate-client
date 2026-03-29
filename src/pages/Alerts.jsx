@@ -360,25 +360,15 @@ const Alerts = () => {
   }, null);
 
   return (
-    <div style={{ padding: '24px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+    <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
 
-      {/* Hero banner */}
-      <div style={{ background: 'var(--theme-header-bg)', borderRadius: 16, padding: '24px 32px', marginBottom: 22, position: 'relative', overflow: 'hidden' }}>
-        <div style={{ position: 'absolute', top: -40, right: -30, width: 160, height: 160, borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }} />
-        <div style={{ position: 'absolute', bottom: -20, right: 120, width: 90, height: 90, borderRadius: '50%', background: 'rgba(255,255,255,0.04)' }} />
-        <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', gap: 20 }}>
-          <div style={{ width: 56, height: 56, background: 'rgba(255,255,255,0.12)', borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26, flexShrink: 0 }}>🔔</div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 20, fontWeight: 800, color: '#fff', marginBottom: 3 }}>Fleet Alerts</div>
-            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)' }}>
-              Configure real-time monitoring rules. Email notifications are sent automatically when conditions are met.
-            </div>
-          </div>
-          <button onClick={openCreate}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 22px', background: '#fff', border: 'none', color: 'var(--theme-sidebar-bg)', cursor: 'pointer', fontSize: 13, fontWeight: 800, borderRadius: 10, flexShrink: 0, boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>
-            <Ic n="plus" size={14} color="var(--theme-sidebar-bg)" /> New Alert
-          </button>
-        </div>
+      {/* Page title row */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+        <div style={{ fontSize: 20, fontWeight: 800, color: '#1e293b' }}>Fleet Alerts</div>
+        <button onClick={openCreate}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 20px', background: '#2563eb', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 700, borderRadius: 8, boxShadow: '0 1px 4px rgba(37,99,235,0.3)' }}>
+          <Ic n="plus" size={14} color="#fff" /> New Alert
+        </button>
       </div>
 
       {/* Stat cards */}

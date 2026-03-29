@@ -11,3 +11,4 @@ export const getStates    = (deviceId)        => api.get(`/master/device-configs
 export const createState  = (deviceId, data)  => api.post(`/master/device-configs/${deviceId}/states`, data);
 export const updateState  = (stateId, data)   => api.put(`/master/states/${stateId}`, data);
 export const deleteState  = (stateId)         => api.delete(`/master/states/${stateId}`);
+export const resetStatesToDefaults = (deviceId) => api.post(`/master/device-configs/${deviceId}/reset-states`);

@@ -364,7 +364,7 @@ function DrawModal({ mode, editTarget, vehicles, groups, onSave, onClose }) {
       <div style={{ background: '#fff', borderRadius: 16, width: '90vw', maxWidth: 1100, height: '88vh', maxHeight: 700, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
         {/* Header */}
-        <div style={{ padding: '15px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--theme-header-bg)', color: '#fff', flexShrink: 0 }}>
+        <div style={{ padding: '15px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#1e293b', color: '#fff', flexShrink: 0 }}>
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
             {mode === 'edit' ? 'Edit Geofence' : 'Create Geofence'}
           </h2>
@@ -804,12 +804,9 @@ export default function Geofence() {
   return (
     <div style={{ minHeight: '100vh', background: '#f1f5f9', display: 'flex', flexDirection: 'column' }}>
 
-      {/* Hero */}
-      <div style={{ background: 'var(--theme-header-bg)', padding: '28px 28px 24px', color: '#fff', flexShrink: 0 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Geofences</h1>
-        <p style={{ margin: '5px 0 20px', opacity: 0.8, fontSize: 14 }}>
-          Define virtual boundaries — circular zones or custom polygons — for vehicles and groups
-        </p>
+      {/* Page title + stat cards */}
+      <div style={{ padding: '20px 28px 16px', background: '#fff', borderBottom: '1px solid #e2e8f0', flexShrink: 0 }}>
+        <h1 style={{ fontSize: 20, fontWeight: 800, margin: '0 0 12px', color: '#1e293b' }}>Geofences</h1>
         <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
           <StatCard label="Total"    value={stats.total}    icon="📍" color="#3b82f6" />
           <StatCard label="Active"   value={stats.active}   icon="✅" color="#10b981" />

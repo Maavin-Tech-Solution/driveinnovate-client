@@ -47,7 +47,6 @@ body {
   --header-height: 60px;
   /* ── Theme (overridden from localStorage via index.jsx) ── */
   --theme-sidebar-bg: #1A2F6B;
-  --theme-header-bg: linear-gradient(135deg, #0f172a 0%, #1e3a5f 55%, #2563eb 100%);
   --theme-table-header-font-size: 11px;
   --theme-table-body-font-size: 14px;
   --theme-btn-from: #1D4ED8;

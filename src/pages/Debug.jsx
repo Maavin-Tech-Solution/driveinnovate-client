@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -356,80 +356,257 @@ const DiagnosisTab = () => {
   );
 };
 
-// ── RAW PACKETS TAB ───────────────────────────────────────────────────────────
-const RawPacketsTab = () => {
-  const [imei, setImei] = useState('');
-  const [deviceType, setDeviceType] = useState('gt06');
-  const [data, setData] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [skip, setSkip] = useState(0);
+// ── PACKET EXPLORER TAB ───────────────────────────────────────────────────────
+const LIMIT = 20;
+
+const inputSt = { padding: '7px 10px', borderRadius: 7, border: '1px solid #d1d5db', fontSize: 13, background: '#fff' };
+const labelSt = { fontSize: 11, color: '#6b7280', fontWeight: 600, marginBottom: 3, display: 'block' };
+const FilterGroup = ({ label, children }) => (
+  <div style={{ display: 'flex', flexDirection: 'column' }}>
+    <span style={labelSt}>{label}</span>
+    {children}
+  </div>
+);
+
+const PacketExplorer = () => {
+  // ── vehicle list ──────────────────────────────────────────────────────────
+  const [vehicles, setVehicles] = useState([]);
+  const [vehicleId, setVehicleId] = useState('');
+  const [deviceType, setDeviceType] = useState('fmb125');
+
+  useEffect(() => {
+    api.get('/vehicles')
+      .then(res => setVehicles(Array.isArray(res) ? res : (res.data ?? [])))
+      .catch(() => {});
+  }, []);
+
+  const handleVehicleChange = (e) => {
+    const vid = e.target.value;
+    setVehicleId(vid);
+    if (vid) {
+      const v = vehicles.find(x => String(x.id) === vid);
+      if (v?.deviceType) setDeviceType(v.deviceType);
+    }
+  };
+
+  // ── filters ───────────────────────────────────────────────────────────────
+  // Default: today IST 00:00 → now
+  const todayIST = () => {
+    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const ist = new Date(now.getTime() + istOffset);
+    return ist.toISOString().slice(0, 10); // YYYY-MM-DD
+  };
+
+  const [from, setFrom]           = useState(todayIST() + 'T00:00');
+  const [to,   setTo]             = useState('');
+  const [packetType, setPacketType] = useState('');
+  const [acc,      setAcc]        = useState('any');
+  const [hasGps,   setHasGps]     = useState('any');
+  const [minSpeed, setMinSpeed]   = useState('');
+  const [maxSpeed, setMaxSpeed]   = useState('');
+  const [hasBattery, setHasBattery] = useState('any');
+
+  // ── results ───────────────────────────────────────────────────────────────
+  const [data,    setData]    = useState([]);
+  const [skip,    setSkip]    = useState(0);
   const [hasMore, setHasMore] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState('');
+  const [totalHint, setTotalHint] = useState(null);
+
+  const buildParams = (skipVal) => {
+    const p = new URLSearchParams();
+    if (vehicleId) p.set('vehicleId', vehicleId);
+    else           p.set('deviceType', deviceType);
+    if (from)        p.set('from', from);
+    if (to)          p.set('to',   to);
+    if (packetType)  p.set('packetType', packetType);
+    if (acc !== 'any')        p.set('acc',        acc);
+    if (hasGps !== 'any')     p.set('hasGps',     hasGps);
+    if (minSpeed !== '')      p.set('minSpeed',   minSpeed);
+    if (maxSpeed !== '')      p.set('maxSpeed',   maxSpeed);
+    if (hasBattery !== 'any') p.set('hasBattery', hasBattery);
+    p.set('limit', String(LIMIT));
+    p.set('skip',  String(skipVal));
+    return p.toString();
+  };
 
   const handleFetch = async (append = false) => {
-    setLoading(true);
+    if (!vehicleId) { setError('Select a vehicle first'); return; }
+    setLoading(true); setError('');
+    const currentSkip = append ? skip : 0;
     try {
-      const res = await api.get(`/debug/data-packets?imei=${imei}&deviceType=${deviceType}&limit=20&skip=${append ? skip : 0}`);
-      const packets = Array.isArray(res) ? res : [];
-      if (append) setData(prev => [...prev, ...packets]);
-      else setData(packets);
-      setHasMore(packets.length === 20);
-      setSkip(prev => append ? prev + packets.length : packets.length);
-    } catch {
-      setData([]); setHasMore(false);
+      const res = await api.get(`/debug/data-packets?${buildParams(currentSkip)}`);
+      const packets = Array.isArray(res) ? res : (Array.isArray(res.data) ? res.data : []);
+      if (append) {
+        setData(prev => [...prev, ...packets]);
+      } else {
+        setData(packets);
+        setTotalHint(null);
+      }
+      const newSkip = currentSkip + packets.length;
+      setSkip(newSkip);
+      setHasMore(packets.length === LIMIT);
+      if (!append) setTotalHint(packets.length < LIMIT ? packets.length : `${packets.length}+`);
+    } catch (e) {
+      setError(e.response?.data?.message || e.message);
+      if (!append) { setData([]); setHasMore(false); }
     }
     setLoading(false);
   };
 
+  const cols = ['Timestamp (IST)', 'Type', 'lat', 'lng', 'acc', 'speed', 'battery', 'IMEI', 'Full JSON'];
+
   return (
     <div>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        <input value={imei} onChange={e => setImei(e.target.value)}
-          placeholder="IMEI"
-          style={{ flex: 1, padding: '8px 12px', borderRadius: 7, border: '1px solid #d1d5db', fontSize: 13 }} />
-        <select value={deviceType} onChange={e => setDeviceType(e.target.value)}
-          style={{ padding: '8px 12px', borderRadius: 7, border: '1px solid #d1d5db', fontSize: 13 }}>
-          <option value="gt06">GT06</option>
-          <option value="fmb125">FMB125</option>
-        </select>
-        <button onClick={() => { setSkip(0); handleFetch(false); }} disabled={loading || !imei}
-          style={{ padding: '8px 18px', background: '#3B82F6', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 700, cursor: 'pointer' }}>
-          {loading ? 'Loading...' : 'Fetch'}
-        </button>
-      </div>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-          <thead>
-            <tr style={{ background: '#f9fafb' }}>
-              {['Date (IST)', 'IMEI', 'acc', 'speed', 'lat', 'lng', 'Full Data'].map(h => (
-                <th key={h} style={{ padding: '8px 10px', textAlign: 'left', borderBottom: '1px solid #e5e7eb', fontWeight: 700 }}>{h}</th>
+      {/* ── Filter panel ── */}
+      <div style={{ background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 10, padding: 16, marginBottom: 16 }}>
+        {/* Row 1: vehicle + device type */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, marginBottom: 12 }}>
+          <FilterGroup label="Vehicle">
+            <select value={vehicleId} onChange={handleVehicleChange} style={{ ...inputSt, width: '100%' }}>
+              <option value="">— Select vehicle —</option>
+              {vehicles.map(v => (
+                <option key={v.id} value={v.id}>
+                  {v.vehicleNumber}{v.deviceType ? ` (${v.deviceType.toUpperCase()})` : ''}{v.imei ? ` — ${v.imei}` : ''}
+                </option>
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {data.map((row, idx) => (
-              <tr key={idx} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                <td style={{ padding: '6px 10px', whiteSpace: 'nowrap' }}>{fmt(row.date)}</td>
-                <td style={{ padding: '6px 10px' }}>{row.data?.imei || row.imei}</td>
-                <td style={{ padding: '6px 10px' }}>{String(row.data?.acc ?? '—')}</td>
-                <td style={{ padding: '6px 10px' }}>{row.data?.speed ?? '—'}</td>
-                <td style={{ padding: '6px 10px' }}>{row.data?.latitude ?? '—'}</td>
-                <td style={{ padding: '6px 10px' }}>{row.data?.longitude ?? '—'}</td>
-                <td style={{ padding: '6px 10px' }}>
-                  <details><summary style={{ cursor: 'pointer', color: '#3B82F6' }}>show</summary>
-                    <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxWidth: 400 }}>{JSON.stringify(row.data, null, 2)}</pre>
-                  </details>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+            </select>
+          </FilterGroup>
+          <FilterGroup label="Device Type">
+            <select value={deviceType} onChange={e => setDeviceType(e.target.value)} style={inputSt}>
+              <option value="fmb125">FMB125</option>
+              <option value="gt06">GT06</option>
+            </select>
+          </FilterGroup>
+        </div>
+
+        {/* Row 2: date range */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+          <FilterGroup label="From (IST)">
+            <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)} style={inputSt} />
+          </FilterGroup>
+          <FilterGroup label="To (IST — leave blank for now)">
+            <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)} style={inputSt} />
+          </FilterGroup>
+        </div>
+
+        {/* Row 3: packet type + attribute filters */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10, marginBottom: 14 }}>
+          <FilterGroup label="Packet Type">
+            <input value={packetType} onChange={e => setPacketType(e.target.value)}
+              placeholder="e.g. location" style={inputSt} />
+          </FilterGroup>
+          <FilterGroup label="ACC / Engine">
+            <select value={acc} onChange={e => setAcc(e.target.value)} style={inputSt}>
+              <option value="any">Any</option>
+              <option value="true">On (true)</option>
+              <option value="false">Off (false)</option>
+            </select>
+          </FilterGroup>
+          <FilterGroup label="Has GPS">
+            <select value={hasGps} onChange={e => setHasGps(e.target.value)} style={inputSt}>
+              <option value="any">Any</option>
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </select>
+          </FilterGroup>
+          <FilterGroup label="Min Speed (km/h)">
+            <input type="number" value={minSpeed} onChange={e => setMinSpeed(e.target.value)}
+              placeholder="0" style={inputSt} />
+          </FilterGroup>
+          <FilterGroup label="Max Speed (km/h)">
+            <input type="number" value={maxSpeed} onChange={e => setMaxSpeed(e.target.value)}
+              placeholder="—" style={inputSt} />
+          </FilterGroup>
+          <FilterGroup label="Battery present">
+            <select value={hasBattery} onChange={e => setHasBattery(e.target.value)} style={inputSt}>
+              <option value="any">Any</option>
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </select>
+          </FilterGroup>
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <button
+            onClick={() => handleFetch(false)}
+            disabled={loading || !vehicleId}
+            style={{ padding: '8px 22px', background: '#3B82F6', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>
+            {loading && !data.length ? 'Loading…' : 'Fetch Packets'}
+          </button>
+          {totalHint !== null && (
+            <span style={{ fontSize: 12, color: '#6b7280' }}>
+              Showing {data.length} packet{data.length !== 1 ? 's' : ''}
+              {hasMore ? ' (more available)' : ''}
+            </span>
+          )}
+        </div>
+
+        {error && (
+          <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 7, background: '#fef2f2', border: '1px solid #fca5a5', fontSize: 13, color: '#dc2626' }}>
+            {error}
+          </div>
+        )}
       </div>
-      {hasMore && !loading && data.length > 0 && (
-        <button onClick={() => handleFetch(true)} style={{ marginTop: 12, padding: '7px 16px', background: '#6b7280', color: '#fff', border: 'none', borderRadius: 7, cursor: 'pointer' }}>
-          Load More
+
+      {/* ── Results table ── */}
+      {data.length > 0 && (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: '#f9fafb', position: 'sticky', top: 0 }}>
+                {cols.map(h => (
+                  <th key={h} style={{ padding: '7px 10px', textAlign: 'left', borderBottom: '1px solid #e5e7eb', fontWeight: 700, whiteSpace: 'nowrap' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((row, idx) => {
+                const d = row.data || {};
+                const hasGpsRow = d.latitude > 0 && d.longitude;
+                const accOn = d.acc === true;
+                const accOff = d.acc === false;
+                return (
+                  <tr key={idx} style={{ borderBottom: '1px solid #f3f4f6', background: hasGpsRow ? '#f0fdf4' : undefined }}>
+                    <td style={{ padding: '5px 10px', whiteSpace: 'nowrap' }}>{fmt(row.date)}</td>
+                    <td style={{ padding: '5px 10px', fontWeight: 600, color: '#374151' }}>{d.packetType || '—'}</td>
+                    <td style={{ padding: '5px 10px', color: hasGpsRow ? '#16a34a' : '#9ca3af' }}>{d.latitude ?? '—'}</td>
+                    <td style={{ padding: '5px 10px', color: hasGpsRow ? '#16a34a' : '#9ca3af' }}>{d.longitude ?? '—'}</td>
+                    <td style={{ padding: '5px 10px', fontWeight: 700, color: accOn ? '#16a34a' : accOff ? '#dc2626' : '#9ca3af' }}>
+                      {d.acc === true ? 'ON' : d.acc === false ? 'OFF' : d.acc ?? '—'}
+                    </td>
+                    <td style={{ padding: '5px 10px' }}>{d.speed != null ? `${d.speed} km/h` : '—'}</td>
+                    <td style={{ padding: '5px 10px', color: d.battery != null ? '#2563eb' : '#9ca3af' }}>{d.battery ?? '—'}</td>
+                    <td style={{ padding: '5px 10px', color: '#9ca3af', fontSize: 10 }}>{d.imei || row.imei}</td>
+                    <td style={{ padding: '5px 10px' }}>
+                      <details>
+                        <summary style={{ cursor: 'pointer', color: '#3B82F6', fontSize: 11 }}>show</summary>
+                        <pre style={{ fontSize: 10, whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxWidth: 420, marginTop: 4, background: '#f9fafb', padding: 8, borderRadius: 5 }}>
+                          {JSON.stringify(d, null, 2)}
+                        </pre>
+                      </details>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {hasMore && !loading && (
+        <button
+          onClick={() => handleFetch(true)}
+          style={{ marginTop: 12, padding: '7px 18px', background: '#6b7280', color: '#fff', border: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 13 }}>
+          Load More ({data.length} loaded)
         </button>
       )}
-      {loading && <div style={{ marginTop: 12, color: '#6b7280' }}>Loading…</div>}
+      {loading && data.length > 0 && <div style={{ marginTop: 10, color: '#6b7280', fontSize: 13 }}>Loading more…</div>}
+      {!loading && !data.length && totalHint === 0 && (
+        <div style={{ padding: '24px 0', textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>No packets match the current filters.</div>
+      )}
     </div>
   );
 };
@@ -451,9 +628,9 @@ const Debug = () => {
       <h2 style={{ margin: '0 0 16px', fontSize: 20, fontWeight: 800, color: '#111827' }}>Debug Console</h2>
       <div style={{ display: 'flex', borderBottom: '1px solid #e5e7eb', marginBottom: 20 }}>
         <button style={tabStyle(tab === 'diagnosis')} onClick={() => setTab('diagnosis')}>Vehicle Diagnosis</button>
-        <button style={tabStyle(tab === 'packets')} onClick={() => setTab('packets')}>Raw Packets</button>
+        <button style={tabStyle(tab === 'packets')} onClick={() => setTab('packets')}>Packet Explorer</button>
       </div>
-      {tab === 'diagnosis' ? <DiagnosisTab /> : <RawPacketsTab />}
+      {tab === 'diagnosis' ? <DiagnosisTab /> : <PacketExplorer />}
     </div>
   );
 };

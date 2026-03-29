@@ -712,29 +712,16 @@ const Support = () => {
   return (
     <div style={{ padding: '24px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
 
-      {/* Hero */}
-      <div style={{ background: 'var(--theme-header-bg)', borderRadius: 16, padding: '24px 32px', marginBottom: 22, position: 'relative', overflow: 'hidden' }}>
-        <div style={{ position: 'absolute', top: -40, right: -20, width: 160, height: 160, borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }} />
-        <div style={{ position: 'absolute', bottom: -30, right: 100, width: 90, height: 90, borderRadius: '50%', background: 'rgba(255,255,255,0.04)' }} />
-        <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', gap: 20 }}>
-          <div style={{ width: 56, height: 56, background: 'rgba(255,255,255,0.12)', borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26, flexShrink: 0 }}>🎫</div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 20, fontWeight: 800, color: '#fff', marginBottom: 3 }}>Support Center</div>
-            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)' }}>
-              Raise a support ticket and our team will assist you. Track all your tickets from one place.
-            </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-              {['🎫 Unique ticket number', '📧 Email confirmation', '📎 Attachments supported', '🔄 Real-time status'].map(tag => (
-                <span key={tag} style={{ background: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.9)', padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600 }}>{tag}</span>
-              ))}
-            </div>
-          </div>
+      {/* Page title row */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+        <div style={{ fontSize: 20, fontWeight: 800, color: '#1e293b' }}>Support Center</div>
+        <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={() => setTab('new')}
-            style={{ padding: '10px 22px', background: tab === 'new' ? '#fff' : 'rgba(255,255,255,0.12)', border: tab === 'new' ? 'none' : '1px solid rgba(255,255,255,0.25)', color: tab === 'new' ? 'var(--theme-sidebar-bg)' : '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 800, borderRadius: 10, flexShrink: 0, fontFamily: 'inherit', marginRight: 8 }}>
+            style={{ padding: '8px 18px', background: tab === 'new' ? '#2563eb' : '#f1f5f9', border: tab === 'new' ? 'none' : '1px solid #e2e8f0', color: tab === 'new' ? '#fff' : '#475569', cursor: 'pointer', fontSize: 13, fontWeight: 700, borderRadius: 8, fontFamily: 'inherit' }}>
             + New Ticket
           </button>
           <button onClick={() => setTab('list')}
-            style={{ padding: '10px 22px', background: tab === 'list' ? '#fff' : 'rgba(255,255,255,0.12)', border: tab === 'list' ? 'none' : '1px solid rgba(255,255,255,0.25)', color: tab === 'list' ? 'var(--theme-sidebar-bg)' : '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 800, borderRadius: 10, flexShrink: 0, fontFamily: 'inherit' }}>
+            style={{ padding: '8px 18px', background: tab === 'list' ? '#2563eb' : '#f1f5f9', border: tab === 'list' ? 'none' : '1px solid #e2e8f0', color: tab === 'list' ? '#fff' : '#475569', cursor: 'pointer', fontSize: 13, fontWeight: 700, borderRadius: 8, fontFamily: 'inherit' }}>
             📋 My Tickets
           </button>
         </div>

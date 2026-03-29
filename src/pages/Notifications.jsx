@@ -166,33 +166,24 @@ const Notifications = () => {
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
   return (
-    <div style={{ padding: '24px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+    <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
 
-      {/* Hero */}
-      <div style={{ background: 'var(--theme-header-bg)', borderRadius: 16, padding: '24px 32px', marginBottom: 22, position: 'relative', overflow: 'hidden' }}>
-        <div style={{ position: 'absolute', top: -40, right: -30, width: 160, height: 160, borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }} />
-        <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <div style={{ width: 56, height: 56, background: 'rgba(255,255,255,0.12)', borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26, flexShrink: 0, position: 'relative' }}>
-              🔔
-              {unreadCount > 0 && (
-                <div style={{ position: 'absolute', top: -4, right: -4, background: '#dc2626', color: '#fff', fontSize: 10, fontWeight: 800, minWidth: 18, height: 18, borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px', border: '2px solid rgba(26,47,107,0.8)' }}>
-                  {unreadCount > 99 ? '99+' : unreadCount}
-                </div>
-              )}
-            </div>
-            <div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: '#fff' }}>Notifications</div>
-              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)', marginTop: 2 }}>Alert history and inbox</div>
-            </div>
-          </div>
+      {/* Page title row */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: '#1e293b' }}>Notifications</div>
           {unreadCount > 0 && (
-            <button onClick={handleMarkAll}
-              style={{ padding: '9px 18px', background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.22)', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 700, borderRadius: 8, fontFamily: 'inherit' }}>
-              ✓ Mark all read
-            </button>
+            <span style={{ background: '#dc2626', color: '#fff', fontSize: 11, fontWeight: 800, minWidth: 20, height: 20, borderRadius: 10, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px' }}>
+              {unreadCount > 99 ? '99+' : unreadCount}
+            </span>
           )}
         </div>
+        {unreadCount > 0 && (
+          <button onClick={handleMarkAll}
+            style={{ padding: '8px 16px', background: '#f1f5f9', border: '1px solid #e2e8f0', color: '#475569', cursor: 'pointer', fontSize: 12, fontWeight: 700, borderRadius: 8, fontFamily: 'inherit' }}>
+            ✓ Mark all read
+          </button>
+        )}
       </div>
 
       {/* Stat cards */}

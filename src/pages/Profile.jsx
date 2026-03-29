@@ -110,73 +110,54 @@ const Profile = () => {
   return (
     <div style={{ minHeight: '100%' }}>
 
-      {/* ── Hero Banner ── */}
-      <div style={{
-        background: 'var(--theme-header-bg)',
-        borderRadius: '16px', padding: '36px 32px 0', marginBottom: '0',
-        position: 'relative', overflow: 'hidden',
-      }}>
-        {/* decorative circles */}
-        <div style={{ position: 'absolute', top: '-40px', right: '-40px', width: '220px', height: '220px', borderRadius: '50%', background: 'rgba(255,255,255,0.06)' }} />
-        <div style={{ position: 'absolute', bottom: '-60px', right: '120px', width: '160px', height: '160px', borderRadius: '50%', background: 'rgba(255,255,255,0.04)' }} />
-
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: '24px', position: 'relative', zIndex: 1 }}>
-          {/* Avatar */}
-          <div style={{
-            width: '88px', height: '88px', borderRadius: '50%',
-            background: 'rgba(255,255,255,0.18)', border: '3px solid rgba(255,255,255,0.5)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: '32px', fontWeight: 800, color: '#fff', flexShrink: 0,
-            backdropFilter: 'blur(4px)',
-          }}>
-            {initials}
-          </div>
-
-          {/* Name / role */}
-          <div style={{ paddingBottom: '20px', flex: 1 }}>
-            <div style={{ fontSize: '22px', fontWeight: 800, color: '#fff', lineHeight: 1.2 }}>{user?.name || 'User'}</div>
-            <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.75)', marginTop: '4px' }}>{user?.email}</div>
-            <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              <span style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', fontSize: '11px', fontWeight: 600, padding: '3px 10px', borderRadius: '20px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                {user?.role || 'user'}
-              </span>
-              <span style={{ background: '#22c55e33', color: '#bbf7d0', fontSize: '11px', fontWeight: 600, padding: '3px 10px', borderRadius: '20px' }}>
-                ● Active
-              </span>
-            </div>
+      {/* ── Profile Header ── */}
+      <div style={{ background: '#fff', borderRadius: '14px', border: '1px solid #e2e8f0', padding: '20px 24px', marginBottom: '0', display: 'flex', alignItems: 'center', gap: '18px' }}>
+        <div style={{ width: '72px', height: '72px', borderRadius: '50%', background: '#dbeafe', border: '3px solid #bfdbfe', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '26px', fontWeight: 800, color: '#2563eb', flexShrink: 0 }}>
+          {initials}
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: '20px', fontWeight: 800, color: '#1e293b', lineHeight: 1.2 }}>{user?.name || 'User'}</div>
+          <div style={{ fontSize: '13px', color: '#64748b', marginTop: '3px' }}>{user?.email}</div>
+          <div style={{ marginTop: '7px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <span style={{ background: '#eff6ff', color: '#2563eb', fontSize: '11px', fontWeight: 600, padding: '3px 10px', borderRadius: '20px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              {user?.role || 'user'}
+            </span>
+            <span style={{ background: '#dcfce7', color: '#16a34a', fontSize: '11px', fontWeight: 600, padding: '3px 10px', borderRadius: '20px' }}>
+              ● Active
+            </span>
           </div>
         </div>
+      </div>
 
-        {/* Tab bar inside banner */}
-        <div style={{ display: 'flex', gap: '4px', marginTop: '24px', position: 'relative', zIndex: 1 }}>
-          {[
-            { key: 'info', icon: '👤', label: 'Personal Info' },
-            { key: 'password', icon: '🔒', label: 'Security' },
-            { key: 'notifications', icon: '🔔', label: 'Notifications' },
-          ].map(({ key, icon, label }) => (
-            <button
-              key={key}
-              onClick={() => setTab(key)}
-              style={{
-                padding: '10px 20px', border: 'none', cursor: 'pointer',
-                borderRadius: '10px 10px 0 0', fontSize: '13px', fontWeight: 600,
-                background: tab === key ? '#fff' : 'transparent',
-                color: tab === key ? '#2563eb' : 'rgba(255,255,255,0.75)',
-                transition: 'all 0.15s',
-              }}
-            >
-              {icon} {label}
-            </button>
-          ))}
-        </div>
+      {/* ── Tab bar ── */}
+      <div style={{ display: 'flex', gap: '4px', background: '#fff', borderBottom: '1px solid #e2e8f0', paddingLeft: '8px' }}>
+        {[
+          { key: 'info', icon: '👤', label: 'Personal Info' },
+          { key: 'password', icon: '🔒', label: 'Security' },
+          { key: 'notifications', icon: '🔔', label: 'Notifications' },
+        ].map(({ key, icon, label }) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            style={{
+              padding: '10px 20px', border: 'none', cursor: 'pointer',
+              borderBottom: tab === key ? '2px solid #2563eb' : '2px solid transparent',
+              background: 'transparent', fontSize: '13px', fontWeight: tab === key ? 700 : 500,
+              color: tab === key ? '#2563eb' : '#64748b',
+              transition: 'all 0.15s',
+            }}
+          >
+            {icon} {label}
+          </button>
+        ))}
       </div>
 
       {/* ── Stat Strip ── */}
       <div style={{
         display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1px',
-        background: '#e2e8f0', borderRadius: '0 0 16px 16px',
+        background: '#e2e8f0', borderRadius: '0 0 12px 12px',
         overflow: 'hidden', marginBottom: '24px',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
       }}>
         {[
           { label: 'Account Status', value: 'Active', color: '#16a34a', bg: '#f0fdf4' },

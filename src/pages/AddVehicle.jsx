@@ -58,43 +58,6 @@ const AddVehicle = () => {
   return (
     <div style={{ minHeight: '100%' }}>
 
-      {/* ── Hero Banner ── */}
-      <div style={{
-        background: 'var(--theme-header-bg)',
-        borderRadius: '16px', padding: '32px', marginBottom: '24px',
-        position: 'relative', overflow: 'hidden',
-      }}>
-        <div style={{ position: 'absolute', top: '-45px', right: '-45px', width: '220px', height: '220px', borderRadius: '50%', background: 'rgba(255,255,255,0.07)' }} />
-        <div style={{ position: 'absolute', bottom: '-55px', right: '140px', width: '180px', height: '180px', borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }} />
-
-        <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', gap: '18px' }}>
-          <div style={{ width: '68px', height: '68px', borderRadius: '16px', background: 'rgba(255,255,255,0.18)', border: '2px solid rgba(255,255,255,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '30px', flexShrink: 0 }}>
-            🚗
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: '22px', fontWeight: 800, color: '#fff' }}>Register New Vehicle</div>
-            <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.74)', marginTop: '4px' }}>
-              Add a GPS-tracked vehicle to your fleet with device configuration
-            </div>
-            <div style={{ marginTop: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              <span style={{ background: 'rgba(255,255,255,0.18)', color: '#fff', fontSize: '11px', fontWeight: 600, padding: '3px 12px', borderRadius: '20px' }}>📡 GPS Linked</span>
-              <span style={{ background: 'rgba(255,255,255,0.18)', color: '#fff', fontSize: '11px', fontWeight: 600, padding: '3px 12px', borderRadius: '20px' }}>🛰️ Live Tracking</span>
-              <span style={{ background: 'rgba(255,255,255,0.18)', color: '#fff', fontSize: '11px', fontWeight: 600, padding: '3px 12px', borderRadius: '20px' }}>📊 Fleet Reports</span>
-            </div>
-          </div>
-          {/* Progress indicator in banner */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
-            <div style={{ width: '56px', height: '56px', borderRadius: '50%', border: `3px solid ${progress === 100 ? '#34d399' : 'rgba(255,255,255,0.5)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.12)' }}>
-              <span style={{ fontSize: '14px', fontWeight: 800, color: '#fff', fontVariantNumeric: 'tabular-nums' }}>{progress}%</span>
-            </div>
-            <div style={{ width: '72px', height: '4px', background: 'rgba(255,255,255,0.25)', borderRadius: '2px', overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${progress}%`, background: progress === 100 ? '#34d399' : '#fff', borderRadius: '2px', transition: 'width 0.3s' }} />
-            </div>
-            <span style={{ fontSize: '10px', fontWeight: 600, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Filled</span>
-          </div>
-        </div>
-      </div>
-
       {/* ── Main Content ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '20px', alignItems: 'start' }}>
 

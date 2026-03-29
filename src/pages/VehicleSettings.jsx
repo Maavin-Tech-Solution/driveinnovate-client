@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import { getSettings, updateSettings, resetSettings } from '../services/settings.service';
-import { applyTheme, HEADER_PRESETS } from '../index';
+import { applyTheme } from '../utils/theme';
 
 // ─── Widget definitions (must match Dashboard.jsx + MyFleet.jsx) ─────────────
 const ALL_DASH_CARDS_DEF = [
@@ -47,7 +47,6 @@ const VehicleSettings = () => {
   const [sidebarTheme,        setSidebarTheme]        = useState(() => localStorage.getItem('theme-sidebar')                || 'navy');
   const [tableHeaderFontSize, setTableHeaderFontSize] = useState(() => localStorage.getItem('theme-table-header-font-size') || '11px');
   const [tableBodyFontSize,   setTableBodyFontSize]   = useState(() => localStorage.getItem('theme-table-body-font-size')   || '14px');
-  const [headerTheme, setHeaderTheme] = useState(() => localStorage.getItem('theme-header') || 'midnight');
   const [btnFrom, setBtnFrom] = useState(() => localStorage.getItem('theme-btn-from') || '#1D4ED8');
   const [btnTo,   setBtnTo]   = useState(() => localStorage.getItem('theme-btn-to')   || '#3B82F6');
   const [dashCards, setDashCards] = useState(() => {
@@ -109,7 +108,6 @@ const VehicleSettings = () => {
       
       localStorage.setItem('mapStyle', mapStyle);
       localStorage.setItem('theme-sidebar',                sidebarTheme);
-      localStorage.setItem('theme-header',                headerTheme);
       localStorage.setItem('theme-table-header-font-size', tableHeaderFontSize);
       localStorage.setItem('theme-table-body-font-size',   tableBodyFontSize);
       localStorage.setItem('theme-btn-from', btnFrom);
@@ -151,7 +149,6 @@ const VehicleSettings = () => {
       setSpeedThreshold(settingsData.speedThreshold || 80);
       setMapStyle('voyager');              localStorage.setItem('mapStyle', 'voyager');
       setSidebarTheme('navy');             localStorage.setItem('theme-sidebar', 'navy');
-      setHeaderTheme('midnight');          localStorage.setItem('theme-header',  'midnight');
       setTableHeaderFontSize('11px');      localStorage.setItem('theme-table-header-font-size', '11px');
       setTableBodyFontSize('14px');        localStorage.setItem('theme-table-body-font-size', '14px');
       setBtnFrom('#1D4ED8');               localStorage.setItem('theme-btn-from', '#1D4ED8');
@@ -195,47 +192,6 @@ const VehicleSettings = () => {
 
   return (
     <div style={{ minHeight: '100%' }}>
-      {/* ── Hero Banner ── */}
-      <div style={{
-        background: 'var(--theme-header-bg)',
-        borderRadius: '16px', padding: '32px', marginBottom: '24px',
-        position: 'relative', overflow: 'hidden',
-      }}>
-        <div style={{ position: 'absolute', top: '-50px', right: '-50px', width: '240px', height: '240px', borderRadius: '50%', background: 'rgba(255,255,255,0.06)' }} />
-        <div style={{ position: 'absolute', bottom: '-60px', right: '160px', width: '180px', height: '180px', borderRadius: '50%', background: 'rgba(255,255,255,0.04)' }} />
-
-        <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', gap: '20px' }}>
-          <div style={{
-            width: '68px', height: '68px', borderRadius: '16px',
-            background: 'rgba(255,255,255,0.18)', border: '2px solid rgba(255,255,255,0.4)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: '30px', flexShrink: 0,
-          }}>
-            ⚙️
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: '22px', fontWeight: 800, color: '#fff' }}>Dashboard Settings</div>
-            <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.72)', marginTop: '4px' }}>
-              Configure map display, speed ranges, colors, and alert thresholds
-            </div>
-            <div style={{ marginTop: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              <span style={{ background: 'rgba(255,255,255,0.18)', color: '#fff', fontSize: '11px', fontWeight: 600, padding: '3px 12px', borderRadius: '20px' }}>
-                🗺️ Map Settings
-              </span>
-              <span style={{ background: 'rgba(255,255,255,0.18)', color: '#fff', fontSize: '11px', fontWeight: 600, padding: '3px 12px', borderRadius: '20px' }}>
-                🎨 Custom Colors
-              </span>
-              <span style={{ background: 'rgba(255,255,255,0.18)', color: '#fff', fontSize: '11px', fontWeight: 600, padding: '3px 12px', borderRadius: '20px' }}>
-                🚨 Speed Alerts
-              </span>
-              <span style={{ background: 'rgba(255,255,255,0.18)', color: '#fff', fontSize: '11px', fontWeight: 600, padding: '3px 12px', borderRadius: '20px' }}>
-                📊 Widgets
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* ── Main Content ── */}
       <div style={{ display: 'grid', gap: '20px' }}>
         
@@ -283,51 +239,6 @@ const VehicleSettings = () => {
                     {sidebarTheme === opt.key && <span style={{ fontSize: '9px', color: '#2563eb', fontWeight: 700 }}>✓</span>}
                   </button>
                 ))}
-              </div>
-            </div>
-
-            {/* Page header color */}
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-                <div>
-                  <label style={labelStyle}>Page Header Color</label>
-                  <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>Background gradient for hero banners on each page</div>
-                </div>
-                <button onClick={() => setHeaderTheme('midnight')}
-                  style={{ fontSize: '11px', color: '#64748b', background: 'none', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '3px 10px', cursor: 'pointer', fontFamily: 'inherit' }}>
-                  ↺ Default
-                </button>
-              </div>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                {[
-                  { key: 'midnight', label: 'Midnight ⭐' },
-                  { key: 'ocean',    label: 'Ocean'    },
-                  { key: 'violet',   label: 'Violet'   },
-                  { key: 'forest',   label: 'Forest'   },
-                  { key: 'rose',     label: 'Rose'     },
-                  { key: 'amber',    label: 'Amber'    },
-                  { key: 'teal',     label: 'Teal'     },
-                  { key: 'slate',    label: 'Slate'    },
-                  { key: 'indigo',   label: 'Indigo'   },
-                  { key: 'noir',     label: 'Noir'     },
-                ].map(opt => (
-                  <button key={opt.key} onClick={() => setHeaderTheme(opt.key)}
-                    style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', padding: '8px 10px', borderRadius: '10px', border: `2px solid ${headerTheme === opt.key ? '#2563eb' : '#e2e8f0'}`, background: headerTheme === opt.key ? '#eff6ff' : '#f8fafc', cursor: 'pointer', minWidth: '68px', boxShadow: headerTheme === opt.key ? '0 0 0 3px rgba(37,99,235,0.12)' : 'none', transition: 'all 0.15s' }}>
-                    <div style={{ width: '52px', height: '26px', borderRadius: '6px', background: HEADER_PRESETS[opt.key], border: '1px solid rgba(0,0,0,0.10)' }} />
-                    <span style={{ fontSize: '10px', fontWeight: 600, color: headerTheme === opt.key ? '#2563eb' : '#64748b', whiteSpace: 'nowrap' }}>{opt.label}</span>
-                    {headerTheme === opt.key && <span style={{ fontSize: '9px', color: '#2563eb', fontWeight: 700 }}>✓</span>}
-                  </button>
-                ))}
-              </div>
-              {/* Live preview */}
-              <div style={{ marginTop: '14px', borderRadius: '10px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
-                <div style={{ background: HEADER_PRESETS[headerTheme], padding: '14px 18px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <div style={{ width: '38px', height: '38px', borderRadius: '9px', background: 'rgba(255,255,255,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>🚗</div>
-                  <div>
-                    <div style={{ fontSize: '15px', fontWeight: 800, color: '#fff' }}>Page Title Preview</div>
-                    <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)', marginTop: '2px' }}>This is how page hero banners will look</div>
-                  </div>
-                </div>
               </div>
             </div>
 

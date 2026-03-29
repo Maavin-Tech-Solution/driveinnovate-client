@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { toast } from 'react-toastify';
 import {
   getDeviceConfigs, createDeviceConfig, updateDeviceConfig, deleteDeviceConfig,
-  getStates, createState, updateState, deleteState,
+  getStates, createState, updateState, deleteState, resetStatesToDefaults,
 } from '../services/master.service';
 
 // ── Style helpers ────────────────────────────────────────────────────────────
@@ -272,6 +272,7 @@ export default function MasterSettings() {
   const [loadingStates,  setLoadingStates]  = useState(false);
   const [savingDevice,   setSavingDevice]   = useState(false);
   const [savingState,    setSavingState]    = useState(false);
+  const [resettingStates, setResettingStates] = useState(false);
 
   // ── Load devices on mount ────────────────────────────────────────────────
   const loadDevices = useCallback(async () => {
@@ -381,6 +382,21 @@ export default function MasterSettings() {
       toast.error(err.response?.data?.message || 'Failed to save state');
     } finally {
       setSavingState(false);
+    }
+  };
+
+  const handleResetStates = async () => {
+    if (!selectedDevice?.isBuiltIn) return;
+    if (!window.confirm(`Reset all states for "${selectedDevice.name}" to built-in defaults? This cannot be undone.`)) return;
+    setResettingStates(true);
+    try {
+      const res = await resetStatesToDefaults(selectedDevice.id);
+      setStates(res.data || []);
+      toast.success('States reset to defaults');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to reset states');
+    } finally {
+      setResettingStates(false);
     }
   };
 
@@ -505,9 +521,20 @@ export default function MasterSettings() {
                   States are evaluated in priority order (lowest number first). First match wins.
                 </p>
               </div>
-              <button onClick={openNewState} style={{ ...btnPrimary, padding: '6px 14px', fontSize: 12 }}>
-                + Add State
-              </button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {selectedDevice.isBuiltIn && (
+                  <button
+                    onClick={handleResetStates}
+                    disabled={resettingStates}
+                    style={{ ...btnSecondary, fontSize: 12, padding: '6px 14px', color: '#dc2626', borderColor: '#fca5a5' }}
+                  >
+                    {resettingStates ? 'Resetting…' : '↺ Reset to Defaults'}
+                  </button>
+                )}
+                <button onClick={openNewState} style={{ ...btnPrimary, padding: '6px 14px', fontSize: 12 }}>
+                  + Add State
+                </button>
+              </div>
             </div>
 
             {/* State form */}
