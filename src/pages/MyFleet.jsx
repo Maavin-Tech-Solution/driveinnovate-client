@@ -458,6 +458,10 @@ const MyFleet = () => {
   const [drawerSaving, setDrawerSaving] = useState(false);
   const [drawerTab, setDrawerTab] = useState('overview');
 
+  // Increments every 30 s to force state re-evaluation (lastSeenSeconds) even when
+  // no live-position poll updates arrive (e.g. all vehicles offline).
+  const [stateTick, setStateTick] = useState(0);
+
   // inject CSS animations
   useEffect(() => {
     const el = document.createElement('style');
@@ -465,6 +469,12 @@ const MyFleet = () => {
     el.textContent = HUD_CSS;
     document.head.appendChild(el);
     return () => document.getElementById('fleet-hud-css')?.remove();
+  }, []);
+
+  // 30-second tick so lastSeenSeconds re-evaluates even when poll returns nothing
+  useEffect(() => {
+    const id = setInterval(() => setStateTick(t => t + 1), 30_000);
+    return () => clearInterval(id);
   }, []);
 
   // Re-read chip visibility when settings change
@@ -486,14 +496,21 @@ const MyFleet = () => {
   const fetchGroups = () => {
     getGroups().then(r => setGroups(r.data || [])).catch(() => {});
   };
+
+  // Load vehicles, device state configs, and groups atomically so state definitions
+  // are always available on the first render — no flash of fallback "Running/Stopped" states.
   useEffect(() => {
-    fetchVehicles();
-    fetchGroups();
-    getDeviceConfigs().then(res => {
-      const map = {};
-      (res.data || []).forEach(d => { if (d.states?.length) map[d.type] = d.states; });
-      setDeviceStatesByType(map);
-    }).catch(() => {});
+    setLoading(true);
+    Promise.all([getVehicles(), getDeviceConfigs(), getGroups()])
+      .then(([vRes, cRes, gRes]) => {
+        const m = {};
+        (cRes.data || []).forEach(d => { if (d.states?.length) m[d.type] = d.states; });
+        setDeviceStatesByType(m);
+        setVehicles(vRes.data || []);
+        setGroups(gRes.data || []);
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
   }, []);
 
   // ─── Live-position auto-refresh (5 s, differential, pauses when tab hidden) ──
@@ -613,17 +630,29 @@ const MyFleet = () => {
   };
 
   // ─── Handlers ───────────────────────────────────────────────────────────────
-  const handleSync = async (v) => {
+  const handleSync = async (v, silent = false) => {
     setSyncing(true); setSyncingId(v.id);
     try {
       const r = await syncVehicleData(v.id);
       const u = r.data;
       setVehicles(p => p.map(x => x.id === u.id ? u : x));
       if (selectedVehicle?.id === u.id) setSelectedVehicle(u);
-      toast.success('Synced!');
-    } catch (e) { toast.error('Sync failed: ' + (e.message || 'error')); }
-    finally { setSyncing(false); setSyncingId(null); }
+      if (!silent) toast.success('Synced!');
+    } catch (e) {
+      if (!silent) toast.error('Sync failed: ' + (e.message || 'error'));
+    } finally { setSyncing(false); setSyncingId(null); }
   };
+
+  // Auto-sync comprehensive status (battery, voltage, fuel, satellites) when the right
+  // detail panel opens for a new vehicle — eliminates the need to click Sync manually.
+  const prevSyncedVehicleId = useRef(null);
+  useEffect(() => {
+    if (!selectedVehicle) return;
+    if (prevSyncedVehicleId.current === selectedVehicle.id) return;
+    prevSyncedVehicleId.current = selectedVehicle.id;
+    handleSync(selectedVehicle, true); // silent — no toast spam on every click
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedVehicle?.id]);
 
   const handleDelete = async (id) => {
     if (!window.confirm('Remove this vehicle from your fleet?')) return;
@@ -809,7 +838,7 @@ const MyFleet = () => {
       });
     }
     return list;
-  }, [vehicles, groups, selectedGroupId, search, statusFilter, sortCol, sortDir, deviceStatesByType]);
+  }, [vehicles, groups, selectedGroupId, search, statusFilter, sortCol, sortDir, deviceStatesByType, stateTick]);
 
   const mapVehicles = useMemo(() => filteredVehicles.map(v => ({ ...v, coords: getVehicleCoords(v) })).filter(v => v.coords), [filteredVehicles]);
   const runningCount   = vehicles.filter(v => getVState(v, deviceStatesByType).stateName === 'Running').length;
