@@ -128,3 +128,17 @@ export const getISTDaysAgo = (days) =>
   new Date(Date.now() + IST_OFFSET_MS - days * 24 * 60 * 60 * 1000)
     .toISOString()
     .slice(0, 10);
+
+/**
+ * Current IST date+time as 'YYYY-MM-DDTHH:MM' — use as datetime-local picker default.
+ */
+export const getISTNow = () =>
+  new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 16);
+
+/**
+ * IST date+time N days ago as 'YYYY-MM-DDTHH:MM' — use as datetime-local picker default.
+ */
+export const getISTDaysAgoDatetime = (days) =>
+  new Date(Date.now() + IST_OFFSET_MS - days * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 16);

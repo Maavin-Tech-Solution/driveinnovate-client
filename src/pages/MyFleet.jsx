@@ -11,6 +11,7 @@ import {
   getVehicleSensors, createVehicleSensor, updateVehicleSensor, deleteVehicleSensor,
   getVehicleReportSummary, getVehicleReportDaily, getVehicleReportEngineHours,
   getVehicleReportTrips, getVehicleReportFuelFillings, exportVehicleReportExcel, reprocessVehicleData,
+  downloadRawPacketsExcel,
 } from '../services/vehicle.service';
 import api from '../services/api';
 import { getVehicleState } from '../utils/vehicleState';
@@ -18,7 +19,7 @@ import { getDeviceConfigs } from '../services/master.service';
 import { getGroups, createGroup, updateGroup, deleteGroup, addVehicleToGroup, removeVehicleFromGroup } from '../services/group.service';
 import { createTripShare } from '../services/share.service';
 import LocationPlayer from '../components/common/LocationPlayer';
-import { getISTToday, getISTDaysAgo } from '../utils/dateFormat';
+import { getISTToday, getISTDaysAgo, getISTNow, getISTDaysAgoDatetime } from '../utils/dateFormat';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const INDIA_CENTER = [22.9734, 78.6569];
@@ -433,16 +434,15 @@ const MyFleet = () => {
   const [showSensorForm, setShowSensorForm] = useState(false);
   const [savingSensor, setSavingSensor] = useState(false);
 
-  const today = getISTToday();
-  const weekAgo = getISTDaysAgo(7);
   const [reportTab, setReportTab] = useState('summary');
-  const [reportFrom, setReportFrom] = useState(weekAgo);
-  const [reportTo, setReportTo] = useState(today);
+  const [reportFrom, setReportFrom] = useState(getISTDaysAgoDatetime(7));
+  const [reportTo, setReportTo] = useState(getISTNow());
   const [reportData, setReportData] = useState(null);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportPage, setReportPage] = useState(0);
   const [reportExporting, setReportExporting] = useState(false);
   const [reprocessing, setReprocessing] = useState(false);
+  const [packetsDownloading, setPacketsDownloading] = useState(false);
   const [viewMode, setViewMode] = useState('map');
 
   const [playerOpen, setPlayerOpen] = useState(false);
@@ -747,6 +747,21 @@ const MyFleet = () => {
       fetchReport(selectedVehicle.id, reportTab, reportFrom, reportTo, reportPage);
     } catch { toast.error('Reprocess failed'); }
     finally { setReprocessing(false); }
+  };
+
+  const handleDownloadPackets = async () => {
+    if (!selectedVehicle) return;
+    setPacketsDownloading(true);
+    try {
+      const resp = await downloadRawPacketsExcel(selectedVehicle.id, reportFrom, reportTo);
+      const url = window.URL.createObjectURL(new Blob([resp.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `packets_${selectedVehicle.vehicleNumber || selectedVehicle.id}_${reportFrom.slice(0, 10)}.xlsx`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch { toast.error('Packet download failed'); }
+    finally { setPacketsDownloading(false); }
   };
 
   const openCreateGroup = () => { setEditingGroup(null); setGroupForm({ name: '', description: '', color: '#3b82f6' }); setShowGroupModal(true); };
@@ -1414,8 +1429,8 @@ const MyFleet = () => {
                           <ReportsTab vehicle={dv} reportTab={reportTab} setReportTab={setReportTab}
                             reportFrom={reportFrom} reportTo={reportTo} setReportFrom={setReportFrom} setReportTo={setReportTo}
                             reportData={reportData} reportLoading={reportLoading} reportPage={reportPage} setReportPage={setReportPage}
-                            reportExporting={reportExporting} reprocessing={reprocessing}
-                            fetchReport={fetchReport} handleExport={handleExport} handleReprocess={handleReprocess} />
+                            reportExporting={reportExporting} reprocessing={reprocessing} packetsDownloading={packetsDownloading}
+                            fetchReport={fetchReport} handleExport={handleExport} handleReprocess={handleReprocess} handleDownloadPackets={handleDownloadPackets} />
                         )}
                         {activeTab === 'sensors' && (
                           <SensorsTab vehicle={dv} sensors={sensors} loadingSensors={loadingSensors}
@@ -1726,8 +1741,8 @@ const MyFleet = () => {
                   <ReportsTab vehicle={selectedVehicle} reportTab={reportTab} setReportTab={setReportTab}
                     reportFrom={reportFrom} reportTo={reportTo} setReportFrom={setReportFrom} setReportTo={setReportTo}
                     reportData={reportData} reportLoading={reportLoading} reportPage={reportPage} setReportPage={setReportPage}
-                    reportExporting={reportExporting} reprocessing={reprocessing}
-                    fetchReport={fetchReport} handleExport={handleExport} handleReprocess={handleReprocess} />
+                    reportExporting={reportExporting} reprocessing={reprocessing} packetsDownloading={packetsDownloading}
+                    fetchReport={fetchReport} handleExport={handleExport} handleReprocess={handleReprocess} handleDownloadPackets={handleDownloadPackets} />
                 )}
                 {activeTab === 'sensors' && (
                   <SensorsTab vehicle={selectedVehicle} sensors={sensors} loadingSensors={loadingSensors}
@@ -2082,7 +2097,7 @@ const TripsTab = ({ vehicle, reportFrom, reportTo, reportData, reportLoading, re
 // ══════════════════════════════════════════════════════════════════════════════
 // Reports Tab
 // ══════════════════════════════════════════════════════════════════════════════
-const ReportsTab = ({ vehicle, reportTab, setReportTab, reportFrom, reportTo, setReportFrom, setReportTo, reportData, reportLoading, reportPage, setReportPage, reportExporting, reprocessing, fetchReport, handleExport, handleReprocess }) => {
+const ReportsTab = ({ vehicle, reportTab, setReportTab, reportFrom, reportTo, setReportFrom, setReportTo, reportData, reportLoading, reportPage, setReportPage, reportExporting, reprocessing, packetsDownloading, fetchReport, handleExport, handleReprocess, handleDownloadPackets }) => {
   const TABS = [
     { id: 'summary',      label: 'Summary',    icon: 'chart' },
     { id: 'daily',        label: 'Daily',       icon: 'calendar' },
@@ -2094,13 +2109,16 @@ const ReportsTab = ({ vehicle, reportTab, setReportTab, reportFrom, reportTo, se
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: '9px 12px', display: 'flex', flexWrap: 'wrap', gap: 7, alignItems: 'center' }}>
-        <input type="date" value={reportFrom} onChange={e => setReportFrom(e.target.value)} style={{ ...inp, width: 'auto', padding: '5px 8px' }} />
+        <input type="datetime-local" value={reportFrom} onChange={e => setReportFrom(e.target.value)} style={{ ...inp, width: 'auto', padding: '5px 8px' }} />
         <span style={{ color: C.textLight, fontSize: 12 }}>to</span>
-        <input type="date" value={reportTo} onChange={e => setReportTo(e.target.value)} style={{ ...inp, width: 'auto', padding: '5px 8px' }} />
+        <input type="datetime-local" value={reportTo} onChange={e => setReportTo(e.target.value)} style={{ ...inp, width: 'auto', padding: '5px 8px' }} />
         <button onClick={handleLoad} style={btn(C.primary)}>Load</button>
         <div style={{ flex: 1 }} />
         <button onClick={handleExport} disabled={reportExporting} style={btn('#059669', reportExporting)}>
           <Ic n="download" size={12} /> {reportExporting ? 'Exporting…' : 'Excel'}
+        </button>
+        <button onClick={handleDownloadPackets} disabled={packetsDownloading} style={btn('#6366f1', packetsDownloading)}>
+          <Ic n="download" size={12} /> {packetsDownloading ? '…' : 'Packets'}
         </button>
         <button onClick={handleReprocess} disabled={reprocessing} style={btn('#d97706', reprocessing)}>
           <Ic n="refresh" size={12} /> {reprocessing ? '…' : 'Reprocess'}
