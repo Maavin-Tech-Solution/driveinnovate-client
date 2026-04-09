@@ -80,7 +80,6 @@ const SpeedChart = ({ locations, currentIndex, onHover, onLeave, dark = false })
       style={{
         padding: dark ? '4px 20px 8px' : '4px 24px 10px',
         background: dark ? 'rgba(15,23,42,0.92)' : '#fff',
-        borderTop: dark ? 'none' : '1px solid #e2e8f0',
       }}
     >
       <div style={{

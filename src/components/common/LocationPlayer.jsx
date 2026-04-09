@@ -13,9 +13,10 @@ function haversineDistance(lat1, lon1, lat2, lon2) {
 import React, { useState, useEffect, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from 'react-leaflet';
 import { toast } from 'react-toastify';
-import { getLocationPlayerData } from '../../services/vehicle.service';
+import { getLocationPlayerData, getVehicleReportTrips } from '../../services/vehicle.service';
 import { getSettings } from '../../services/settings.service';
 import { toISTString, toISTTimeString } from '../../utils/dateFormat';
+import SpeedChart from './SpeedChart';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
@@ -71,6 +72,8 @@ const LocationPlayer = ({ vehicle, onClose, initialFrom, initialTo }) => {
   ]);
   const [showLegend, setShowLegend] = useState(true);
   const [totalDistance, setTotalDistance] = useState(0);
+  const [tripCount, setTripCount] = useState(null);
+  const [hoveredIndex, setHoveredIndex] = useState(null);
   const playbackTimerRef = useRef(null);
 
   // Fetch user settings for speed ranges
@@ -168,12 +171,21 @@ const LocationPlayer = ({ vehicle, onClose, initialFrom, initialTo }) => {
         setLocations(locationsList);
         setTotalRecords(actualData.totalRecords || locationsList.length);
         setCurrentIndex(0);
-        setShowDatePicker(false); // Auto-hide date picker after loading
+        setHoveredIndex(null);
+        setShowDatePicker(false);
         toast.success(`Loaded ${locationsList.length} location points`);
+
+        // Fetch trip count for this date range
+        try {
+          const tripRes = await getVehicleReportTrips(vehicle.id, fromISO, toISO, 1, 0);
+          const total = tripRes?.data?.total ?? tripRes?.total ?? null;
+          setTripCount(total);
+        } catch (_) { setTripCount(null); }
       } else {
         setTotalDistance(0);
         setLocations([]);
         setTotalRecords(0);
+        setTripCount(null);
       }
       console.log('=== END DEBUG ===');
     } catch (error) {
@@ -269,10 +281,12 @@ const LocationPlayer = ({ vehicle, onClose, initialFrom, initialTo }) => {
     return segments;
   };
 
+  // Active index: hover overrides playback for map marker
+  const activeIndex = hoveredIndex ?? currentIndex;
   // Get current location and path
-  const currentLocation = locations[currentIndex];
+  const currentLocation = locations[activeIndex];
   // Show full path initially, then progressive path during playback
-  const pathCoordinates = isPlaying || currentIndex > 0 
+  const pathCoordinates = isPlaying || currentIndex > 0
     ? locations.slice(0, currentIndex + 1).map(loc => [loc.latitude, loc.longitude])
     : locations.map(loc => [loc.latitude, loc.longitude]);
   const pathSegments = createColoredSegments();
@@ -290,25 +304,25 @@ const LocationPlayer = ({ vehicle, onClose, initialFrom, initialTo }) => {
 
   return (
     <>
-      {/* Overlay */}
-      <div 
-        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 2000 }} 
-        onClick={onClose} 
+      {/* Overlay — above everything in the app */}
+      <div
+        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9998 }}
+        onClick={onClose}
       />
 
       {/* Modal */}
       <div style={{
-        position: 'fixed', 
-        top: isFullscreen ? 0 : '50%', 
-        left: isFullscreen ? 0 : '50%', 
+        position: 'fixed',
+        top: isFullscreen ? 0 : '50%',
+        left: isFullscreen ? 0 : '50%',
         transform: isFullscreen ? 'none' : 'translate(-50%, -50%)',
-        background: '#fff', 
-        borderRadius: isFullscreen ? 0 : '12px', 
+        background: '#fff',
+        borderRadius: isFullscreen ? 0 : '12px',
         boxShadow: isFullscreen ? 'none' : '0 20px 60px rgba(0,0,0,0.4)',
-        zIndex: 2001, 
-        width: isFullscreen ? '100vw' : '95%', 
-        maxWidth: isFullscreen ? 'none' : '1200px', 
-        height: isFullscreen ? '100vh' : '90vh', 
+        zIndex: 9999,
+        width: isFullscreen ? '100vw' : '95%',
+        maxWidth: isFullscreen ? 'none' : '1200px',
+        height: isFullscreen ? '100vh' : '90vh',
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
@@ -768,18 +782,34 @@ const LocationPlayer = ({ vehicle, onClose, initialFrom, initialTo }) => {
             flexShrink: 0,
             overflowY: 'auto'
           }}>
-            {/* Distance Covered */}
+            {/* Distance Covered + Trip Count */}
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 12,
+              gap: 16,
               marginBottom: 8,
               fontSize: 14,
-              color: '#2563eb',
               fontWeight: 600,
+              flexWrap: 'wrap',
             }}>
-              <span>Distance Covered:</span>
-              <span>{totalDistance.toFixed(2)} km</span>
+              <span style={{ color: '#2563eb' }}>
+                Distance: {totalDistance.toFixed(2)} km
+              </span>
+              {tripCount !== null && (
+                <span style={{
+                  background: tripCount === 0 ? '#f1f5f9' : '#eff6ff',
+                  color: tripCount === 0 ? '#94a3b8' : '#2563eb',
+                  border: `1px solid ${tripCount === 0 ? '#e2e8f0' : '#bfdbfe'}`,
+                  borderRadius: 20,
+                  padding: '2px 12px',
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}>
+                  {tripCount === 0
+                    ? 'No trips recorded'
+                    : `${tripCount} trip${tripCount > 1 ? 's' : ''} in range`}
+                </span>
+              )}
             </div>
             {/* ...existing code... */}
             {/* Timeline info */}
@@ -880,6 +910,19 @@ const LocationPlayer = ({ vehicle, onClose, initialFrom, initialTo }) => {
                 ))}
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Speed vs Time chart — separate flex child so it is never clipped by controls overflow */}
+        {locations.length > 0 && (
+          <div style={{ flexShrink: 0, borderTop: '1px solid #e2e8f0' }}>
+            <SpeedChart
+              locations={locations}
+              currentIndex={currentIndex}
+              onHover={setHoveredIndex}
+              onLeave={() => setHoveredIndex(null)}
+              dark={false}
+            />
           </div>
         )}
       </div>

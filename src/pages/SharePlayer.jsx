@@ -15,6 +15,7 @@ import { useParams } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from 'react-leaflet';
 import { getShareData } from '../services/share.service';
 import { toISTString } from '../utils/dateFormat';
+import SpeedChart from '../components/common/SpeedChart';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
@@ -75,6 +76,7 @@ const SharePlayer = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [showStats, setShowStats] = useState(true);
+  const [hoveredIndex, setHoveredIndex] = useState(null);
   const playbackTimerRef = useRef(null);
 
   // Fetch share data on mount
@@ -122,7 +124,8 @@ const SharePlayer = () => {
     setIsPlaying(p => !p);
   };
 
-  const currentLocation = locations[currentIndex];
+  const activeIndex = hoveredIndex ?? currentIndex;
+  const currentLocation = locations[activeIndex];
   const mapCenter = currentLocation
     ? [currentLocation.latitude, currentLocation.longitude]
     : [22.9734, 78.6569];
@@ -167,7 +170,7 @@ const SharePlayer = () => {
   const vehicleLabel = vehicle?.vehicleName || vehicle?.vehicleNumber || 'Vehicle';
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: "'Plus Jakarta Sans', sans-serif", background: '#0f172a' }}>
       {/* Header */}
       <div style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #2563eb 60%, #3b82f6 100%)', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 14, flexShrink: 0, boxShadow: '0 2px 8px rgba(0,0,0,0.18)' }}>
         <div style={{ fontSize: 28 }}>{vehicleEmoji}</div>
@@ -201,7 +204,7 @@ const SharePlayer = () => {
       </div>
 
       {/* Map */}
-      <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+      <div style={{ flex: 1, position: 'relative', minHeight: 0, overflow: 'hidden' }}>
         {locations.length === 0 ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', flexDirection: 'column', gap: 12, color: '#94a3b8', background: '#f8fafc' }}>
             <div style={{ fontSize: 48 }}>📍</div>
@@ -331,6 +334,17 @@ const SharePlayer = () => {
           </div>
         )}
       </div>
+
+      {/* Speed vs Time chart (dark, below map) */}
+      {locations.length > 1 && (
+        <SpeedChart
+          locations={locations}
+          currentIndex={currentIndex}
+          onHover={setHoveredIndex}
+          onLeave={() => setHoveredIndex(null)}
+          dark={true}
+        />
+      )}
     </div>
   );
 };
