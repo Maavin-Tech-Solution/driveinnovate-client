@@ -11,6 +11,7 @@ import {
   getVehicleSensors, createVehicleSensor, updateVehicleSensor, deleteVehicleSensor,
   getVehicleReportSummary, getVehicleReportDaily, getVehicleReportEngineHours,
   getVehicleReportTrips, getVehicleReportFuelFillings, exportVehicleReportExcel, reprocessVehicleData,
+  reprocessVehicleDataBg, getReprocessStatus,
   downloadRawPacketsExcel,
 } from '../services/vehicle.service';
 import api from '../services/api';
@@ -32,15 +33,15 @@ const VEHICLE_ICON_MAP = {
 };
 const REPORT_PAGE_SIZE = 20;
 const GROUP_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899'];
-const DEVICE_TYPES = ['GT06', 'GT06N', 'FMB125', 'FMB130', 'FMB920', 'FMB140', 'WeTrack2', 'TK103'];
+const DEVICE_TYPES = ['GT06', 'GT06N', 'FMB125', 'FMB130', 'FMB920', 'FMB140', 'AIS140', 'WeTrack2', 'TK103'];
 const VEHICLE_ICONS = [
   'car','suv','truck','bus','bike','auto','van','ambulance',
   'pickup','minibus','schoolbus','tractor','crane','jcb',
   'dumper','earthmover','tanker','container','fire','police','sweeper','tipper',
 ];
 const SENSOR_TYPES = ['number', 'boolean', 'text'];
-const PANEL_W = 280;
-const DETAIL_W = 400;
+const PANEL_W = 260;
+const DETAIL_W = 380;
 const HUD_H = 52;
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
@@ -62,26 +63,36 @@ const C = {
 // ─── CSS Animations (injected once) ──────────────────────────────────────────
 const HUD_CSS = `
   .fv-run { animation: fv-pulse-g 2s ease-out infinite; }
-  .fv-stop { animation: fv-pulse-r 3.5s ease-out infinite; }
-  .fv-sel { animation: none !important; box-shadow: 0 0 0 3px #fff, 0 0 0 5px #3b82f6, 0 6px 24px rgba(59,130,246,0.55) !important; transform: scale(1.18) !important; transform-origin: center bottom !important; }
-  .fv-tooltip.leaflet-tooltip { padding: 0 !important; background: transparent !important; border: none !important; box-shadow: none !important; border-radius: 8px !important; pointer-events: auto !important; }
+  .fv-stop {}
+  .fv-sel { animation: none !important; box-shadow: 0 0 0 3px #fff, 0 0 0 5px #2563eb, 0 6px 24px rgba(37,99,235,0.45) !important; transform: scale(1.18) !important; transform-origin: center bottom !important; }
+  .fv-tooltip.leaflet-tooltip { padding: 0 !important; background: transparent !important; border: none !important; box-shadow: none !important; border-radius: 10px !important; pointer-events: auto !important; }
   .fv-tooltip.leaflet-tooltip::before { display: none !important; }
-  .fv-tooltip > div { border-radius: 8px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.07); }
+  .fv-tooltip > div { border-radius: 10px; overflow: hidden; box-shadow: 0 12px 40px rgba(0,0,0,0.16), 0 0 0 1px rgba(0,0,0,0.06); }
   @keyframes fv-pulse-g {
-    0%   { box-shadow: 0 0 0 0 rgba(34,197,94,0.75), 0 2px 10px rgba(0,0,0,0.55); }
-    65%  { box-shadow: 0 0 0 8px rgba(34,197,94,0), 0 2px 10px rgba(0,0,0,0.55); }
-    100% { box-shadow: 0 0 0 0 rgba(34,197,94,0), 0 2px 10px rgba(0,0,0,0.55); }
+    0%   { box-shadow: 0 0 0 0 rgba(22,163,74,0.7), 0 2px 8px rgba(0,0,0,0.4); }
+    65%  { box-shadow: 0 0 0 9px rgba(22,163,74,0), 0 2px 8px rgba(0,0,0,0.4); }
+    100% { box-shadow: 0 0 0 0 rgba(22,163,74,0), 0 2px 8px rgba(0,0,0,0.4); }
   }
-  @keyframes fv-pulse-r {
-    0%   { box-shadow: 0 0 0 0 rgba(239,68,68,0.55), 0 2px 10px rgba(0,0,0,0.55); }
-    65%  { box-shadow: 0 0 0 5px rgba(239,68,68,0), 0 2px 10px rgba(0,0,0,0.55); }
-    100% { box-shadow: 0 0 0 0 rgba(239,68,68,0), 0 2px 10px rgba(0,0,0,0.55); }
-  }
-  .fv-card:hover { background: #EFF6FF !important; border-color: #BFDBFE !important; }
-  .fv-tab-btn:hover { background: rgba(37,99,235,0.07) !important; }
+  /* Vehicle card in sidebar */
+  .fv-card { transition: box-shadow 0.15s, background 0.15s, border-color 0.15s; }
+  .fv-card:hover { background: #F0F7FF !important; border-color: #93C5FD !important; box-shadow: 0 2px 8px rgba(37,99,235,0.10) !important; }
+  /* Tab buttons */
+  .fv-tab-btn { transition: color 0.15s, background 0.15s; }
+  .fv-tab-btn:hover { background: #EFF6FF !important; color: #2563EB !important; }
+  /* Action buttons in detail panel */
+  .fv-action-btn { transition: filter 0.12s, box-shadow 0.12s; }
+  .fv-action-btn:hover { filter: brightness(0.95); box-shadow: 0 2px 8px rgba(0,0,0,0.12) !important; }
+  /* Group pill filter */
+  .fv-grp-pill { transition: all 0.15s; }
+  .fv-grp-pill:hover { background: #EFF6FF !important; border-color: #93C5FD !important; color: #2563EB !important; }
+  /* Table view cells */
   .ft-cell { transition: background 0.1s; border-right: 1px solid #F1F5F9; }
   .ft-cell:last-child { border-right: none; }
   .ft-cell:hover { background: #EFF6FF !important; }
+  /* Metric card in detail header */
+  .fv-metric:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.1) !important; }
+  .fv-metric { transition: transform 0.15s, box-shadow 0.15s; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 `;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -150,10 +161,11 @@ const MAP_TILES = {
 };
 const getMapTileUrl = () => MAP_TILES[localStorage.getItem('mapStyle') || 'voyager'] || MAP_TILES.voyager;
 
-// ─── Map Marker Icon (emoji circle, no plate text) ────────────────────────────
-const makeVehicleIcon = (vehicle, isSelected) => {
+// ─── Map Marker Icon ──────────────────────────────────────────────────────────
+// Accepts an optional stateColor so it can reflect DB-defined vehicle states
+const makeVehicleIcon = (vehicle, isSelected, stateColor) => {
   const ign   = getIgnition(vehicle);
-  const bg    = ign === true ? '#16a34a' : ign === false ? '#dc2626' : '#475569';
+  const bg    = stateColor || (ign === true ? '#16a34a' : ign === false ? '#dc2626' : '#475569');
   const cls   = isSelected ? 'fv-sel' : ign === true ? 'fv-run' : 'fv-stop';
   const emoji = VEHICLE_ICON_MAP[vehicle.vehicleIcon] || '🚗';
   const size  = isSelected ? 46 : 38;
@@ -180,12 +192,12 @@ const createClusterCustomIcon = (cluster) => {
     className: '',
     html: `<div style="
       width:${size}px;height:${size}px;
-      background:var(--theme-sidebar-bg);
+      background:linear-gradient(135deg,#1D4ED8,#3B82F6);
       border-radius:50%;
       display:flex;align-items:center;justify-content:center;
       color:#fff;font-weight:800;font-size:${fs}px;
       border:3px solid #fff;
-      box-shadow:0 4px 14px rgba(37,99,235,0.55),0 2px 4px rgba(0,0,0,0.2);
+      box-shadow:0 4px 14px rgba(37,99,235,0.45),0 2px 4px rgba(0,0,0,0.15);
       font-family:'Plus Jakarta Sans',sans-serif;
       letter-spacing:-0.5px;
     ">${count}</div>`,
@@ -333,17 +345,19 @@ const VehicleTooltip = ({ vehicle }) => {
   return (
     <div style={{ fontFamily: "'Plus Jakarta Sans',-apple-system,sans-serif", width: 240, padding: 0 }}>
       {/* Header */}
-      <div style={{ background: 'var(--theme-sidebar-bg)', borderRadius: '8px 8px 0 0', padding: '12px 14px', marginBottom: 0 }}>
+      <div style={{ background: '#FFFFFF', borderRadius: '8px 8px 0 0', padding: '12px 14px', borderBottom: `3px solid ${ignColor}`, marginBottom: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 24, lineHeight: 1 }}>{VEHICLE_ICON_MAP[vehicle.vehicleIcon] || '🚗'}</span>
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 14, color: '#FFFFFF', lineHeight: 1.2 }}>{vehicleDisplayName(vehicle)}</div>
+          <div style={{ width: 40, height: 40, borderRadius: 10, background: ignBg, border: `1.5px solid ${ignColor}33`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>
+            {VEHICLE_ICON_MAP[vehicle.vehicleIcon] || '🚗'}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 800, fontSize: 13.5, color: '#0F172A', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{vehicleDisplayName(vehicle)}</div>
             {vehicle.vehicleName && vehicle.vehicleNumber && (
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', fontFamily: 'monospace', marginTop: 2 }}>{vehicle.vehicleNumber}</div>
+              <div style={{ fontSize: 10.5, color: '#64748B', fontFamily: 'monospace', marginTop: 2 }}>{vehicle.vehicleNumber}</div>
             )}
           </div>
         </div>
-        <div style={{ marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 5, background: ignBg, borderRadius: 20, padding: '3px 10px' }}>
+        <div style={{ marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 5, background: ignBg, borderRadius: 20, padding: '3px 10px', border: `1px solid ${ignColor}30` }}>
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: ignColor, flexShrink: 0 }} />
           <span style={{ fontSize: 11, fontWeight: 700, color: ignColor }}>{ignLabel}</span>
         </div>
@@ -442,6 +456,7 @@ const MyFleet = () => {
   const [reportPage, setReportPage] = useState(0);
   const [reportExporting, setReportExporting] = useState(false);
   const [reprocessing, setReprocessing] = useState(false);
+  const [bgReprocessing, setBgReprocessing] = useState(false); // background auto-reprocess indicator
   const [packetsDownloading, setPacketsDownloading] = useState(false);
   const [viewMode, setViewMode] = useState('map');
 
@@ -597,15 +612,17 @@ const MyFleet = () => {
 
   useEffect(() => {
     if (!selectedVehicle || activeTab !== 'reports') return;
+    triggerBgReprocess(selectedVehicle.id, reportFrom, reportTo);
     fetchReport(selectedVehicle.id, reportTab, reportFrom, reportTo, 0);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedVehicle?.id, activeTab, reportTab]);
+  }, [selectedVehicle?.id, activeTab, reportTab, reportFrom, reportTo]);
 
   useEffect(() => {
     if (!selectedVehicle || activeTab !== 'trips') return;
+    triggerBgReprocess(selectedVehicle.id, reportFrom, reportTo);
     fetchReport(selectedVehicle.id, 'trips', reportFrom, reportTo, 0);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedVehicle?.id, activeTab]);
+  }, [selectedVehicle?.id, activeTab, reportFrom, reportTo]);
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -613,6 +630,39 @@ const MyFleet = () => {
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
   }, []);
+
+  // ─── Background auto-reprocess ────────────────────────────────────────────
+  // Keyed by "vehicleId|from|to" in sessionStorage so each unique range is only
+  // triggered once per browser session (avoids hammering on every tab switch).
+  // Use refs to read latest activeTab / reportTab without stale closures.
+  const activeTabRef  = useRef(activeTab);
+  const reportTabRef  = useRef(reportTab);
+  useEffect(() => { activeTabRef.current  = activeTab;  }, [activeTab]);
+  useEffect(() => { reportTabRef.current  = reportTab;  }, [reportTab]);
+
+  const triggerBgReprocess = (vehicleId, from, to) => {
+    const key = `bgr|${vehicleId}|${from}|${to}`;
+    if (sessionStorage.getItem(key)) return; // already kicked off this session
+    sessionStorage.setItem(key, '1');
+    setBgReprocessing(true);
+    reprocessVehicleDataBg(vehicleId, from, to).catch(() => {});
+    // Poll until done, then auto-reload the active report tab
+    const poll = setInterval(async () => {
+      try {
+        const r = await getReprocessStatus(vehicleId, from, to);
+        const job = r?.data?.data || r?.data;
+        if (job?.status === 'done') {
+          clearInterval(poll);
+          setBgReprocessing(false);
+          const tab = activeTabRef.current;
+          fetchReport(vehicleId, tab === 'trips' ? 'trips' : reportTabRef.current, from, to, 0);
+        } else if (job?.status === 'error' || job?.status === 'idle') {
+          clearInterval(poll);
+          setBgReprocessing(false);
+        }
+      } catch { clearInterval(poll); setBgReprocessing(false); }
+    }, 3000);
+  };
 
   const fetchReport = async (vehicleId, tab, from, to, page = 0) => {
     setReportLoading(true); setReportData(null);
@@ -1300,28 +1350,28 @@ const MyFleet = () => {
                 onClick={e => e.stopPropagation()}>
 
                 {/* ── Top header bar ── */}
-                <div style={{ background: 'var(--theme-sidebar-bg)', padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-                  <div style={{ width: 42, height: 42, background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 21, flexShrink: 0 }}>
+                <div style={{ background: '#FFFFFF', borderBottom: `3px solid ${ignColor}`, padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+                  <div style={{ width: 44, height: 44, borderRadius: 11, background: ignColor + '12', border: `1.5px solid ${ignColor}30`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>
                     {VEHICLE_ICON_MAP[dv.vehicleIcon] || '🚗'}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 16, fontWeight: 800, color: '#fff', letterSpacing: '-0.02em', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <div style={{ fontSize: 15.5, fontWeight: 800, color: '#0F172A', letterSpacing: '-0.02em', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {dv.vehicleName || dv.vehicleNumber || 'Vehicle'}
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3, flexWrap: 'wrap' }}>
-                      {dv.vehicleName && dv.vehicleNumber && <span style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.75)', fontFamily: 'monospace' }}>{dv.vehicleNumber}</span>}
-                      {dv.imei && <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', fontFamily: 'monospace' }}>IMEI: {dv.imei}</span>}
-                      {dv.deviceType && <span style={{ fontSize: 10, background: 'rgba(255,255,255,0.14)', color: 'rgba(255,255,255,0.9)', padding: '1px 8px', fontWeight: 700, border: '1px solid rgba(255,255,255,0.22)' }}>{dv.deviceType}</span>}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 3, flexWrap: 'wrap' }}>
+                      {dv.vehicleName && dv.vehicleNumber && <span style={{ fontSize: 11, fontWeight: 600, color: '#64748B', fontFamily: 'monospace' }}>{dv.vehicleNumber}</span>}
+                      {dv.imei && <span style={{ fontSize: 10.5, color: '#94A3B8', fontFamily: 'monospace' }}>IMEI: {dv.imei}</span>}
+                      {dv.deviceType && <span title="GPS device type" style={{ fontSize: 9.5, background: '#EFF6FF', color: '#2563EB', padding: '1px 8px', borderRadius: 20, fontWeight: 700, border: '1px solid #BFDBFE' }}>{dv.deviceType}</span>}
                     </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 12px', fontSize: 11, fontWeight: 700, background: ignBg, color: ignColor, border: `1.5px solid ${ignColor}44` }}>
+                    <span title={`Vehicle state: ${ignLabel}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 12px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: ignBg, color: ignColor, border: `1.5px solid ${ignColor}35` }}>
                       <span style={{ width: 6, height: 6, borderRadius: '50%', background: ignColor, boxShadow: ign === true ? `0 0 5px ${ignColor}` : 'none' }} />
                       {ignLabel}
                     </span>
-                    <button onClick={() => setDrawerVehicle(null)} title="Close"
-                      style={{ width: 34, height: 34, background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.22)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      <Ic n="x" size={15} color="#fff" />
+                    <button onClick={() => setDrawerVehicle(null)} title="Close vehicle details"
+                      style={{ width: 32, height: 32, background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 7, color: '#94A3B8', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <Ic n="x" size={14} color="#94A3B8" />
                     </button>
                   </div>
                 </div>
@@ -1453,13 +1503,264 @@ const MyFleet = () => {
     );
   }
 
-  /* ══════ MAP VIEW (original) ══════ */
+  /* ══════ MAP VIEW ══════ */
   return (
-    <div style={{ position: 'relative', height: '100%', minHeight: 0, overflow: 'hidden', margin: '-24px', width: 'calc(100% + 48px)', fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif' }}>
+    // Flex-column container: HUD bar on top, content row below.
+    // The content row uses flex so the map takes the real remaining space
+    // between panels instead of being covered by absolute overlays.
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', margin: '-24px', width: 'calc(100% + 48px)', fontFamily: "'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" }}>
 
-      {/* ══════ MAP BACKGROUND (light tiles) ══════ */}
-      <div style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
-        <MapContainer center={INDIA_CENTER} zoom={5} style={{ height: '100%', width: '100%' }} scrollWheelZoom zoomControl={false}>
+      {/* ══════ TOP HUD BAR ══════ */}
+      <div style={{
+        flexShrink: 0, height: HUD_H, zIndex: 20,
+        background: '#ffffff',
+        borderBottom: '1px solid #E2E8F0',
+        display: 'flex', alignItems: 'center', gap: 8, padding: '0 14px',
+        boxShadow: '0 1px 0 #E2E8F0, 0 2px 8px rgba(0,0,0,0.04)',
+      }}>
+        {/* Panel toggle — show/hide vehicle list sidebar */}
+        <button
+          title={panelOpen ? 'Hide vehicle list' : 'Show vehicle list'}
+          onClick={() => setPanelOpen(o => !o)}
+          style={{ background: panelOpen ? '#EFF6FF' : 'transparent', border: `1px solid ${panelOpen ? '#BFDBFE' : '#E2E8F0'}`, cursor: 'pointer', color: panelOpen ? '#2563EB' : '#64748B', padding: '6px 8px', borderRadius: 7, display: 'flex', alignItems: 'center', transition: 'all 0.15s', flexShrink: 0 }}>
+          <Ic n="menu" size={15} color={panelOpen ? '#2563EB' : '#475569'} />
+        </button>
+
+        {/* Brand */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0 }}>
+          <div style={{ width: 28, height: 28, borderRadius: 7, background: 'linear-gradient(135deg,#1D4ED8,#3B82F6)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(37,99,235,0.28)' }}>
+            <Ic n="map" size={14} color="#fff" sw={2} />
+          </div>
+          <div>
+            <div style={{ fontSize: 13.5, fontWeight: 800, color: '#0F172A', letterSpacing: '-0.3px', lineHeight: 1.1 }}>FleetView</div>
+            <div style={{ fontSize: 9.5, color: '#94A3B8', fontWeight: 500, lineHeight: 1 }}>Live tracking</div>
+          </div>
+        </div>
+
+        <div style={{ width: 1, height: 26, background: '#E2E8F0', margin: '0 4px', flexShrink: 0 }} />
+
+        {/* Stat chips — click to filter by status */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          {ALL_FLEET_CHIPS.filter(c => visibleChips.includes(c.id)).map(c => (
+            <HudChip key={c.id} value={CHIP_COUNTS[c.id]} label={c.label} dot={c.dot} />
+          ))}
+        </div>
+
+        <div style={{ flex: 1 }} />
+
+        {/* Search — filter vehicles by name, number or IMEI */}
+        <div style={{ position: 'relative', flexShrink: 0 }}>
+          <span style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
+            <Ic n="search" size={13} color="#94A3B8" />
+          </span>
+          <input
+            title="Search by vehicle name, number plate or IMEI"
+            style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 7, color: '#0F172A', fontSize: 13, padding: '6px 10px 6px 30px', outline: 'none', width: 180, fontFamily: 'inherit' }}
+            placeholder="Search vehicles…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
+
+        {/* Refresh — pull latest vehicle & GPS data */}
+        <button
+          title="Refresh fleet data"
+          onClick={fetchVehicles}
+          disabled={loading}
+          style={{ background: 'transparent', border: '1px solid #E2E8F0', cursor: loading ? 'not-allowed' : 'pointer', color: '#475569', padding: '6px 9px', borderRadius: 7, display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, flexShrink: 0, transition: 'background 0.15s' }}>
+          <Ic n="refresh" size={13} color={loading ? '#CBD5E1' : '#475569'} />
+        </button>
+
+        {/* Table view — switch to tabular list with all columns */}
+        <button
+          title="Switch to table view — see all vehicle data in a spreadsheet-style list"
+          onClick={() => setViewMode('table')}
+          style={{ background: 'transparent', border: '1px solid #E2E8F0', cursor: 'pointer', color: '#374151', padding: '6px 12px', borderRadius: 7, display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, fontFamily: 'inherit', flexShrink: 0, transition: 'background 0.15s' }}>
+          <Ic n="layers" size={13} color="#475569" /> Table
+        </button>
+
+        {/* Add Vehicle — register a new tracked vehicle */}
+        <Link
+          to="/add-vehicle"
+          title="Register a new vehicle with GPS device"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'linear-gradient(135deg,#1D4ED8,#3B82F6)', color: '#fff', borderRadius: 7, fontSize: 12, fontWeight: 700, textDecoration: 'none', boxShadow: '0 2px 8px rgba(37,99,235,0.25)', flexShrink: 0 }}>
+          <Ic n="plus" size={13} /> Add Vehicle
+        </Link>
+      </div>
+
+      {/* ══════ CONTENT ROW: left panel + map + right panel ══════ */}
+      <div style={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden' }}>
+
+      {/* ── LEFT PANEL — white vehicle list sidebar ── */}
+      <div style={{
+        flexShrink: 0,
+        width: panelOpen ? PANEL_W : 0,
+        overflow: 'hidden',
+        transition: 'width 0.25s cubic-bezier(0.4,0,0.2,1)',
+        background: '#FFFFFF',
+        borderRight: '1px solid #E2E8F0',
+        display: 'flex',
+        flexDirection: 'column',
+      }}>
+      {/* Inner fixed-width wrapper so content doesn't reflow during transition */}
+      <div style={{ width: PANEL_W, flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+        {/* Search + group filter */}
+        <div style={{ padding: '10px 10px 8px', flexShrink: 0, borderBottom: '1px solid #F1F5F9', background: '#FAFBFC' }}>
+          {/* Search input */}
+          <div style={{ position: 'relative', marginBottom: 8 }}>
+            <span style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
+              <Ic n="search" size={13} color="#9CA3AF" />
+            </span>
+            <input
+              title="Filter vehicles by name, number plate or IMEI"
+              style={{ width: '100%', background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 7, color: '#0F172A', fontSize: 12.5, padding: '7px 10px 7px 30px', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', transition: 'border-color 0.15s' }}
+              placeholder="Search vehicles…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+          {/* Group filter pills — click to show only that group's vehicles */}
+          <div style={{ overflowX: 'auto', display: 'flex', gap: 4, paddingBottom: 1 }}>
+            <button
+              title="Show all vehicles"
+              onClick={() => setSelectedGroupId(null)}
+              className="fv-grp-pill"
+              style={{ flexShrink: 0, padding: '3px 9px', borderRadius: 20, border: `1px solid ${selectedGroupId === null ? '#3B82F6' : '#E2E8F0'}`, background: selectedGroupId === null ? '#2563EB' : '#FFFFFF', color: selectedGroupId === null ? '#fff' : '#374151', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s' }}>
+              All {vehicles.length}
+            </button>
+            {groups.map(g => (
+              <button key={g.id}
+                title={`Filter to "${g.name}" group`}
+                onClick={() => setSelectedGroupId(selectedGroupId === g.id ? null : g.id)}
+                className="fv-grp-pill"
+                style={{ flexShrink: 0, padding: '3px 9px', borderRadius: 20, border: `1px solid ${selectedGroupId === g.id ? (g.color || '#3B82F6') : '#E2E8F0'}`, background: selectedGroupId === g.id ? (g.color || '#3B82F6') + '18' : '#FFFFFF', color: selectedGroupId === g.id ? (g.color || '#2563EB') : '#374151', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4, transition: 'all 0.15s' }}>
+                <span style={{ width: 5, height: 5, borderRadius: '50%', background: g.color || '#3B82F6', flexShrink: 0 }} />
+                {g.name}
+              </button>
+            ))}
+            <Link
+              to="/groups"
+              title="Create or manage vehicle groups"
+              style={{ flexShrink: 0, padding: '3px 9px', borderRadius: 20, border: '1px solid #E2E8F0', background: '#FFFFFF', color: '#64748B', fontSize: 11, fontWeight: 600, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 3, transition: 'all 0.15s' }}>
+              <Ic n="gear" size={9} color="#64748B" /> Manage
+            </Link>
+          </div>
+        </div>
+
+        {/* Vehicle count summary row */}
+        <div style={{ padding: '6px 12px 5px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #F1F5F9' }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            {filteredVehicles.length} vehicle{filteredVehicles.length !== 1 ? 's' : ''}
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span title="Running" style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, color: '#16a34a', fontWeight: 700 }}>
+              <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#22c55e' }} />{runningCount}
+            </span>
+            <span style={{ color: '#CBD5E1', fontSize: 10 }}>·</span>
+            <span title="Stopped" style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, color: '#dc2626', fontWeight: 700 }}>
+              <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#ef4444' }} />{stoppedCount}
+            </span>
+          </div>
+        </div>
+
+        {/* Vehicle cards list — click a card to open details & locate on map */}
+        <div style={{ flex: 1, overflow: 'auto', padding: '6px 8px 16px' }}>
+          {loading && (
+            <div style={{ padding: '32px 0', textAlign: 'center' }}>
+              <div style={{ width: 20, height: 20, border: '2px solid #E2E8F0', borderTopColor: '#3B82F6', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 8px' }} />
+              <div style={{ fontSize: 12, color: '#94A3B8' }}>Loading vehicles…</div>
+            </div>
+          )}
+          {!loading && filteredVehicles.length === 0 && (
+            <div style={{ padding: '36px 14px', textAlign: 'center' }}>
+              <div style={{ fontSize: 28, marginBottom: 8 }}>🔍</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>No vehicles found</div>
+              <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>Try adjusting your search or group filter</div>
+            </div>
+          )}
+          {filteredVehicles.map(v => {
+            const isSel      = selectedVehicle?.id === v.id;
+            const fuel       = v.deviceStatus?.fuel?.level;
+            const speed      = v.deviceStatus?.gpsData?.speed;
+            const battery    = v.deviceStatus?.status?.battery;
+            const lvs        = getVState(v, deviceStatesByType);
+            const stColor    = lvs.stateColor;
+            const stLabel    = lvs.stateName;
+            const lastTs     = v.deviceStatus?.gpsData?.timestamp || v.deviceStatus?.lastUpdate;
+            const minsAgo    = lastTs ? Math.round((Date.now() - new Date(lastTs).getTime()) / 60000) : null;
+            const ageLabel   = minsAgo === null ? null : minsAgo < 2 ? 'Live' : minsAgo < 60 ? `${minsAgo}m` : minsAgo < 1440 ? `${Math.floor(minsAgo/60)}h` : `${Math.floor(minsAgo/1440)}d`;
+            const ageColor   = minsAgo === null ? '#94A3B8' : minsAgo < 5 ? '#16a34a' : minsAgo < 30 ? '#d97706' : '#ef4444';
+            const hasCoords  = !!getVehicleCoords(v);
+            return (
+              <div key={v.id}
+                onClick={() => selectVehicle(v)}
+                title={`${vehicleDisplayName(v)} — click to view details and locate on map`}
+                className="fv-card"
+                style={{
+                  padding: '9px 11px 8px', cursor: 'pointer', borderRadius: 8, marginBottom: 3,
+                  background: isSel ? '#EFF6FF' : '#FFFFFF',
+                  border: `1px solid ${isSel ? '#93C5FD' : '#F1F5F9'}`,
+                  borderLeft: `3px solid ${isSel ? '#2563EB' : stColor}`,
+                  transition: 'all 0.12s',
+                  boxShadow: isSel ? '0 1px 6px rgba(37,99,235,0.10)' : '0 1px 2px rgba(0,0,0,0.04)',
+                }}>
+                {/* Row 1: icon + name + status badge */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 8, background: stColor + '14', border: `1.5px solid ${stColor}30`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>
+                    {VEHICLE_ICON_MAP[v.vehicleIcon] || '🚗'}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#0F172A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.25 }}>
+                      {vehicleDisplayName(v)}
+                    </div>
+                    {v.vehicleNumber && v.vehicleName && (
+                      <div style={{ fontSize: 9.5, color: '#94A3B8', fontFamily: 'monospace', marginTop: 1 }}>{v.vehicleNumber}</div>
+                    )}
+                  </div>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 3, flexShrink: 0, padding: '2px 6px', borderRadius: 20, background: stColor + '14', border: `1px solid ${stColor}28` }}>
+                    <span style={{ width: 4.5, height: 4.5, borderRadius: '50%', background: stColor, flexShrink: 0 }} />
+                    <span style={{ fontSize: 9, fontWeight: 700, color: stColor }}>{stLabel}</span>
+                  </div>
+                </div>
+
+                {/* Row 2: speed + age + battery */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 5, paddingLeft: 40 }}>
+                  {speed != null ? (
+                    <span title="Current speed" style={{ fontSize: 10.5, fontWeight: 800, color: speed > 80 ? '#ef4444' : speed > 5 ? '#2563EB' : '#64748B', fontVariantNumeric: 'tabular-nums' }}>
+                      {speed}<span style={{ fontSize: 8.5, fontWeight: 500, marginLeft: 1 }}>km/h</span>
+                    </span>
+                  ) : !hasCoords ? (
+                    <span title="No GPS signal received" style={{ fontSize: 9, color: '#F59E0B', fontWeight: 600 }}>No GPS</span>
+                  ) : null}
+                  <span style={{ flex: 1 }} />
+                  {battery != null && (
+                    <span title={`Device battery: ${Math.round(battery)}%`} style={{ fontSize: 9, color: battery < 20 ? '#ef4444' : '#64748B' }}>🔋{Math.round(battery)}%</span>
+                  )}
+                  {ageLabel && (
+                    <span title={minsAgo === null ? 'No data' : `Last updated ${minsAgo}m ago`} style={{ fontSize: 9, color: ageColor, fontWeight: 700 }}>{ageLabel}</span>
+                  )}
+                </div>
+
+                {/* Fuel level bar — shows remaining fuel as a coloured progress bar */}
+                {fuel != null && (
+                  <div style={{ marginTop: 5, paddingLeft: 40 }}>
+                    <div style={{ height: 3, background: '#F1F5F9', borderRadius: 2, overflow: 'hidden' }}>
+                      <div style={{ width: `${Math.max(0, Math.min(100, fuel))}%`, height: '100%', borderRadius: 2, background: fuel > 30 ? '#22c55e' : fuel > 15 ? '#f59e0b' : '#ef4444', transition: 'width 0.3s' }} />
+                    </div>
+                    <span title={`Fuel level: ${Math.round(fuel)}%`} style={{ fontSize: 8.5, color: '#94A3B8', marginTop: 1.5, display: 'block' }}>⛽ {Math.round(fuel)}%</span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>{/* /vehicle cards */}
+      </div>{/* /inner wrapper */}
+      </div>{/* /outer left panel */}
+
+      {/* ── MAP AREA — flex:1, takes remaining space between panels ── */}
+      <div style={{ flex: 1, position: 'relative', overflow: 'hidden', minWidth: 0 }}>
+        <MapContainer center={INDIA_CENTER} zoom={5} style={{ position: 'absolute', inset: 0, height: '100%', width: '100%' }} scrollWheelZoom zoomControl={false}>
           <TileLayer
             url={getMapTileUrl()}
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
@@ -1469,313 +1770,220 @@ const MyFleet = () => {
           <MapResizer />
           {mapCenter && <MapController center={mapCenter} />}
           <TrackingController position={trackedPosition} />
-          <MarkerClusterGroup
-            chunkedLoading
-            iconCreateFunction={createClusterCustomIcon}
-            maxClusterRadius={60}
-            showCoverageOnHover={false}
-            spiderfyOnMaxZoom={true}
-            disableClusteringAtZoom={14}
-          >
+          <MarkerClusterGroup chunkedLoading iconCreateFunction={createClusterCustomIcon} maxClusterRadius={60} showCoverageOnHover={false} spiderfyOnMaxZoom={true} disableClusteringAtZoom={14}>
             {mapVehicles.map(v => {
               const isSel = selectedVehicle?.id === v.id;
+              const vState = getVState(v, deviceStatesByType);
               return (
-                <SmoothMarker
-                  key={`${v.id}-${isSel}`}
-                  position={[v.coords.lat, v.coords.lng]}
-                  icon={makeVehicleIcon(v, isSel)}
-                  eventHandlers={{ click: () => selectVehicle(v) }}
-                >
-                  <Tooltip direction="auto" className="fv-tooltip" interactive={true}>
-                    <VehicleTooltip vehicle={v} />
-                  </Tooltip>
+                <SmoothMarker key={`${v.id}-${isSel}-${vState.stateName}`} position={[v.coords.lat, v.coords.lng]} icon={makeVehicleIcon(v, isSel, vState.stateColor)} eventHandlers={{ click: () => selectVehicle(v) }}>
+                  <Tooltip direction="auto" className="fv-tooltip" interactive={true}><VehicleTooltip vehicle={v} /></Tooltip>
                 </SmoothMarker>
               );
             })}
           </MarkerClusterGroup>
         </MapContainer>
-      </div>
 
-      {/* ══════ TOP HUD BAR ══════ */}
+        {/* Legend floats inside the map area */}
+        <div style={{ position: 'absolute', bottom: 18, left: 14, zIndex: 10, background: 'rgba(255,255,255,0.96)', backdropFilter: 'blur(6px)', borderRadius: 20, padding: '7px 14px', display: 'flex', gap: 12, alignItems: 'center', border: '1px solid #E2E8F0', boxShadow: '0 2px 12px rgba(0,0,0,0.10)' }}>
+          <LegendDot color="#22c55e" label={`${runningCount} Running`} />
+          <span style={{ width: 1, height: 12, background: '#E2E8F0' }} />
+          <LegendDot color="#ef4444" label={`${stoppedCount} Stopped`} />
+          <span style={{ width: 1, height: 12, background: '#E2E8F0' }} />
+          <LegendDot color="#475569" label={`${mapVehicles.length} on map`} />
+        </div>
+      </div>{/* /map area */}
+
+      {/* ── RIGHT DETAIL PANEL — width transitions so map actually resizes ── */}
       <div style={{
-        position: 'absolute', top: 0, left: 0, right: 0, height: HUD_H, zIndex: 500,
-        background: 'rgba(255,255,255,0.97)', backdropFilter: 'blur(8px)',
-        borderBottom: '1px solid #E2E8F0',
-        display: 'flex', alignItems: 'center', gap: 10, padding: '0 14px',
-        boxShadow: '0 1px 12px rgba(0,0,0,0.08)',
+        flexShrink: 0,
+        width: selectedVehicle ? DETAIL_W : 0,
+        overflow: 'hidden',
+        transition: 'width 0.3s cubic-bezier(0.4,0,0.2,1)',
+        borderLeft: selectedVehicle ? '1px solid #E2E8F0' : 'none',
+        background: '#FFFFFF',
+        display: 'flex',
+        flexDirection: 'column',
+        boxShadow: selectedVehicle ? '-4px 0 24px rgba(0,0,0,0.09)' : 'none',
       }}>
-        {/* Panel toggle */}
-        <button onClick={() => setPanelOpen(o => !o)}
-          style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', cursor: 'pointer', color: '#64748B', padding: '6px 8px', borderRadius: 6, display: 'flex', alignItems: 'center' }}>
-          <Ic n="menu" size={15} color="#475569" />
-        </button>
+      {/* Inner fixed-width wrapper so content doesn't reflow during slide */}
+      <div style={{ width: DETAIL_W, flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {selectedVehicle && (() => {
+          const sv      = selectedVehicle;
+          const gps     = sv.deviceStatus?.gpsData;
+          const dst     = sv.deviceStatus?.status;
+          const dfuel   = sv.deviceStatus?.fuel;
+          const dvs     = getVState(sv, deviceStatesByType);
+          const stColor = dvs.stateColor;
+          const stLabel = dvs.stateName;
+          const ign     = getIgnition(sv);
+          const lastTs  = gps?.timestamp || sv.deviceStatus?.lastUpdate;
+          const minsAgo = lastTs ? Math.round((Date.now() - new Date(lastTs).getTime()) / 60000) : null;
+          const ageStr  = minsAgo === null ? null : minsAgo < 2 ? 'Live now' : minsAgo < 60 ? `${minsAgo}m ago` : minsAgo < 1440 ? `${Math.floor(minsAgo/60)}h ago` : `${Math.floor(minsAgo/1440)}d ago`;
+          const ageColor = minsAgo === null ? '#94a3b8' : minsAgo < 5 ? '#16a34a' : minsAgo < 30 ? '#d97706' : '#ef4444';
+          const liveStats = [
+            gps?.speed      != null && { label: 'Speed',      val: `${gps.speed}`,              unit: 'km/h', accent: gps.speed > 80 ? '#ef4444' : '#2563EB'  },
+            dfuel?.level    != null && { label: 'Fuel',       val: `${Math.round(dfuel.level)}`, unit: '%',    accent: dfuel.level < 20 ? '#ef4444' : dfuel.level < 40 ? '#f59e0b' : '#16a34a' },
+            dst?.battery    != null && { label: 'Battery',    val: `${dst.battery}`,             unit: '%',    accent: dst.battery < 20 ? '#ef4444' : '#7c3aed' },
+            dst?.voltage    != null && { label: 'Voltage',    val: `${dst.voltage}`,             unit: 'V',    accent: '#d97706' },
+            gps?.satellites != null && { label: 'Satellites', val: `${gps.satellites}`,          unit: '',     accent: gps.satellites < 4 ? '#f59e0b' : '#059669' },
+            dst?.gsmSignal  != null && { label: 'GSM',        val: `${dst.gsmSignal}`,           unit: '',     accent: '#0891b2' },
+          ].filter(Boolean);
 
-        {/* Brand */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginRight: 4 }}>
-          <div style={{ width: 28, height: 28, borderRadius: 6, background: '#2563EB', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Ic n="map" size={14} color="#fff" sw={2} />
-          </div>
-          <span style={{ fontSize: 14, fontWeight: 800, color: '#0F172A', letterSpacing: '-0.2px' }}>FleetView</span>
-        </div>
-
-        <div style={{ width: 1, height: 20, background: '#E2E8F0', margin: '0 2px' }} />
-
-        {/* Stat chips */}
-        {ALL_FLEET_CHIPS.filter(c => visibleChips.includes(c.id)).map(c => (
-          <HudChip key={c.id} value={CHIP_COUNTS[c.id]} label={c.label} dot={c.dot} />
-        ))}
-
-        <div style={{ flex: 1 }} />
-
-        {/* Search */}
-        <div style={{ position: 'relative' }}>
-          <span style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
-            <Ic n="search" size={13} color="#94A3B8" />
-          </span>
-          <input
-            style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 6, color: '#0F172A', fontSize: 13, padding: '6px 10px 6px 30px', outline: 'none', width: 180, fontFamily: "'Plus Jakarta Sans', sans-serif" }}
-            placeholder="Search vehicles…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-        </div>
-
-        <button onClick={fetchVehicles} disabled={loading}
-          style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', cursor: loading ? 'not-allowed' : 'pointer', color: '#475569', padding: '6px 11px', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600 }}>
-          <Ic n="refresh" size={12} color="#475569" /> Refresh
-        </button>
-        <button onClick={() => setViewMode('table')}
-          style={{ background: '#2563EB', border: 'none', cursor: 'pointer', color: '#FFFFFF', padding: '7px 16px', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 700, fontFamily: 'inherit', boxShadow: '0 2px 8px rgba(37,99,235,0.35)' }}>
-          ← Back to Table
-        </button>
-        <Link to="/add-vehicle"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: '#2563EB', color: '#fff', borderRadius: 6, fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
-          <Ic n="plus" size={12} /> Add Vehicle
-        </Link>
-      </div>
-
-      {/* ══════ LEFT PANEL (vehicle list) ══════ */}
-      <div style={{
-        position: 'absolute', left: 0, top: HUD_H, bottom: 0, width: PANEL_W, zIndex: 400,
-        background: 'linear-gradient(180deg, #F8FAFF 0%, #EFF4FF 100%)',
-        borderRight: '1px solid #DBEAFE',
-        display: 'flex', flexDirection: 'column',
-        transform: panelOpen ? 'translateX(0)' : `translateX(-${PANEL_W}px)`,
-        transition: 'transform 0.25s ease',
-        boxShadow: '2px 0 16px rgba(37,99,235,0.08)',
-      }}>
-
-        {/* Groups section */}
-        <div style={{ padding: '10px 12px 8px', flexShrink: 0, background: 'rgba(37,99,235,0.04)', borderBottom: '1px solid #DBEAFE' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <span style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'flex', alignItems: 'center', gap: 5 }}>
-              <Ic n="layers" size={10} color="#94A3B8" /> Groups
-            </span>
-            <Link to="/groups" style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', color: '#2563EB', fontSize: 10, fontWeight: 700, padding: '2px 7px', display: 'flex', alignItems: 'center', gap: 3 }}>
-              <Ic n="gear" size={9} color="#2563EB" /> Manage
-            </Link>
-          </div>
-
-          <DarkItem active={selectedGroupId === null} onClick={() => setSelectedGroupId(null)}>
-            <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#3B82F6', flexShrink: 0 }} />
-            <span style={{ flex: 1, fontSize: 12, fontWeight: selectedGroupId === null ? 700 : 500, color: '#0F172A' }}>All Vehicles</span>
-            <span style={{ fontSize: 10, color: '#64748B', background: '#F1F5F9', borderRadius: 10, padding: '1px 7px' }}>{vehicles.length}</span>
-          </DarkItem>
-          {groups.map(g => (
-            <DarkItem key={g.id} active={selectedGroupId === g.id} onClick={() => setSelectedGroupId(g.id)}>
-              <span style={{ width: 7, height: 7, borderRadius: '50%', background: g.color || C.primary, flexShrink: 0 }} />
-              <span style={{ flex: 1, fontSize: 12, fontWeight: selectedGroupId === g.id ? 700 : 500, color: '#0F172A' }}>{g.name}</span>
-              <span style={{ fontSize: 10, color: '#64748B', background: '#F1F5F9', borderRadius: 10, padding: '1px 7px' }}>{g.vehicles?.length || 0}</span>
-            </DarkItem>
-          ))}
-          {groups.length === 0 && (
-            <div style={{ fontSize: 11, color: '#94A3B8', padding: '6px 2px', textAlign: 'center' }}>
-              No groups yet — <Link to="/groups" style={{ color: '#2563EB', fontWeight: 600 }}>create one</Link>
-            </div>
-          )}
-        </div>
-
-        <div style={{ height: 1, background: '#E2E8F0', margin: '0 12px' }} />
-
-        {/* Vehicle cards */}
-        <div style={{ flex: 1, overflow: 'auto', padding: '8px 10px' }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.1em', padding: '4px 2px 8px' }}>
-            Vehicles ({filteredVehicles.length})
-          </div>
-          {loading && <div style={{ padding: '20px 0', textAlign: 'center', color: '#94A3B8', fontSize: 13 }}>Loading…</div>}
-          {filteredVehicles.map(v => {
-            const isSel = selectedVehicle?.id === v.id;
-            const fuel = v.deviceStatus?.fuel?.level;
-            const speed = v.deviceStatus?.gpsData?.speed;
-            const hasGps = !!getVehicleCoords(v);
-            const lvs = getVState(v, deviceStatesByType);
-            const statusColor = lvs.stateColor;
-            const statusLabel = lvs.stateName;
-            return (
-              <div key={v.id}
-                onClick={() => selectVehicle(v)}
-                style={{
-                  padding: '10px 12px', cursor: 'pointer',
-                  background: isSel ? '#eff6ff' : '#fff',
-                  borderBottom: '1px solid #e2e8f0',
-                  borderLeft: `3px solid ${isSel ? '#2563eb' : statusColor}`,
-                  transition: 'background 0.1s',
-                }}
-                onMouseEnter={e => { if (!isSel) { e.currentTarget.style.background = '#f8fafc'; } }}
-                onMouseLeave={e => { if (!isSel) { e.currentTarget.style.background = '#fff'; } }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 18, lineHeight: 1, flexShrink: 0 }}>{VEHICLE_ICON_MAP[v.vehicleIcon] || '🚗'}</span>
+          return (
+            <>
+              {/* ── Panel Header ── */}
+              <div style={{ background: '#FFFFFF', borderBottom: `3px solid ${stColor}`, padding: '14px 14px 12px', flexShrink: 0 }}>
+                {/* Vehicle identity row */}
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 10 }}>
+                  <div style={{ width: 44, height: 44, borderRadius: 11, background: stColor + '12', border: `1.5px solid ${stColor}30`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 23, flexShrink: 0 }}>
+                    {VEHICLE_ICON_MAP[sv.vehicleIcon] || '🚗'}
+                  </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 700, color: '#1e3a5f', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {vehicleDisplayName(v)}
+                    <div style={{ fontSize: 14.5, fontWeight: 800, color: '#0F172A', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {vehicleDisplayName(sv)}
                     </div>
-                    {v.vehicleNumber && (
-                      <div style={{ fontSize: 10.5, color: '#64748b', fontFamily: 'monospace', marginTop: 1 }}>{v.vehicleNumber}</div>
-                    )}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 3, flexWrap: 'wrap' }}>
+                      {sv.vehicleName && sv.vehicleNumber && (
+                        <span style={{ fontSize: 10.5, color: '#64748B', fontFamily: 'monospace' }}>{sv.vehicleNumber}</span>
+                      )}
+                      {sv.deviceType && (
+                        <span title="GPS device type installed in this vehicle" style={{ fontSize: 9, background: '#EFF6FF', color: '#2563EB', padding: '1px 7px', borderRadius: 20, fontWeight: 700, border: '1px solid #BFDBFE', letterSpacing: '0.03em' }}>{sv.deviceType}</span>
+                      )}
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3, flexShrink: 0 }}>
-                    <span style={{ fontSize: 10, color: statusColor, fontWeight: 700 }}>{statusLabel}</span>
-                    {speed !== undefined && speed !== null && <span style={{ fontSize: 10, color: '#2563eb', fontWeight: 600 }}>{speed} km/h</span>}
-                  </div>
+                  <button
+                    title="Close vehicle details"
+                    onClick={() => setSelectedVehicle(null)}
+                    style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 7, padding: '5px 7px', cursor: 'pointer', display: 'flex', color: '#94A3B8', flexShrink: 0, transition: 'all 0.1s' }}>
+                    <Ic n="x" size={13} color="#94A3B8" />
+                  </button>
                 </div>
-                {fuel !== undefined && fuel !== null && (
-                  <div style={{ marginTop: 5, paddingLeft: 26 }}>
-                    <div style={{ height: 3, background: '#e2e8f0', borderRadius: 2 }}>
-                      <div style={{ width: `${Math.max(0, Math.min(100, fuel))}%`, height: '100%', borderRadius: 2, background: fuel > 30 ? '#059669' : fuel > 15 ? '#d97706' : '#dc2626' }} />
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
 
-      {/* ══════ RIGHT DETAIL PANEL ══════ */}
-      <div style={{
-        position: 'absolute', right: 0, top: HUD_H, bottom: 0, width: DETAIL_W, zIndex: 400,
-        background: panelBg, backdropFilter: 'blur(14px)',
-        borderLeft: panelBorder,
-        display: 'flex', flexDirection: 'column',
-        transform: selectedVehicle ? 'translateX(0)' : `translateX(${DETAIL_W}px)`,
-        transition: 'transform 0.3s cubic-bezier(0.4,0,0.2,1)',
-      }}>
-        {selectedVehicle && (
-          <>
-            {/* Vehicle Header */}
-            <div style={{ padding: '12px 14px 10px', flexShrink: 0, borderBottom: '1px solid #E2E8F0' }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 11, marginBottom: 10 }}>
-                <div style={{ width: 38, height: 38, borderRadius: 8, background: '#EFF6FF', border: '1px solid #BFDBFE', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
-                  {VEHICLE_ICON_MAP[selectedVehicle.vehicleIcon] || '🚗'}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 14, fontWeight: 800, color: '#0F172A' }}>{vehicleDisplayName(selectedVehicle)}</span>
-                    <DarkStatusPill vs={getVState(selectedVehicle, deviceStatesByType)} />
-                    {selectedVehicle.deviceType && (
-                      <span style={{ fontSize: 10, background: '#EFF6FF', color: '#2563EB', padding: '2px 7px', borderRadius: 20, fontWeight: 600, border: '1px solid #BFDBFE' }}>{selectedVehicle.deviceType}</span>
-                    )}
-                  </div>
-                  {selectedVehicle.vehicleName && selectedVehicle.vehicleNumber && (
-                    <div style={{ fontSize: 11, color: '#64748B', marginTop: 2, fontFamily: 'monospace' }}>{selectedVehicle.vehicleNumber}</div>
+                {/* Status + last-seen row */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10, flexWrap: 'wrap' }}>
+                  <span title={`Current vehicle state: ${stLabel}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 11px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: stColor + '14', color: stColor, border: `1.5px solid ${stColor}35` }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: stColor, boxShadow: ign === true ? `0 0 5px ${stColor}` : 'none' }} />
+                    {stLabel}
+                  </span>
+                  {ageStr && (
+                    <span title="Time since last GPS packet was received" style={{ fontSize: 10, color: ageColor, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 3 }}>
+                      <Ic n="clock" size={9} color={ageColor} /> {ageStr}
+                    </span>
+                  )}
+                  {bgReprocessing && (
+                    <span title="Background trip data sync in progress" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 9px', borderRadius: 20, background: '#FFFBEB', border: '1px solid #FDE68A', fontSize: 9.5, color: '#92400E', fontWeight: 700 }}>
+                      <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#F59E0B', animation: 'fv-pulse-g 1.5s infinite' }} />
+                      Syncing data…
+                    </span>
                   )}
                 </div>
-                <button onClick={() => setSelectedVehicle(null)}
-                  style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 6, padding: '5px 8px', cursor: 'pointer', display: 'flex', color: '#64748B', flexShrink: 0 }}>
-                  <Ic n="x" size={13} color="#64748B" />
-                </button>
+
+                {/* Live stats grid — real-time sensor readings from the device */}
+                {liveStats.length > 0 && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 5, marginBottom: 10 }}>
+                    {liveStats.map((s, i) => (
+                      <div key={i} className="fv-metric" title={`Live ${s.label.toLowerCase()} reading from device`}
+                        style={{ background: '#FAFBFC', border: '1px solid #E2E8F0', borderRadius: 8, padding: '7px 8px', borderTop: `2.5px solid ${s.accent}`, boxShadow: '0 1px 3px rgba(0,0,0,0.04)', cursor: 'default' }}>
+                        <div style={{ fontSize: 8.5, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>{s.label}</div>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: s.accent, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
+                          {s.val}<span style={{ fontSize: 8.5, fontWeight: 500, color: '#9CA3AF', marginLeft: 1 }}>{s.unit}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Action buttons */}
+                <div style={{ display: 'flex', gap: 5 }}>
+                  <button
+                    title="Sync — pull the latest GPS position and sensor data from the server right now"
+                    onClick={() => handleSync(sv)}
+                    disabled={syncing && syncingId === sv.id}
+                    className="fv-action-btn"
+                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '7px 6px', background: '#F0FDFA', border: '1px solid #99F6E4', color: '#0D9488', borderRadius: 7, cursor: 'pointer', fontSize: 11.5, fontWeight: 700, fontFamily: 'inherit' }}>
+                    <Ic n="refresh" size={12} color="#0D9488" /> Sync
+                  </button>
+                  <button
+                    title="Route Playback — replay this vehicle's historical path on the map"
+                    onClick={() => openPlayer(sv)}
+                    className="fv-action-btn"
+                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '7px 6px', background: '#F5F3FF', border: '1px solid #DDD6FE', color: '#7C3AED', borderRadius: 7, cursor: 'pointer', fontSize: 11.5, fontWeight: 700, fontFamily: 'inherit' }}>
+                    <Ic n="play" size={12} color="#7C3AED" /> Playback
+                  </button>
+                  <button
+                    title="Delete this vehicle and all its tracking data"
+                    onClick={() => handleDelete(sv.id)}
+                    className="fv-action-btn"
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '7px 10px', background: '#FFF1F2', border: '1px solid #FECDD3', color: '#E11D48', borderRadius: 7, cursor: 'pointer' }}>
+                    <Ic n="trash" size={13} color="#E11D48" />
+                  </button>
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: 7 }}>
-                <button onClick={() => handleSync(selectedVehicle)} disabled={syncing && syncingId === selectedVehicle.id}
-                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '6px', background: '#ECFEFF', border: '1px solid #A5F3FC', color: '#0891B2', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
-                  <Ic n="refresh" size={12} color="#0891B2" /> Sync
-                </button>
-                <button onClick={() => openPlayer(selectedVehicle)}
-                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '6px', background: '#F5F3FF', border: '1px solid #DDD6FE', color: '#7C3AED', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
-                  <Ic n="play" size={12} color="#7C3AED" /> Play Route
-                </button>
-                <button onClick={() => handleDelete(selectedVehicle.id)}
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '6px 10px', background: '#FEF2F2', border: '1px solid #FECACA', color: '#DC2626', borderRadius: 6, cursor: 'pointer' }}>
-                  <Ic n="trash" size={13} color="#DC2626" />
-                </button>
+
+              {/* ── Tab Bar ── */}
+              <div style={{ display: 'flex', borderBottom: '1px solid #E2E8F0', flexShrink: 0, overflowX: 'auto', background: '#FAFBFC' }}>
+                {[
+                  { id: 'overview', label: 'Overview', icon: 'activity', hint: 'Live GPS position, engine status and device telemetry' },
+                  { id: 'trips',    label: 'Trips',    icon: 'route',    hint: 'View individual trip history with distance and duration' },
+                  { id: 'reports',  label: 'Reports',  icon: 'chart',    hint: 'Daily, engine-hours and fuel reports with export' },
+                  { id: 'sensors',  label: 'Sensors',  icon: 'radio',    hint: 'Custom sensor channels configured for this vehicle' },
+                  { id: 'edit',     label: 'Edit',     icon: 'edit',     hint: 'Edit vehicle name, icon, IMEI and device type' },
+                ].map(tab => (
+                  <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                    title={tab.hint}
+                    className="fv-tab-btn"
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 4, padding: '9px 11px',
+                      border: 'none', background: activeTab === tab.id ? '#FFFFFF' : 'transparent',
+                      borderBottom: `2px solid ${activeTab === tab.id ? stColor : 'transparent'}`,
+                      cursor: 'pointer', whiteSpace: 'nowrap', fontSize: 11.5,
+                      fontWeight: activeTab === tab.id ? 700 : 500,
+                      color: activeTab === tab.id ? stColor : '#64748B',
+                      marginBottom: -1, fontFamily: 'inherit', flexShrink: 0,
+                    }}>
+                    <Ic n={tab.icon} size={11} color={activeTab === tab.id ? stColor : '#9CA3AF'} />
+                    {tab.label}
+                  </button>
+                ))}
               </div>
-            </div>
 
-            {/* Tab Bar */}
-            <div style={{ display: 'flex', borderBottom: '2px solid #E2E8F0', flexShrink: 0, overflowX: 'auto', background: '#F8FAFC' }}>
-              {[
-                { id: 'overview', label: 'Overview', icon: 'activity' },
-                { id: 'trips',    label: 'Trips',    icon: 'route' },
-                { id: 'reports',  label: 'Reports',  icon: 'chart' },
-                { id: 'sensors',  label: 'Sensors',  icon: 'radio' },
-                { id: 'edit',     label: 'Edit',     icon: 'edit' },
-              ].map(tab => (
-                <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-                  className="fv-tab-btn"
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 5, padding: '9px 13px',
-                    border: 'none', background: activeTab === tab.id ? '#FFFFFF' : 'transparent',
-                    cursor: 'pointer', whiteSpace: 'nowrap', fontSize: 12,
-                    fontWeight: activeTab === tab.id ? 700 : 500,
-                    color: activeTab === tab.id ? '#2563EB' : '#64748B',
-                    borderBottom: `2px solid ${activeTab === tab.id ? '#2563EB' : 'transparent'}`,
-                    marginBottom: -2,
-                  }}>
-                  <Ic n={tab.icon} size={12} color={activeTab === tab.id ? '#2563EB' : '#94A3B8'} />
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Tab Content (light background for readability) */}
-            <div style={{ flex: 1, overflow: 'auto', background: C.surface }}>
-              <div style={{ padding: 14 }}>
-                {activeTab === 'overview' && <OverviewTab vehicle={selectedVehicle} />}
-                {activeTab === 'trips' && (
-                  <TripsTab vehicle={selectedVehicle} reportFrom={reportFrom} reportTo={reportTo}
-                    reportData={reportData} reportLoading={reportLoading} reportPage={reportPage}
-                    setReportFrom={setReportFrom} setReportTo={setReportTo} setReportPage={setReportPage}
-                    fetchReport={fetchReport} openPlayer={openPlayer} />
-                )}
-                {activeTab === 'reports' && (
-                  <ReportsTab vehicle={selectedVehicle} reportTab={reportTab} setReportTab={setReportTab}
-                    reportFrom={reportFrom} reportTo={reportTo} setReportFrom={setReportFrom} setReportTo={setReportTo}
-                    reportData={reportData} reportLoading={reportLoading} reportPage={reportPage} setReportPage={setReportPage}
-                    reportExporting={reportExporting} reprocessing={reprocessing} packetsDownloading={packetsDownloading}
-                    fetchReport={fetchReport} handleExport={handleExport} handleReprocess={handleReprocess} handleDownloadPackets={handleDownloadPackets} />
-                )}
-                {activeTab === 'sensors' && (
-                  <SensorsTab vehicle={selectedVehicle} sensors={sensors} loadingSensors={loadingSensors}
-                    showSensorForm={showSensorForm} sensorForm={sensorForm} editingSensor={editingSensor}
-                    savingSensor={savingSensor} setSensorForm={setSensorForm} setShowSensorForm={setShowSensorForm}
-                    openSensorForm={openSensorForm} handleSaveSensor={handleSaveSensor} handleDeleteSensor={handleDeleteSensor} />
-                )}
-                {activeTab === 'edit' && (
-                  <EditTab editForm={editForm} setEditForm={setEditForm} saving={saving} handleSaveEdit={handleSaveEdit} />
-                )}
+              {/* ── Tab Content ── */}
+              <div style={{ flex: 1, overflow: 'auto', background: C.surface }}>
+                <div style={{ padding: 14 }}>
+                  {activeTab === 'overview' && <OverviewTab vehicle={sv} />}
+                  {activeTab === 'trips' && (
+                    <TripsTab vehicle={sv} reportFrom={reportFrom} reportTo={reportTo}
+                      reportData={reportData} reportLoading={reportLoading} reportPage={reportPage}
+                      setReportFrom={setReportFrom} setReportTo={setReportTo} setReportPage={setReportPage}
+                      fetchReport={fetchReport} openPlayer={openPlayer} />
+                  )}
+                  {activeTab === 'reports' && (
+                    <ReportsTab vehicle={sv} reportTab={reportTab} setReportTab={setReportTab}
+                      reportFrom={reportFrom} reportTo={reportTo} setReportFrom={setReportFrom} setReportTo={setReportTo}
+                      reportData={reportData} reportLoading={reportLoading} reportPage={reportPage} setReportPage={setReportPage}
+                      reportExporting={reportExporting} reprocessing={reprocessing} packetsDownloading={packetsDownloading}
+                      fetchReport={fetchReport} handleExport={handleExport} handleReprocess={handleReprocess} handleDownloadPackets={handleDownloadPackets} />
+                  )}
+                  {activeTab === 'sensors' && (
+                    <SensorsTab vehicle={sv} sensors={sensors} loadingSensors={loadingSensors}
+                      showSensorForm={showSensorForm} sensorForm={sensorForm} editingSensor={editingSensor}
+                      savingSensor={savingSensor} setSensorForm={setSensorForm} setShowSensorForm={setShowSensorForm}
+                      openSensorForm={openSensorForm} handleSaveSensor={handleSaveSensor} handleDeleteSensor={handleDeleteSensor} />
+                  )}
+                  {activeTab === 'edit' && (
+                    <EditTab editForm={editForm} setEditForm={setEditForm} saving={saving} handleSaveEdit={handleSaveEdit} />
+                  )}
+                </div>
               </div>
-            </div>
-          </>
-        )}
-      </div>
+            </>
+          );
+        })()}
+      </div>{/* /inner fixed-width wrapper */}
+      </div>{/* /outer right panel */}
 
-      {/* ══════ BOTTOM-LEFT LEGEND ══════ */}
-      <div style={{
-        position: 'absolute',
-        bottom: 16,
-        left: panelOpen ? PANEL_W + 12 : 12,
-        zIndex: 10,
-        transition: 'left 0.25s ease',
-        background: '#FFFFFF', backdropFilter: 'none',
-        borderRadius: 8, padding: '8px 14px', display: 'flex', gap: 14,
-        border: '1px solid #E2E8F0', boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-      }}>
-        <LegendDot color="#22c55e" label={`${runningCount} Running`} />
-        <LegendDot color="#ef4444" label={`${stoppedCount} Stopped`} />
-        <LegendDot color="#475569" label={`${mapVehicles.length} on map`} />
-      </div>
+      </div>{/* /content row */}
 
-      {/* ══════ MODALS ══════ */}
+      {/* ══════ MODALS (fixed — work anywhere in DOM) ══════ */}
       {showGroupModal && (
         <Modal title={editingGroup ? 'Edit Group' : 'New Group'} onClose={() => setShowGroupModal(false)}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -1823,11 +2031,7 @@ const MyFleet = () => {
       )}
 
       {playerOpen && playerVehicle && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ width: '95vw', height: '90vh', background: C.white, borderRadius: 16, overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 30px 80px rgba(0,0,0,0.5)' }}>
-            <LocationPlayer vehicle={playerVehicle} onClose={() => setPlayerOpen(false)} initialFrom={playerFrom} initialTo={playerTo} />
-          </div>
-        </div>
+        <LocationPlayer vehicle={playerVehicle} onClose={() => setPlayerOpen(false)} initialFrom={playerFrom} initialTo={playerTo} />
       )}
     </div>
   );
@@ -1940,6 +2144,7 @@ const OverviewTab = ({ vehicle }) => {
   const trip = ds?.trip;
   const driver = ds?.driver;
   const alerts = ds?.alerts;
+  const cellInfo = ds?.cellInfo;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <SectionCard icon="pin" title="GPS & Location">
@@ -1954,10 +2159,29 @@ const OverviewTab = ({ vehicle }) => {
         <InfoRow label="Ignition"   value={status?.ignition === true ? 'ON' : status?.ignition === false ? 'OFF' : null}
           accent={status?.ignition === true ? C.success : status?.ignition === false ? C.danger : undefined} />
         <InfoRow label="Movement"   value={status?.movement === true ? 'Moving' : status?.movement === false ? 'Stationary' : null} />
-        <InfoRow label="Battery"    value={status?.battery != null ? `${status.battery}%` : null} />
+        <InfoRow label="Battery"    value={status?.battery != null ? (ds?.deviceType === 'AIS140' ? `${status.battery} V` : `${status.battery}%`) : null} />
         <InfoRow label="Voltage"    value={status?.voltage != null ? `${status.voltage} V` : null} />
         <InfoRow label="GSM Signal" value={status?.gsmSignal != null ? `${status.gsmSignal}` : null} />
-        {ds?.deviceType !== 'FMB125' && <InfoRow label="Oil Cut" value={status?.oil !== undefined ? (status.oil ? 'Active' : 'Normal') : null} />}
+        {/* AIS-140: emergency panic button state */}
+        {ds?.deviceType === 'AIS140' && (
+          <InfoRow
+            label="Emergency"
+            value={status?.emergency === true ? 'ACTIVE 🆘' : status?.emergency === false ? 'Normal' : null}
+            accent={status?.emergency === true ? '#7C3AED' : undefined}
+          />
+        )}
+        {/* AIS-140: tamper alert */}
+        {ds?.deviceType === 'AIS140' && (
+          <InfoRow
+            label="Tamper"
+            value={status?.tamper === true ? 'ALERT ⚠️' : status?.tamper === false ? 'Normal' : null}
+            accent={status?.tamper === true ? '#DC2626' : undefined}
+          />
+        )}
+        {/* Oil Cut — GT06 specific flag, not applicable to FMB/AIS140 */}
+        {!['FMB125', 'FMB920', 'AIS140'].includes(ds?.deviceType) && (
+          <InfoRow label="Oil Cut" value={status?.oil !== undefined ? (status.oil ? 'Active' : 'Normal') : null} />
+        )}
       </SectionCard>
       {(fuel || engine) && (
         <SectionCard icon="droplet" title="Fuel & Engine">
@@ -2006,6 +2230,16 @@ const OverviewTab = ({ vehicle }) => {
         <InfoRow label="Server Port" value={vehicle.serverPort} mono />
         <InfoRow label="IMEI"        value={vehicle.imei} mono />
       </SectionCard>
+      {/* AIS-140 cell tower info */}
+      {ds?.deviceType === 'AIS140' && cellInfo && (
+        <SectionCard icon="signal" title="Cell Tower">
+          <InfoRow label="Operator" value={cellInfo.operator} />
+          <InfoRow label="MCC"      value={cellInfo.mcc} mono />
+          <InfoRow label="MNC"      value={cellInfo.mnc} mono />
+          <InfoRow label="LAC"      value={cellInfo.lac} mono />
+          <InfoRow label="Cell ID"  value={cellInfo.cellId} mono />
+        </SectionCard>
+      )}
       <SectionCard icon="info" title="Vehicle Info">
         <InfoRow label="Registration" value={vehicle.vehicleNumber} mono />
         <InfoRow label="Name"         value={vehicle.vehicleName} />
@@ -2102,7 +2336,6 @@ const ReportsTab = ({ vehicle, reportTab, setReportTab, reportFrom, reportTo, se
     { id: 'summary',      label: 'Summary',    icon: 'chart' },
     { id: 'daily',        label: 'Daily',       icon: 'calendar' },
     { id: 'engineHours',  label: 'Engine Hrs',  icon: 'clock' },
-    { id: 'trips',        label: 'Trips',       icon: 'route' },
     { id: 'fuelFillings', label: 'Fuel Fills',  icon: 'droplet' },
   ];
   const handleLoad = () => { setReportPage(0); fetchReport(vehicle.id, reportTab, reportFrom, reportTo, 0); };

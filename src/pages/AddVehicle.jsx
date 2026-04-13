@@ -190,6 +190,7 @@ const AddVehicle = () => {
                     <option value="FMB125">FMB125</option>
                     <option value="FMB920">FMB920</option>
                     <option value="FMB130">FMB130</option>
+                    <option value="AIS140">AIS140 (VLTD)</option>
                     <option value="WeTrack2">WeTrack2</option>
                     <option value="TK103">TK103</option>
                     <option value="other">Other</option>
