@@ -512,19 +512,21 @@ const MyFleet = () => {
     getGroups().then(r => setGroups(r.data || [])).catch(() => {});
   };
 
-  // Load vehicles, device state configs, and groups atomically so state definitions
-  // are always available on the first render — no flash of fallback "Running/Stopped" states.
+  // Load vehicles, device state configs, and groups. Use allSettled so that a
+  // permission error on device-configs (non-papa users) never blanks the vehicle list.
   useEffect(() => {
     setLoading(true);
-    Promise.all([getVehicles(), getDeviceConfigs(), getGroups()])
-      .then(([vRes, cRes, gRes]) => {
+    Promise.allSettled([getVehicles(), getDeviceConfigs(), getGroups()])
+      .then(([vResult, cResult, gResult]) => {
         const m = {};
-        (cRes.data || []).forEach(d => { if (d.states?.length) m[d.type] = d.states; });
+        if (cResult.status === 'fulfilled') {
+          (cResult.value.data || []).forEach(d => { if (d.states?.length) m[d.type] = d.states; });
+        }
         setDeviceStatesByType(m);
-        setVehicles(vRes.data || []);
-        setGroups(gRes.data || []);
+        setVehicles(vResult.status === 'fulfilled' ? (vResult.value.data || []) : []);
+        setGroups(gResult.status === 'fulfilled' ? (gResult.value.data || []) : []);
+        if (vResult.status === 'rejected') console.error('Failed to load vehicles:', vResult.reason);
       })
-      .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
 

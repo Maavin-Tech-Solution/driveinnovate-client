@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { addVehicle } from '../services/vehicle.service';
+import { getClients } from '../services/user.service';
+import { useAuth } from '../context/AuthContext';
 
 const inputStyle = {
   width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0',
@@ -17,6 +19,9 @@ const fieldStyle = { marginBottom: '18px' };
 
 const AddVehicle = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'papa' || user?.role === 'dealer';
+
   const [form, setForm] = useState({
     vehicleNumber: '',
     vehicleName: '',
@@ -29,7 +34,17 @@ const AddVehicle = () => {
     serverPort: '',
     vehicleIcon: 'car',
   });
+  const [forClientId, setForClientId] = useState('');
+  const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(false);
+
+  // Fetch direct child clients so admin/dealer can assign vehicle to one of them
+  useEffect(() => {
+    if (!isAdmin) return;
+    getClients()
+      .then(r => setClients(r.data || []))
+      .catch(() => {});
+  }, [isAdmin]);
 
   const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
 
@@ -39,6 +54,7 @@ const AddVehicle = () => {
     try {
       const payload = { ...form };
       if (payload.vehicleNumber) payload.vehicleNumber = payload.vehicleNumber.toUpperCase();
+      if (forClientId) payload.forClientId = Number(forClientId);
       await addVehicle(payload);
       toast.success('Vehicle registered successfully!');
       navigate('/my-fleet');
@@ -49,7 +65,10 @@ const AddVehicle = () => {
     }
   };
 
-  const handleReset = () => setForm({ vehicleNumber: '', vehicleName: '', chasisNumber: '', engineNumber: '', imei: '', deviceName: '', deviceType: '', serverIp: '', serverPort: '', vehicleIcon: 'car' });
+  const handleReset = () => {
+    setForm({ vehicleNumber: '', vehicleName: '', chasisNumber: '', engineNumber: '', imei: '', deviceName: '', deviceType: '', serverIp: '', serverPort: '', vehicleIcon: 'car' });
+    setForClientId('');
+  };
 
   const filled = Object.values(form).filter(Boolean).length;
   const total = Object.keys(form).length;
@@ -76,6 +95,29 @@ const AddVehicle = () => {
 
           <form onSubmit={handleSubmit}>
             <div style={{ padding: '20px 24px' }}>
+
+              {/* ── Assign to Client (papa / dealer only) ── */}
+              {isAdmin && clients.length > 0 && (
+                <div style={{ ...fieldStyle, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '12px 14px' }}>
+                  <label style={{ ...labelStyle, color: '#1d4ed8' }}>Assign to Client</label>
+                  <select
+                    value={forClientId}
+                    onChange={e => setForClientId(e.target.value)}
+                    style={{ ...inputStyle, background: '#fff' }}
+                  >
+                    <option value=''>— Assign to myself —</option>
+                    {clients.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} {c.email ? `(${c.email})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <span style={{ fontSize: '11px', color: '#3b82f6', marginTop: '4px', display: 'block' }}>
+                    Leave blank to add to your own fleet
+                  </span>
+                </div>
+              )}
+
               <div style={fieldStyle}>
                 <label style={labelStyle}>Registration Number <span style={{ color: '#ef4444' }}>*</span></label>
                 <input
