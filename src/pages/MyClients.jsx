@@ -222,10 +222,15 @@ const ClientNode = ({ node, depth, onPermissions, onNavigate }) => {
 
         {/* Badges */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-          {/* Vehicles */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: '6px', padding: '4px 10px' }} title="Vehicles directly under this client">
+          {/* Network vehicle count (total across entire sub-tree) */}
+          <div
+            style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: '6px', padding: '4px 10px' }}
+            title={node.children?.length > 0
+              ? `${node.vehicleCount} direct + ${node.networkVehicleCount - node.vehicleCount} in sub-network`
+              : 'Vehicles under this client'}
+          >
             <TruckIcon style={{ width: '13px', height: '13px', color: '#2563EB' }} />
-            <span style={{ fontSize: '12px', fontWeight: 700, color: '#2563EB' }}>{node.vehicleCount}</span>
+            <span style={{ fontSize: '12px', fontWeight: 700, color: '#2563EB' }}>{node.networkVehicleCount}</span>
           </div>
           {/* Sub-clients */}
           {node.children?.length > 0 && (
@@ -234,10 +239,10 @@ const ClientNode = ({ node, depth, onPermissions, onNavigate }) => {
               <span style={{ fontSize: '12px', fontWeight: 700, color: '#7C3AED' }}>{node.children.length}</span>
             </div>
           )}
-          {/* Network total vehicles (if has children) */}
-          {node.networkVehicleCount > node.vehicleCount && (
-            <div style={{ fontSize: '11px', color: '#6B7280', whiteSpace: 'nowrap' }} title="Total vehicles across full sub-network">
-              {node.networkVehicleCount} total
+          {/* Direct vehicle count (only when node has children and some direct vehicles too) */}
+          {node.children?.length > 0 && node.vehicleCount > 0 && (
+            <div style={{ fontSize: '11px', color: '#6B7280', whiteSpace: 'nowrap' }} title="Vehicles assigned directly to this client">
+              {node.vehicleCount} direct
             </div>
           )}
         </div>
