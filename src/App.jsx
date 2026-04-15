@@ -74,7 +74,7 @@ function App() {
             <Route path="reports"          element={<G p="canViewReports"><Reports /></G>} />
             <Route path="my-clients"        element={<G role="dealer_or_papa"><MyClients /></G>} />
             <Route path="my-clients/:id"   element={<G role="dealer_or_papa"><ClientDetail /></G>} />
-            <Route path="add-client"       element={<G role="dealer_or_papa" p="canAddClient"><AddClient /></G>} />
+            <Route path="add-client"       element={<G p="canAddClient"><AddClient /></G>} />
             <Route path="master-settings"  element={<G role="papa"><MasterSettings /></G>} />
             {/* Always accessible */}
             <Route path="support"          element={<Support />} />

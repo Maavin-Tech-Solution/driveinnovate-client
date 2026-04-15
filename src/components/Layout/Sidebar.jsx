@@ -150,7 +150,8 @@ const Sidebar = ({ collapsed }) => {
   const perms = user?.permissions || {};
   const isPapa = role === 'papa' || user?.parentId === 0 || user?.parent_id === 0;
   const isClient = role === 'client';
-  const hasClients = user?.hasClients || isPapa || role === 'dealer';
+  // Show Clients section for papa/dealer/anyone with canAddClient permission
+  const hasClients = user?.hasClients || isPapa || role === 'dealer' || perms.canAddClient === true;
 
   // Fleet group
   const fleetItems = [

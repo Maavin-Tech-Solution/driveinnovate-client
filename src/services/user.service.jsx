@@ -29,3 +29,6 @@ export const createClient = (data) => api.post('/users/clients', data);
 
 /** GET /api/users/clients — list direct child clients of the logged-in user */
 export const getClients = () => api.get('/users/clients');
+
+/** GET /api/users/client-tree — full recursive network tree */
+export const getClientTree = () => api.get('/users/client-tree');

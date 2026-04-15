@@ -15,9 +15,9 @@ const PermissionGate = ({ permission, role, children }) => {
 
   const isPapa = user.role === 'papa' || Number(user.parentId) === 0 || Number(user.parent_id) === 0;
 
-  // Role gate: only papa / dealer allowed (my-clients, add-client)
+  // Role gate: papa / dealer / any user with canAddClient permission
   if (role === 'dealer_or_papa') {
-    const allowed = isPapa || user.role === 'dealer';
+    const allowed = isPapa || user.role === 'dealer' || user.permissions?.canAddClient === true;
     if (!allowed) return <Navigate to="/dashboard" replace />;
   }
 
