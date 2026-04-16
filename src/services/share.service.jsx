@@ -14,3 +14,19 @@ export const createTripShare = (vehicleId, from, to) =>
  */
 export const getShareData = (token) =>
   api.get(`/share/${token}`);
+
+/**
+ * Create a live-tracking share link.
+ * POST /api/share/live
+ * Body: { shareType: 'vehicle'|'group', vehicleId?, groupId?, expiresAt }
+ *   expiresAt: ISO datetime string
+ */
+export const createLiveShare = (data) =>
+  api.post('/share/live', data);
+
+/**
+ * Get live share metadata + current positions (public — no auth required).
+ * GET /api/share/live/:token
+ */
+export const getLiveShareData = (token) =>
+  api.get(`/share/live/${token}`);

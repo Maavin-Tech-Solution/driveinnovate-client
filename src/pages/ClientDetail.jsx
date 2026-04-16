@@ -2,6 +2,8 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
 import { toast } from 'react-toastify';
+import { useAuth } from '../context/AuthContext';
+import { upgradeClient, extendClientTrial } from '../services/user.service';
 import {
   ArrowLeftIcon,
   BuildingOfficeIcon,
@@ -102,6 +104,137 @@ const StatusBadge = ({ status }) => (
   </span>
 );
 
+/* ─── Account type badge ───────────────────────────────────────────────── */
+const ACCOUNT_TYPE_STYLES = {
+  trial:    { bg: '#fef9c3', color: '#854d0e', label: 'Trial' },
+  billable: { bg: '#dcfce7', color: '#166534', label: 'Billable' },
+  demo:     { bg: '#ede9fe', color: '#5b21b6', label: 'Demo' },
+  master:   { bg: '#dbeafe', color: '#1e40af', label: 'Master' },
+};
+const AccountTypeBadge = ({ type }) => {
+  const s = ACCOUNT_TYPE_STYLES[type] || ACCOUNT_TYPE_STYLES.trial;
+  return (
+    <span style={{ fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '20px', background: s.bg, color: s.color }}>
+      {s.label}
+    </span>
+  );
+};
+
+/* ─── Upgrade / Extend-trial modal ─────────────────────────────────────── */
+const PLAN_OPTIONS = [
+  { value: '3months', label: '3 Months',  desc: '90 days subscription per vehicle' },
+  { value: '6months', label: '6 Months',  desc: '180 days subscription per vehicle' },
+  { value: '1year',   label: '1 Year',    desc: '365 days subscription per vehicle' },
+];
+
+const UpgradeModal = ({ client, onClose, onDone }) => {
+  const [mode, setMode] = useState('upgrade'); // 'upgrade' | 'extend'
+  const [plan, setPlan] = useState('3months');
+  const [extendDate, setExtendDate] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // Default extend date to 30 days from now
+  useEffect(() => {
+    const d = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    setExtendDate(d.toISOString().slice(0, 10));
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      if (mode === 'upgrade') {
+        await upgradeClient(client.id, plan);
+        toast.success('Account upgraded to Billable');
+      } else {
+        await extendClientTrial(client.id, new Date(extendDate).toISOString());
+        toast.success('Trial period extended');
+      }
+      onDone();
+      onClose();
+    } catch (err) {
+      toast.error(err.response?.data?.message || err.message || 'Failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
+      <div style={{ background: '#fff', borderRadius: 14, padding: '28px 32px', width: 480, maxWidth: '95vw', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 17, color: '#111827' }}>Manage Account</div>
+            <div style={{ fontSize: 13, color: '#6b7280', marginTop: 2 }}>{client.name}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 22, color: '#9ca3af', lineHeight: 1 }}>×</button>
+        </div>
+
+        {/* Mode tabs */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+          {client.accountType !== 'billable' && (
+            <button
+              onClick={() => setMode('upgrade')}
+              style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: `2px solid ${mode === 'upgrade' ? '#2563eb' : '#e5e7eb'}`, background: mode === 'upgrade' ? '#eff6ff' : '#fafafa', color: mode === 'upgrade' ? '#1d4ed8' : '#374151', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
+            >
+              Upgrade to Billable
+            </button>
+          )}
+          {client.accountType === 'trial' && (
+            <button
+              onClick={() => setMode('extend')}
+              style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: `2px solid ${mode === 'extend' ? '#d97706' : '#e5e7eb'}`, background: mode === 'extend' ? '#fffbeb' : '#fafafa', color: mode === 'extend' ? '#92400e' : '#374151', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
+            >
+              Extend Trial
+            </button>
+          )}
+        </div>
+
+        {mode === 'upgrade' ? (
+          <>
+            <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 14 }}>
+              Select a plan. Subscription expiry will be set on all active vehicles under this account from today.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+              {PLAN_OPTIONS.map(opt => (
+                <label key={opt.value} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 8, border: `2px solid ${plan === opt.value ? '#2563eb' : '#e5e7eb'}`, background: plan === opt.value ? '#eff6ff' : '#fff', cursor: 'pointer' }}>
+                  <input type="radio" name="plan" value={opt.value} checked={plan === opt.value} onChange={() => setPlan(opt.value)} style={{ accentColor: '#2563eb' }} />
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: plan === opt.value ? '#1d4ed8' : '#111827' }}>{opt.label}</div>
+                    <div style={{ fontSize: 12, color: '#9ca3af' }}>{opt.desc}</div>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 14 }}>
+              Set a new trial expiry date. The account can login until this date.
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>New Expiry Date *</label>
+              <input
+                type="date"
+                value={extendDate}
+                min={new Date().toISOString().slice(0, 10)}
+                onChange={e => setExtendDate(e.target.value)}
+                style={{ width: '100%', padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 14, color: '#111827', boxSizing: 'border-box' }}
+              />
+            </div>
+          </>
+        )}
+
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '9px 20px', borderRadius: 8, border: '1px solid #e5e7eb', background: '#f9fafb', color: '#374151', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Cancel</button>
+          <button onClick={handleSave} disabled={saving} style={{ padding: '9px 20px', borderRadius: 8, border: 'none', background: mode === 'upgrade' ? '#2563eb' : '#d97706', color: '#fff', cursor: saving ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 700, opacity: saving ? 0.7 : 1 }}>
+            {saving ? 'Saving…' : mode === 'upgrade' ? 'Upgrade to Billable' : 'Extend Trial'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const VehicleIcon = ({ type }) => {
   const icons = { truck: '🚛', car: '🚗', bike: '🏍️', bus: '🚌', auto: '🛺' };
   return <span style={{ fontSize: '16px' }}>{icons[type] || '🚗'}</span>;
@@ -111,9 +244,12 @@ const VehicleIcon = ({ type }) => {
 const ClientDetail = () => {
   const { id: clientId } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const canManage = user?.role === 'papa' || Number(user?.parentId) === 0 || user?.role === 'dealer';
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [editingPerms, setEditingPerms] = useState(null);
+  const [showUpgrade, setShowUpgrade] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -157,6 +293,14 @@ const ClientDetail = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
             <div style={{ fontSize: '20px', fontWeight: 800, color: '#111827' }}>{client.name}</div>
             <StatusBadge status={client.status} />
+            <AccountTypeBadge type={client.accountType || 'trial'} />
+            {client.accountType === 'trial' && client.trialExpiresAt && (
+              <span style={{ fontSize: '11px', color: new Date(client.trialExpiresAt) < new Date() ? '#dc2626' : '#d97706', fontWeight: 600 }}>
+                {new Date(client.trialExpiresAt) < new Date()
+                  ? 'Expired'
+                  : `Trial expires ${new Date(client.trialExpiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`}
+              </span>
+            )}
           </div>
           {meta.companyName && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '13.5px', color: '#6b7280', marginTop: '4px' }}>
@@ -182,9 +326,16 @@ const ClientDetail = () => {
             )}
           </div>
         </div>
-        <button onClick={() => setEditingPerms(client)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', border: '1px solid #e5e7eb', background: '#f9fafb', color: '#374151', cursor: 'pointer', fontSize: '13px', fontWeight: 600, flexShrink: 0 }}>
-          <PencilSquareIcon style={{ width: '15px', height: '15px' }} />Permissions
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+          {canManage && (client.accountType === 'trial' || client.accountType === 'demo' || !client.accountType) && (
+            <button onClick={() => setShowUpgrade(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', border: '1px solid #bfdbfe', background: '#eff6ff', color: '#2563eb', cursor: 'pointer', fontSize: '13px', fontWeight: 700, whiteSpace: 'nowrap' }}>
+              Manage Account
+            </button>
+          )}
+          <button onClick={() => setEditingPerms(client)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', border: '1px solid #e5e7eb', background: '#f9fafb', color: '#374151', cursor: 'pointer', fontSize: '13px', fontWeight: 600, flexShrink: 0 }}>
+            <PencilSquareIcon style={{ width: '15px', height: '15px' }} />Permissions
+          </button>
+        </div>
       </div>
 
       {/* Stats row */}
@@ -287,6 +438,10 @@ const ClientDetail = () => {
 
       {editingPerms && (
         <PermissionModal client={editingPerms} onClose={() => setEditingPerms(null)} onSaved={load} />
+      )}
+
+      {showUpgrade && (
+        <UpgradeModal client={client} onClose={() => setShowUpgrade(false)} onDone={load} />
       )}
     </div>
   );

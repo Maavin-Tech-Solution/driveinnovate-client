@@ -24,12 +24,20 @@ const labelStyle = {
 };
 const fieldStyle = { marginBottom: '18px' };
 
+const ACCOUNT_TYPE_OPTIONS = [
+  { value: 'trial',    label: 'Trial',    desc: 'Time-limited access; auto-expires based on platform settings' },
+  { value: 'billable', label: 'Billable', desc: 'Active paid account; subscription expiry set per vehicle on upgrade' },
+  { value: 'demo',     label: 'Demo',     desc: 'Showcase account for product demos; not subject to trial expiry' },
+  { value: 'master',   label: 'Master',   desc: 'Top-level papa account; full platform access, never expires' },
+];
+
 const initialForm = {
   name: '',
   email: '',
   phone: '',
   password: '',
   confirmPassword: '',
+  accountType: 'trial',
   companyName: '',
   address: '',
   state: '',
@@ -118,6 +126,46 @@ const AddClient = () => {
                 <div style={fieldStyle}>
                   <label style={labelStyle}>Confirm Password *</label>
                   <input type="password" name="confirmPassword" style={inputStyle} placeholder="Re-enter password" value={form.confirmPassword} onChange={handleChange} required />
+                </div>
+              </div>
+
+              <div style={fieldStyle}>
+                <label style={labelStyle}>Account Type *</label>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  {ACCOUNT_TYPE_OPTIONS.map(opt => (
+                    <label
+                      key={opt.value}
+                      style={{
+                        flex: 1,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 4,
+                        padding: '10px 13px',
+                        borderRadius: 8,
+                        border: `2px solid ${form.accountType === opt.value ? '#2563eb' : '#e2e8f0'}`,
+                        background: form.accountType === opt.value ? '#eff6ff' : '#fafafa',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                        <input
+                          type="radio"
+                          name="accountType"
+                          value={opt.value}
+                          checked={form.accountType === opt.value}
+                          onChange={handleChange}
+                          style={{ accentColor: '#2563eb' }}
+                        />
+                        <span style={{ fontSize: 13, fontWeight: 700, color: form.accountType === opt.value ? '#1d4ed8' : '#374151' }}>
+                          {opt.label}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.4, paddingLeft: 20 }}>
+                        {opt.desc}
+                      </span>
+                    </label>
+                  ))}
                 </div>
               </div>
             </div>
@@ -284,6 +332,7 @@ const AddClient = () => {
               { icon: '🔐', title: 'Login credentials', desc: 'Client can login immediately after this account is created.' },
               { icon: '📊', title: 'Dashboard visibility', desc: 'You can manage this client and their vehicles from your dashboard.' },
               { icon: '✉️', title: 'Use valid email', desc: 'Use an active email to receive OTP and reset-password communication.' },
+            { icon: '🏷️', title: 'Account type', desc: 'Trial accounts have a time-limited access period. Upgrade to Billable at any time.' },
             ].map(({ icon, title, desc }) => (
               <div key={title} style={{ display: 'flex', gap: '12px', marginBottom: '12px', alignItems: 'flex-start' }}>
                 <span style={{ fontSize: '18px', flexShrink: 0, marginTop: '1px' }}>{icon}</span>

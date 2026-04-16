@@ -20,6 +20,7 @@ import Reports from './pages/Reports';
 import VehicleSettings from './pages/VehicleSettings';
 import Groups from './pages/Groups';
 import SharePlayer from './pages/SharePlayer';
+import LiveShareView from './pages/LiveShareView';
 import Alerts from './pages/Alerts';
 import Notifications from './pages/Notifications';
 import Support from './pages/Support';
@@ -59,6 +60,9 @@ function App() {
 
           {/* Public share player — no auth required */}
           <Route path="/share/:token" element={<SharePlayer />} />
+
+          {/* Public live tracking share — no auth required */}
+          <Route path="/live/:token" element={<LiveShareView />} />
 
           {/* Protected routes */}
           <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>

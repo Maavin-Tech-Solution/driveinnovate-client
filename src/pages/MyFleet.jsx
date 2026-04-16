@@ -15,10 +15,12 @@ import {
   downloadRawPacketsExcel,
 } from '../services/vehicle.service';
 import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
+import { getClientTree } from '../services/user.service';
 import { getVehicleState } from '../utils/vehicleState';
-import { getDeviceConfigs } from '../services/master.service';
+import { getDeviceConfigs, getSystemSettings } from '../services/master.service';
 import { getGroups, createGroup, updateGroup, deleteGroup, addVehicleToGroup, removeVehicleFromGroup } from '../services/group.service';
-import { createTripShare } from '../services/share.service';
+import { createTripShare, createLiveShare } from '../services/share.service';
 import LocationPlayer from '../components/common/LocationPlayer';
 import { getISTToday, getISTDaysAgo, getISTNow, getISTDaysAgoDatetime } from '../utils/dateFormat';
 
@@ -97,6 +99,17 @@ const HUD_CSS = `
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const toNumber = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+
+// Flatten client tree for the client picker (mirrors AddVehicle / MyClients logic)
+const flattenTree = (nodes, depth = 0, parentPath = []) => {
+  const out = [];
+  for (const n of (nodes || [])) {
+    const path = [...parentPath, n.name];
+    out.push({ ...n, depth, path });
+    if (n.children?.length) out.push(...flattenTree(n.children, depth + 1, path));
+  }
+  return out;
+};
 
 const getVehicleCoords = (v) => {
   if (v.deviceStatus?.gpsData) {
@@ -237,6 +250,10 @@ const Ic = ({ n, size = 14, color = 'currentColor', sw = 1.75 }) => {
     menu:     <><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></>,
     chevD:    <polyline points="6 9 12 15 18 9"/>,
     chevUp:   <polyline points="18 15 12 9 6 15"/>,
+    share:    <><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></>,
+    copy:     <><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></>,
+    users:    <><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></>,
+    link:     <><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></>,
   };
   return <svg {...p}>{I[n] ?? null}</svg>;
 };
@@ -477,6 +494,34 @@ const MyFleet = () => {
   // no live-position poll updates arrive (e.g. all vehicles offline).
   const [stateTick, setStateTick] = useState(0);
 
+  // ── Auth + client picker (papa/dealer only) ──────────────────────────────
+  const { user } = useAuth();
+  const isPapaOrDealer = user?.role === 'papa' || Number(user?.parentId) === 0 || user?.role === 'dealer' || user?.permissions?.canAddClient === true;
+  const [viewClientId, setViewClientId] = useState(null);   // null = own fleet
+  const [clientNodes, setClientNodes] = useState([]);        // flattened tree
+  const [cpOpen, setCpOpen] = useState(false);
+  const [cpSearch, setCpSearch] = useState('');
+  const cpRef = useRef(null);
+
+  // ── Platform feature flag ────────────────────────────────────────────────
+  const [liveShareEnabled, setLiveShareEnabled] = useState(false);
+
+  // ── Live share modal ─────────────────────────────────────────────────────
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareTarget, setShareTarget] = useState(null);      // {type, id, name, icon}
+  const [shareExpiryMode, setShareExpiryMode] = useState('hours');  // 'hours' | 'custom'
+  const [shareHours, setShareHours] = useState('24');
+  const [shareCustomTime, setShareCustomTime] = useState('');
+  const [sharingLive, setSharingLive] = useState(false);
+  const [liveShareResult, setLiveShareResult] = useState(null);
+
+  // ── Load platform feature flags on mount ────────────────────────────────
+  useEffect(() => {
+    getSystemSettings()
+      .then(res => setLiveShareEnabled(Boolean(res.data?.liveShareEnabled)))
+      .catch(() => {/* silently ignore — share buttons stay hidden */});
+  }, []);
+
   // inject CSS animations
   useEffect(() => {
     const el = document.createElement('style');
@@ -506,7 +551,7 @@ const MyFleet = () => {
   // ─── Fetching ───────────────────────────────────────────────────────────────
   const fetchVehicles = () => {
     setLoading(true);
-    getVehicles().then(r => setVehicles(r.data || [])).catch(console.error).finally(() => setLoading(false));
+    getVehicles(viewClientId || undefined).then(r => setVehicles(r.data || [])).catch(console.error).finally(() => setLoading(false));
   };
   const fetchGroups = () => {
     getGroups().then(r => setGroups(r.data || [])).catch(() => {});
@@ -514,9 +559,10 @@ const MyFleet = () => {
 
   // Load vehicles, device state configs, and groups. Use allSettled so that a
   // permission error on device-configs (non-papa users) never blanks the vehicle list.
+  // Re-runs when viewClientId changes so switching client reloads the fleet.
   useEffect(() => {
     setLoading(true);
-    Promise.allSettled([getVehicles(), getDeviceConfigs(), getGroups()])
+    Promise.allSettled([getVehicles(viewClientId || undefined), getDeviceConfigs(), getGroups()])
       .then(([vResult, cResult, gResult]) => {
         const m = {};
         if (cResult.status === 'fulfilled') {
@@ -528,20 +574,23 @@ const MyFleet = () => {
         if (vResult.status === 'rejected') console.error('Failed to load vehicles:', vResult.reason);
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [viewClientId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Live-position auto-refresh (5 s, differential, pauses when tab hidden) ──
+  // Restarts when viewClientId changes so the poll tracks the right fleet.
   useEffect(() => {
     // Track the latest packet time we've seen so the server only returns changed vehicles
     let lastSince = null;
+    const effectClientId = viewClientId; // captured at effect-run time
 
     const poll = async () => {
       // Skip when tab is not visible — saves requests, battery, CPU
       if (document.visibilityState === 'hidden') return;
       try {
-        const url = lastSince
-          ? `/vehicles/live-positions?since=${encodeURIComponent(lastSince)}`
-          : '/vehicles/live-positions';
+        const params = [];
+        if (effectClientId) params.push(`clientId=${effectClientId}`);
+        if (lastSince) params.push(`since=${encodeURIComponent(lastSince)}`);
+        const url = `/vehicles/live-positions${params.length ? '?' + params.join('&') : ''}`;
         const res = await api.get(url);
         const positions = Array.isArray(res.data) ? res.data : [];
         // Empty means nothing changed since last poll — skip re-render entirely
@@ -575,7 +624,21 @@ const MyFleet = () => {
 
     const id = setInterval(poll, 5000);
     return () => clearInterval(id);
-  }, []);
+  }, [viewClientId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Load client tree for picker (papa/dealer only) ───────────────────────
+  useEffect(() => {
+    if (!isPapaOrDealer) return;
+    getClientTree().then(r => setClientNodes(flattenTree(r.data || []))).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Close client picker on outside click ─────────────────────────────────
+  useEffect(() => {
+    if (!cpOpen) return;
+    const handler = (e) => { if (cpRef.current && !cpRef.current.contains(e.target)) setCpOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [cpOpen]);
 
   // Keep selectedVehicle and drawerVehicle in sync with the live vehicles list.
   // The live poll updates `vehicles` but not these derived states, causing the
@@ -842,6 +905,36 @@ const MyFleet = () => {
   };
 
   const openPlayer = (v, from = null, to = null) => { setPlayerVehicle(v); setPlayerFrom(from); setPlayerTo(to); setPlayerOpen(true); };
+
+  const openShareModal = (type, id, name, icon = 'car') => {
+    setShareTarget({ type, id, name, icon });
+    setShareExpiryMode('hours');
+    setShareHours('24');
+    setShareCustomTime('');
+    setLiveShareResult(null);
+    setShowShareModal(true);
+  };
+
+  const handleCreateLiveShare = async () => {
+    if (!shareTarget) return;
+    let expiresAt;
+    if (shareExpiryMode === 'hours') {
+      expiresAt = new Date(Date.now() + Number(shareHours) * 3600000).toISOString();
+    } else {
+      if (!shareCustomTime) return toast.error('Please select an expiry date/time');
+      expiresAt = new Date(shareCustomTime).toISOString();
+      if (isNaN(new Date(shareCustomTime).getTime())) return toast.error('Invalid date/time');
+    }
+    setSharingLive(true);
+    try {
+      const payload = shareTarget.type === 'vehicle'
+        ? { shareType: 'vehicle', vehicleId: shareTarget.id, expiresAt }
+        : { shareType: 'group',   groupId:   shareTarget.id, expiresAt };
+      const r = await createLiveShare(payload);
+      setLiveShareResult({ token: r.data.token, expiresAt: r.data.expiresAt });
+    } catch (e) { toast.error(e.message || 'Failed to create share link'); }
+    finally { setSharingLive(false); }
+  };
 
   const openDrawer = (v, e) => {
     e.stopPropagation();
@@ -1413,6 +1506,9 @@ const MyFleet = () => {
                         {[
                           { label: syncing && syncingId === dv.id ? 'Syncing…' : 'Sync Device Data', icon: 'refresh', color: '#0891B2', bg: '#ECFEFF', onClick: () => handleSync(dv), disabled: syncing && syncingId === dv.id },
                           { label: 'Play Route',    icon: 'play',    color: '#7C3AED', bg: '#F5F3FF', onClick: () => openPlayer(dv) },
+                          ...(liveShareEnabled && (isPapaOrDealer || user?.permissions?.canShareLiveLocation) ? [
+                            { label: 'Share Live',  icon: 'share',   color: '#2563EB', bg: '#EFF6FF', onClick: () => openShareModal('vehicle', dv.id, vehicleDisplayName(dv), dv.vehicleIcon) },
+                          ] : []),
                           { label: 'View on Map',   icon: 'map',     color: '#059669', bg: '#F0FDF4', onClick: () => { setDrawerVehicle(null); setViewMode('map'); selectVehicle(dv); } },
                           { label: 'Remove Vehicle',icon: 'trash',   color: '#DC2626', bg: '#FEF2F2', onClick: () => { setDrawerVehicle(null); handleDelete(dv.id); } },
                         ].map(a => (
@@ -1501,6 +1597,94 @@ const MyFleet = () => {
             </div>
           );
         })()}
+
+      {/* Live Share Modal — table view */}
+      {showShareModal && shareTarget && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 900, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setShowShareModal(false)}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(4px)' }} />
+          <div style={{ position: 'relative', zIndex: 1, background: '#fff', borderRadius: 16, width: 420, maxWidth: '95vw', boxShadow: '0 24px 80px rgba(0,0,0,0.24)', fontFamily: "'Plus Jakarta Sans',sans-serif", overflow: 'hidden' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ background: 'linear-gradient(135deg,#1D4ED8,#3B82F6)', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
+                {shareTarget.type === 'vehicle' ? (VEHICLE_ICON_MAP[shareTarget.icon] || '🚗') : '📦'}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: '#fff' }}>Share Live Tracking</div>
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>{shareTarget.name}</div>
+              </div>
+              <button onClick={() => setShowShareModal(false)} style={{ width: 30, height: 30, background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 7, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Ic n="x" size={14} color="#fff" />
+              </button>
+            </div>
+            <div style={{ padding: '20px' }}>
+              {!liveShareResult ? (
+                <>
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Link Expires</div>
+                    <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+                      {[['hours', 'Duration'], ['custom', 'Specific Time']].map(([mode, label]) => (
+                        <button key={mode} onClick={() => setShareExpiryMode(mode)}
+                          style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1.5px solid ${shareExpiryMode === mode ? '#2563EB' : '#E2E8F0'}`, background: shareExpiryMode === mode ? '#EFF6FF' : '#F8FAFC', color: shareExpiryMode === mode ? '#2563EB' : '#64748B', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    {shareExpiryMode === 'hours' ? (
+                      <>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                          {[['1','1h'],['2','2h'],['4','4h'],['8','8h'],['12','12h'],['24','1 day'],['48','2 days'],['72','3 days']].map(([h, label]) => (
+                            <button key={h} onClick={() => setShareHours(h)}
+                              style={{ padding: '5px 12px', borderRadius: 20, border: `1.5px solid ${shareHours === h ? '#2563EB' : '#E2E8F0'}`, background: shareHours === h ? '#2563EB' : '#fff', color: shareHours === h ? '#fff' : '#374151', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                        <div style={{ padding: '8px 12px', background: '#F8FAFC', borderRadius: 8, fontSize: 12, color: '#64748B', border: '1px solid #E2E8F0' }}>
+                          Expires: <strong style={{ color: '#374151' }}>{new Date(Date.now() + Number(shareHours) * 3600000).toLocaleString()}</strong>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 11, color: '#94A3B8', marginBottom: 6 }}>Pick a specific date and time</div>
+                        <input type="datetime-local" value={shareCustomTime} onChange={e => setShareCustomTime(e.target.value)}
+                          min={new Date().toISOString().slice(0, 16)}
+                          style={{ width: '100%', padding: '8px 11px', border: '1.5px solid #E2E8F0', borderRadius: 8, fontSize: 13, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+                      </>
+                    )}
+                  </div>
+                  <button onClick={handleCreateLiveShare} disabled={sharingLive}
+                    style={{ width: '100%', padding: '11px', background: sharingLive ? '#93C5FD' : 'linear-gradient(135deg,#1D4ED8,#3B82F6)', border: 'none', borderRadius: 9, color: '#fff', fontSize: 13, fontWeight: 700, cursor: sharingLive ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontFamily: 'inherit', marginTop: 4 }}>
+                    {sharingLive ? 'Generating…' : <><Ic n="link" size={14} color="#fff" /> Generate Share Link</>}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div style={{ textAlign: 'center', marginBottom: 16 }}>
+                    <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#F0FDF4', border: '2px solid #22c55e', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, margin: '0 auto 10px' }}>✓</div>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: '#0F172A' }}>Link Ready!</div>
+                    <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>Expires: {new Date(liveShareResult.expiresAt).toLocaleString()}</div>
+                  </div>
+                  <div style={{ background: '#F8FAFC', borderRadius: 9, border: '1px solid #E2E8F0', padding: '10px 12px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Ic n="link" size={13} color="#64748B" />
+                    <span style={{ flex: 1, fontSize: 11.5, color: '#374151', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {`${window.location.origin}/live/${liveShareResult.token}`}
+                    </span>
+                    <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/live/${liveShareResult.token}`); toast.success('Link copied!'); }}
+                      style={{ flexShrink: 0, padding: '5px 10px', background: '#2563EB', border: 'none', borderRadius: 6, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontFamily: 'inherit' }}>
+                      <Ic n="copy" size={11} color="#fff" /> Copy
+                    </button>
+                  </div>
+                  <button onClick={() => setLiveShareResult(null)}
+                    style={{ width: '100%', padding: '9px', background: '#F1F5F9', border: '1px solid #E2E8F0', borderRadius: 9, color: '#374151', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                    Generate Another Link
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       </div>
     );
   }
@@ -1540,6 +1724,88 @@ const MyFleet = () => {
         </div>
 
         <div style={{ width: 1, height: 26, background: '#E2E8F0', margin: '0 4px', flexShrink: 0 }} />
+
+        {/* Client Picker — papa / dealer only: switch whose fleet is displayed */}
+        {isPapaOrDealer && clientNodes.length > 0 && (
+          <div ref={cpRef} style={{ position: 'relative', flexShrink: 0 }}>
+            <button
+              onClick={() => setCpOpen(o => !o)}
+              title="Switch client fleet"
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', background: viewClientId ? '#EFF6FF' : '#F8FAFC', border: `1px solid ${viewClientId ? '#93C5FD' : '#E2E8F0'}`, borderRadius: 7, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: viewClientId ? '#2563EB' : '#475569', fontFamily: 'inherit', maxWidth: 180, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+              <Ic n="users" size={13} color={viewClientId ? '#2563EB' : '#64748B'} />
+              {viewClientId
+                ? (clientNodes.find(n => n.id === viewClientId)?.name || 'Client')
+                : 'My Fleet'}
+              {viewClientId && (
+                <span
+                  onClick={e => { e.stopPropagation(); setViewClientId(null); setCpOpen(false); }}
+                  title="Back to my fleet"
+                  style={{ marginLeft: 2, cursor: 'pointer', color: '#94A3B8', lineHeight: 1 }}>✕</span>
+              )}
+              <Ic n={cpOpen ? 'chevUp' : 'chevD'} size={11} color="#94A3B8" />
+            </button>
+
+            {cpOpen && (
+              <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 200, width: 280, background: '#fff', border: '1px solid #E2E8F0', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.13)', overflow: 'hidden' }}>
+                {/* Search */}
+                <div style={{ padding: '8px 10px', borderBottom: '1px solid #F1F5F9', position: 'relative' }}>
+                  <span style={{ position: 'absolute', left: 19, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
+                    <Ic n="search" size={12} color="#94A3B8" />
+                  </span>
+                  <input
+                    autoFocus
+                    value={cpSearch}
+                    onChange={e => setCpSearch(e.target.value)}
+                    placeholder="Search clients…"
+                    style={{ width: '100%', padding: '5px 8px 5px 26px', border: '1px solid #E2E8F0', borderRadius: 6, fontSize: 12, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                  />
+                </div>
+                {/* List */}
+                <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+                  {/* "My Fleet" option */}
+                  <button
+                    onClick={() => { setViewClientId(null); setCpOpen(false); setCpSearch(''); }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '9px 12px', border: 'none', background: viewClientId === null ? '#EFF6FF' : 'transparent', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600, color: viewClientId === null ? '#2563EB' : '#374151', textAlign: 'left' }}>
+                    <div style={{ width: 28, height: 28, borderRadius: 8, background: 'linear-gradient(135deg,#1D4ED8,#3B82F6)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 13 }}>👤</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>My Fleet</div>
+                      <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 400 }}>Your own vehicles</div>
+                    </div>
+                    {viewClientId === null && <span style={{ fontSize: 10, background: '#2563EB', color: '#fff', padding: '1px 7px', borderRadius: 20, fontWeight: 700, flexShrink: 0 }}>Active</span>}
+                  </button>
+
+                  {clientNodes
+                    .filter(n => !cpSearch.trim() || n.name?.toLowerCase().includes(cpSearch.toLowerCase()) || n.email?.toLowerCase().includes(cpSearch.toLowerCase()))
+                    .map(n => {
+                      const avatarColors = [
+                        ['#1D4ED8','#3B82F6'], ['#047857','#10B981'], ['#7C3AED','#8B5CF6'],
+                        ['#B45309','#F59E0B'], ['#B91C1C','#EF4444'], ['#0E7490','#06B6D4'],
+                      ];
+                      const [from, to] = avatarColors[n.depth % avatarColors.length];
+                      const breadcrumb = n.path?.slice(0, -1).join(' › ');
+                      return (
+                        <button key={n.id}
+                          onClick={() => { setViewClientId(n.id); setCpOpen(false); setCpSearch(''); }}
+                          style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: `8px 12px 8px ${12 + n.depth * 12}px`, border: 'none', background: viewClientId === n.id ? '#EFF6FF' : 'transparent', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600, color: viewClientId === n.id ? '#2563EB' : '#374151', textAlign: 'left', borderTop: '1px solid #F8FAFC' }}>
+                          <div style={{ width: 28, height: 28, borderRadius: 8, background: `linear-gradient(135deg,${from},${to})`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 11, fontWeight: 800, color: '#fff', textTransform: 'uppercase' }}>{(n.name || '?')[0]}</div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            {breadcrumb && <div style={{ fontSize: 9, color: '#94A3B8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 1 }}>{breadcrumb}</div>}
+                            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.name}</div>
+                            {n.email && <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.email}</div>}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                            {n.depth > 0 && <span style={{ fontSize: 9, background: '#F1F5F9', color: '#64748B', padding: '1px 5px', borderRadius: 20, fontWeight: 700 }}>L{n.depth}</span>}
+                            {viewClientId === n.id && <span style={{ fontSize: 10, background: '#2563EB', color: '#fff', padding: '1px 7px', borderRadius: 20, fontWeight: 700 }}>Active</span>}
+                          </div>
+                        </button>
+                      );
+                    })
+                  }
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Stat chips — click to filter by status */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -1632,14 +1898,24 @@ const MyFleet = () => {
               All {vehicles.length}
             </button>
             {groups.map(g => (
-              <button key={g.id}
-                title={`Filter to "${g.name}" group`}
-                onClick={() => setSelectedGroupId(selectedGroupId === g.id ? null : g.id)}
-                className="fv-grp-pill"
-                style={{ flexShrink: 0, padding: '3px 9px', borderRadius: 20, border: `1px solid ${selectedGroupId === g.id ? (g.color || '#3B82F6') : '#E2E8F0'}`, background: selectedGroupId === g.id ? (g.color || '#3B82F6') + '18' : '#FFFFFF', color: selectedGroupId === g.id ? (g.color || '#2563EB') : '#374151', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4, transition: 'all 0.15s' }}>
-                <span style={{ width: 5, height: 5, borderRadius: '50%', background: g.color || '#3B82F6', flexShrink: 0 }} />
-                {g.name}
-              </button>
+              <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+                <button
+                  title={`Filter to "${g.name}" group`}
+                  onClick={() => setSelectedGroupId(selectedGroupId === g.id ? null : g.id)}
+                  className="fv-grp-pill"
+                  style={{ flexShrink: 0, padding: '3px 9px', borderRadius: liveShareEnabled && (isPapaOrDealer || user?.permissions?.canShareLiveLocation) ? '20px 0 0 20px' : 20, border: `1px solid ${selectedGroupId === g.id ? (g.color || '#3B82F6') : '#E2E8F0'}`, borderRight: liveShareEnabled && (isPapaOrDealer || user?.permissions?.canShareLiveLocation) ? 'none' : undefined, background: selectedGroupId === g.id ? (g.color || '#3B82F6') + '18' : '#FFFFFF', color: selectedGroupId === g.id ? (g.color || '#2563EB') : '#374151', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4, transition: 'all 0.15s' }}>
+                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: g.color || '#3B82F6', flexShrink: 0 }} />
+                  {g.name}
+                </button>
+                {liveShareEnabled && (isPapaOrDealer || user?.permissions?.canShareLiveLocation) && (
+                  <button
+                    title={`Share live tracking for "${g.name}" group`}
+                    onClick={() => openShareModal('group', g.id, g.name)}
+                    style={{ padding: '3px 5px', borderRadius: '0 20px 20px 0', border: `1px solid ${selectedGroupId === g.id ? (g.color || '#3B82F6') : '#E2E8F0'}`, background: selectedGroupId === g.id ? (g.color || '#3B82F6') + '12' : '#FFFFFF', color: '#64748B', cursor: 'pointer', display: 'flex', alignItems: 'center', transition: 'all 0.15s', lineHeight: 1 }}>
+                    <Ic n="share" size={9} color="#94A3B8" />
+                  </button>
+                )}
+              </div>
             ))}
             <Link
               to="/groups"
@@ -1912,6 +2188,15 @@ const MyFleet = () => {
                     style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '7px 6px', background: '#F5F3FF', border: '1px solid #DDD6FE', color: '#7C3AED', borderRadius: 7, cursor: 'pointer', fontSize: 11.5, fontWeight: 700, fontFamily: 'inherit' }}>
                     <Ic n="play" size={12} color="#7C3AED" /> Playback
                   </button>
+                  {liveShareEnabled && (isPapaOrDealer || user?.permissions?.canShareLiveLocation) && (
+                    <button
+                      title="Share live tracking — generate a public URL for real-time position"
+                      onClick={() => openShareModal('vehicle', sv.id, vehicleDisplayName(sv), sv.vehicleIcon)}
+                      className="fv-action-btn"
+                      style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '7px 6px', background: '#EFF6FF', border: '1px solid #BFDBFE', color: '#2563EB', borderRadius: 7, cursor: 'pointer', fontSize: 11.5, fontWeight: 700, fontFamily: 'inherit' }}>
+                      <Ic n="share" size={12} color="#2563EB" /> Share
+                    </button>
+                  )}
                   <button
                     title="Delete this vehicle and all its tracking data"
                     onClick={() => handleDelete(sv.id)}
@@ -2034,6 +2319,128 @@ const MyFleet = () => {
 
       {playerOpen && playerVehicle && (
         <LocationPlayer vehicle={playerVehicle} onClose={() => setPlayerOpen(false)} initialFrom={playerFrom} initialTo={playerTo} />
+      )}
+
+      {/* ── Live Share Modal ── */}
+      {showShareModal && shareTarget && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 900, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setShowShareModal(false)}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(4px)' }} />
+          <div style={{ position: 'relative', zIndex: 1, background: '#fff', borderRadius: 16, width: 420, maxWidth: '95vw', boxShadow: '0 24px 80px rgba(0,0,0,0.24)', fontFamily: "'Plus Jakarta Sans',sans-serif", overflow: 'hidden' }}
+            onClick={e => e.stopPropagation()}>
+
+            {/* Header */}
+            <div style={{ background: 'linear-gradient(135deg,#1D4ED8,#3B82F6)', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
+                {shareTarget.type === 'vehicle' ? (VEHICLE_ICON_MAP[shareTarget.icon] || '🚗') : '📦'}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Share Live Tracking</div>
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>{shareTarget.name}</div>
+              </div>
+              <button onClick={() => setShowShareModal(false)}
+                style={{ width: 30, height: 30, background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 7, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Ic n="x" size={14} color="#fff" />
+              </button>
+            </div>
+
+            <div style={{ padding: '20px' }}>
+              {!liveShareResult ? (
+                <>
+                  {/* Expiry mode tabs */}
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Link Expires</div>
+                    <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+                      {[['hours', 'Duration'], ['custom', 'Specific Time']].map(([mode, label]) => (
+                        <button key={mode} onClick={() => setShareExpiryMode(mode)}
+                          style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1.5px solid ${shareExpiryMode === mode ? '#2563EB' : '#E2E8F0'}`, background: shareExpiryMode === mode ? '#EFF6FF' : '#F8FAFC', color: shareExpiryMode === mode ? '#2563EB' : '#64748B', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s' }}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {shareExpiryMode === 'hours' ? (
+                      <>
+                        <div style={{ fontSize: 11, color: '#94A3B8', marginBottom: 6 }}>How long should the link stay active?</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          {[['1', '1 hour'], ['2', '2 hours'], ['4', '4 hours'], ['8', '8 hours'], ['12', '12 hours'], ['24', '1 day'], ['48', '2 days'], ['72', '3 days']].map(([h, label]) => (
+                            <button key={h} onClick={() => setShareHours(h)}
+                              style={{ padding: '5px 12px', borderRadius: 20, border: `1.5px solid ${shareHours === h ? '#2563EB' : '#E2E8F0'}`, background: shareHours === h ? '#2563EB' : '#fff', color: shareHours === h ? '#fff' : '#374151', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s' }}>
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                        <div style={{ marginTop: 10, padding: '8px 12px', background: '#F8FAFC', borderRadius: 8, fontSize: 12, color: '#64748B', border: '1px solid #E2E8F0' }}>
+                          Expires: <strong style={{ color: '#374151' }}>{new Date(Date.now() + Number(shareHours) * 3600000).toLocaleString()}</strong>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 11, color: '#94A3B8', marginBottom: 6 }}>Pick a specific date and time</div>
+                        <input
+                          type="datetime-local"
+                          value={shareCustomTime}
+                          onChange={e => setShareCustomTime(e.target.value)}
+                          min={new Date().toISOString().slice(0, 16)}
+                          style={{ width: '100%', padding: '8px 11px', border: '1.5px solid #E2E8F0', borderRadius: 8, fontSize: 13, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', color: '#374151' }}
+                        />
+                      </>
+                    )}
+                  </div>
+
+                  {/* Info banner */}
+                  <div style={{ background: '#EFF6FF', borderRadius: 8, padding: '10px 14px', display: 'flex', gap: 9, alignItems: 'flex-start', marginBottom: 18, border: '1px solid #BFDBFE' }}>
+                    <Ic n="info" size={15} color="#2563EB" />
+                    <div style={{ fontSize: 12, color: '#1D4ED8', lineHeight: 1.5 }}>
+                      Anyone with this link can view live vehicle positions — no login required. The link stops working after it expires.
+                    </div>
+                  </div>
+
+                  <button onClick={handleCreateLiveShare} disabled={sharingLive}
+                    style={{ width: '100%', padding: '11px', background: sharingLive ? '#93C5FD' : 'linear-gradient(135deg,#1D4ED8,#3B82F6)', border: 'none', borderRadius: 9, color: '#fff', fontSize: 13, fontWeight: 700, cursor: sharingLive ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontFamily: 'inherit' }}>
+                    {sharingLive ? (
+                      <><div style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.75s linear infinite' }} /> Generating…</>
+                    ) : (
+                      <><Ic n="link" size={14} color="#fff" /> Generate Share Link</>
+                    )}
+                  </button>
+                </>
+              ) : (
+                /* ── Share result ── */
+                <>
+                  <div style={{ textAlign: 'center', marginBottom: 16 }}>
+                    <div style={{ width: 52, height: 52, borderRadius: '50%', background: '#F0FDF4', border: '2px solid #22c55e', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, margin: '0 auto 10px' }}>✓</div>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: '#0F172A' }}>Link Ready!</div>
+                    <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>
+                      Expires: {new Date(liveShareResult.expiresAt).toLocaleString()}
+                    </div>
+                  </div>
+
+                  {/* URL display */}
+                  <div style={{ background: '#F8FAFC', borderRadius: 9, border: '1px solid #E2E8F0', padding: '10px 12px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Ic n="link" size={13} color="#64748B" />
+                    <span style={{ flex: 1, fontSize: 11.5, color: '#374151', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {`${window.location.origin}/live/${liveShareResult.token}`}
+                    </span>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(`${window.location.origin}/live/${liveShareResult.token}`);
+                        toast.success('Link copied!');
+                      }}
+                      style={{ flexShrink: 0, padding: '5px 10px', background: '#2563EB', border: 'none', borderRadius: 6, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontFamily: 'inherit' }}>
+                      <Ic n="copy" size={11} color="#fff" /> Copy
+                    </button>
+                  </div>
+
+                  <button onClick={() => setLiveShareResult(null)}
+                    style={{ width: '100%', padding: '9px', background: '#F1F5F9', border: '1px solid #E2E8F0', borderRadius: 9, color: '#374151', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                    Generate Another Link
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

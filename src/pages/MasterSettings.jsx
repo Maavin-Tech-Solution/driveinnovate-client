@@ -3,6 +3,7 @@ import { toast } from 'react-toastify';
 import {
   getDeviceConfigs, createDeviceConfig, updateDeviceConfig, deleteDeviceConfig,
   getStates, createState, updateState, deleteState, resetStatesToDefaults,
+  getSystemSettings, updateSystemSettings,
 } from '../services/master.service';
 
 // ── Style helpers ────────────────────────────────────────────────────────────
@@ -274,6 +275,10 @@ export default function MasterSettings() {
   const [savingState,    setSavingState]    = useState(false);
   const [resettingStates, setResettingStates] = useState(false);
 
+  const [systemSettings,  setSystemSettings]  = useState({ liveShareEnabled: false, trialAccountEnabled: false, trialDurationDays: 30 });
+  const [savingSettings,  setSavingSettings]  = useState(false);
+  const [trialDaysInput,  setTrialDaysInput]  = useState('30');
+
   // ── Load devices on mount ────────────────────────────────────────────────
   const loadDevices = useCallback(async () => {
     setLoadingDevices(true);
@@ -292,6 +297,63 @@ export default function MasterSettings() {
   }, []); // eslint-disable-line
 
   useEffect(() => { loadDevices(); }, [loadDevices]);
+
+  // ── Load system settings on mount ───────────────────────────────────────
+  useEffect(() => {
+    getSystemSettings()
+      .then(res => {
+        const s = res.data || {};
+        setSystemSettings(s);
+        setTrialDaysInput(String(s.trialDurationDays ?? 30));
+      })
+      .catch(() => toast.error('Failed to load platform settings'));
+  }, []);
+
+  const handleToggleLiveShare = async () => {
+    setSavingSettings(true);
+    try {
+      const next = !systemSettings.liveShareEnabled;
+      const res = await updateSystemSettings({ liveShareEnabled: next });
+      setSystemSettings(res.data || {});
+      toast.success(`Live sharing ${next ? 'enabled' : 'disabled'}`);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update setting');
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  const handleToggleTrialAccount = async () => {
+    setSavingSettings(true);
+    try {
+      const next = !systemSettings.trialAccountEnabled;
+      const res = await updateSystemSettings({ trialAccountEnabled: next });
+      setSystemSettings(res.data || {});
+      toast.success(`Trial accounts ${next ? 'enabled' : 'disabled'}`);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update setting');
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  const handleSaveTrialDays = async () => {
+    const days = parseInt(trialDaysInput, 10);
+    if (isNaN(days) || days < 1) {
+      toast.error('Trial duration must be at least 1 day');
+      return;
+    }
+    setSavingSettings(true);
+    try {
+      const res = await updateSystemSettings({ trialDurationDays: days });
+      setSystemSettings(res.data || {});
+      toast.success('Trial duration updated');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update setting');
+    } finally {
+      setSavingSettings(false);
+    }
+  };
 
   // ── Load states when selected device changes ────────────────────────────
   useEffect(() => {
@@ -414,7 +476,102 @@ export default function MasterSettings() {
 
   // ── Render ───────────────────────────────────────────────────────────────
   return (
-    <div style={{ display: 'flex', gap: 20, height: '100%', minHeight: 0 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24, height: '100%', minHeight: 0 }}>
+
+      {/* ── Platform Features ─────────────────────────────────────────────── */}
+      <div style={{ ...card, padding: '18px 22px', flexShrink: 0 }}>
+        <h3 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 700, color: '#0f172a' }}>
+          Platform Features
+        </h3>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>Live Location Sharing</div>
+            <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+              Allow users to share a live-tracking public link for a vehicle or vehicle group.
+              When enabled, the share option is available to PAPA and any client/dealer
+              with the <em>Can Share Live Location</em> permission granted.
+            </div>
+          </div>
+          <button
+            onClick={handleToggleLiveShare}
+            disabled={savingSettings}
+            style={{
+              flexShrink: 0,
+              padding: '7px 18px',
+              fontSize: 13,
+              fontWeight: 600,
+              borderRadius: 8,
+              border: 'none',
+              cursor: savingSettings ? 'not-allowed' : 'pointer',
+              background: systemSettings.liveShareEnabled ? '#dcfce7' : '#f1f5f9',
+              color:      systemSettings.liveShareEnabled ? '#166534' : '#475569',
+              transition: 'background 0.15s',
+            }}
+          >
+            {savingSettings ? 'Saving…' : systemSettings.liveShareEnabled ? '✓ Enabled' : 'Disabled'}
+          </button>
+        </div>
+
+        {/* Divider */}
+        <div style={{ height: 1, background: '#f1f5f9', margin: '4px 0' }} />
+
+        {/* Trial Accounts row */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>Trial Account Management</div>
+            <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+              When enabled, new client accounts default to <em>Trial</em> type with an automatic expiry.
+              Expired trial accounts cannot login until upgraded to Billable.
+              Papa and dealers can extend the trial or upgrade at any time.
+            </div>
+            {systemSettings.trialAccountEnabled && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>
+                  Default trial duration (days):
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="365"
+                  value={trialDaysInput}
+                  onChange={e => setTrialDaysInput(e.target.value)}
+                  style={{ width: 70, padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, color: '#0f172a' }}
+                />
+                <button
+                  onClick={handleSaveTrialDays}
+                  disabled={savingSettings}
+                  style={{ padding: '4px 12px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: 'none', background: '#2563eb', color: '#fff', cursor: savingSettings ? 'not-allowed' : 'pointer' }}
+                >
+                  {savingSettings ? '…' : 'Save'}
+                </button>
+                <span style={{ fontSize: 11, color: '#94a3b8' }}>
+                  Currently: <strong>{systemSettings.trialDurationDays} days</strong>
+                </span>
+              </div>
+            )}
+          </div>
+          <button
+            onClick={handleToggleTrialAccount}
+            disabled={savingSettings}
+            style={{
+              flexShrink: 0,
+              padding: '7px 18px',
+              fontSize: 13,
+              fontWeight: 600,
+              borderRadius: 8,
+              border: 'none',
+              cursor: savingSettings ? 'not-allowed' : 'pointer',
+              background: systemSettings.trialAccountEnabled ? '#dcfce7' : '#f1f5f9',
+              color:      systemSettings.trialAccountEnabled ? '#166534' : '#475569',
+              transition: 'background 0.15s',
+            }}
+          >
+            {savingSettings ? 'Saving…' : systemSettings.trialAccountEnabled ? '✓ Enabled' : 'Disabled'}
+          </button>
+        </div>
+      </div>
+
+    <div style={{ display: 'flex', gap: 20, flex: 1, minHeight: 0 }}>
 
       {/* ── Left: Device list ─────────────────────────────────────────────── */}
       <div style={{ width: 280, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -631,6 +788,8 @@ export default function MasterSettings() {
           </>
         )}
       </div>
+    </div>
+
     </div>
   );
 }

@@ -1,7 +1,8 @@
 import api from './api';
 
-/** GET /api/vehicles */
-export const getVehicles = () => api.get('/vehicles');
+/** GET /api/vehicles — pass clientId to view a child client's fleet */
+export const getVehicles = (clientId) =>
+  api.get('/vehicles', { params: clientId ? { clientId } : undefined });
 
 /** GET /api/vehicles/:id */
 export const getVehicleById = (id) => api.get(`/vehicles/${id}`);

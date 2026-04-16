@@ -12,3 +12,7 @@ export const createState  = (deviceId, data)  => api.post(`/master/device-config
 export const updateState  = (stateId, data)   => api.put(`/master/states/${stateId}`, data);
 export const deleteState  = (stateId)         => api.delete(`/master/states/${stateId}`);
 export const resetStatesToDefaults = (deviceId) => api.post(`/master/device-configs/${deviceId}/reset-states`);
+
+// System Settings (global feature flags)
+export const getSystemSettings    = ()       => api.get('/master/settings');
+export const updateSystemSettings = (data)   => api.put('/master/settings', data);
