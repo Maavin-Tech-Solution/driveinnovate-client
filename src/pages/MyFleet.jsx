@@ -12,6 +12,7 @@ import {
   getVehicleReportSummary, getVehicleReportDaily, getVehicleReportEngineHours,
   getVehicleReportTrips, getVehicleReportFuelFillings, exportVehicleReportExcel,
   downloadRawPacketsExcel, reprocessVehicleData,
+  getCustomFields, createCustomField, updateCustomField, deleteCustomField,
 } from '../services/vehicle.service';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -454,6 +455,7 @@ const MyFleet = () => {
   const [activeTab, setActiveTab] = useState('overview');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState(new Set(['Running', 'Stopped', 'Unknown']));
+  const [chipFilter, setChipFilter] = useState(null); // null = all, or chip id string
   const [showStatusDrop, setShowStatusDrop] = useState(false);
   const [showColPicker, setShowColPicker] = useState(false);
   const [sortCol, setSortCol] = useState(null);
@@ -473,6 +475,14 @@ const MyFleet = () => {
   const [editingSensor, setEditingSensor] = useState(null);
   const [showSensorForm, setShowSensorForm] = useState(false);
   const [savingSensor, setSavingSensor] = useState(false);
+
+  // Custom fields state
+  const [customFields, setCustomFields] = useState([]);
+  const [loadingCustomFields, setLoadingCustomFields] = useState(false);
+  const [cfForm, setCfForm] = useState({ fieldName: '', fieldValue: '' });
+  const [showCfForm, setShowCfForm] = useState(false);
+  const [editingCf, setEditingCf] = useState(null);
+  const [savingCf, setSavingCf] = useState(false);
 
   const [reportTab, setReportTab] = useState('summary');
   const [reportFrom, setReportFrom] = useState(getISTDaysAgoDatetime(7));
@@ -674,12 +684,17 @@ const MyFleet = () => {
   }, [vehicles, trackedVehicleId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!selectedVehicle) { setSensors([]); return; }
+    if (!selectedVehicle) { setSensors([]); setCustomFields([]); return; }
     setLoadingSensors(true);
     getVehicleSensors(selectedVehicle.id)
       .then(r => setSensors(r.data || []))
       .catch(() => setSensors([]))
       .finally(() => setLoadingSensors(false));
+    setLoadingCustomFields(true);
+    getCustomFields(selectedVehicle.id)
+      .then(r => setCustomFields(r.data?.data || r.data || []))
+      .catch(() => setCustomFields([]))
+      .finally(() => setLoadingCustomFields(false));
   }, [selectedVehicle?.id]);
 
   useEffect(() => {
@@ -811,6 +826,34 @@ const MyFleet = () => {
     } catch (e) { toast.error(e.message || 'Delete failed'); }
   };
 
+  // Custom field handlers
+  const openCfForm = (cf = null) => {
+    if (cf) { setEditingCf(cf); setCfForm({ fieldName: cf.fieldName, fieldValue: cf.fieldValue || '' }); }
+    else { setEditingCf(null); setCfForm({ fieldName: '', fieldValue: '' }); }
+    setShowCfForm(true);
+  };
+  const handleSaveCf = async () => {
+    if (!selectedVehicle || !cfForm.fieldName.trim()) return;
+    setSavingCf(true);
+    try {
+      if (editingCf) await updateCustomField(selectedVehicle.id, editingCf.id, cfForm);
+      else await createCustomField(selectedVehicle.id, cfForm);
+      const r = await getCustomFields(selectedVehicle.id);
+      setCustomFields(r.data?.data || r.data || []);
+      setShowCfForm(false);
+      toast.success(editingCf ? 'Field updated' : 'Field added');
+    } catch (e) { toast.error(e.message || 'Save failed'); }
+    finally { setSavingCf(false); }
+  };
+  const handleDeleteCf = async (cfId) => {
+    if (!window.confirm('Delete this custom field?')) return;
+    try {
+      await deleteCustomField(selectedVehicle.id, cfId);
+      setCustomFields(p => p.filter(f => f.id !== cfId));
+      toast.success('Field deleted');
+    } catch (e) { toast.error(e.message || 'Delete failed'); }
+  };
+
   const handleExport = async () => {
     if (!selectedVehicle) return;
     setReportExporting(true);
@@ -930,6 +973,21 @@ const MyFleet = () => {
     if (statusFilter.size < 3) {
       list = list.filter(v => statusFilter.has(getVState(v, deviceStatesByType).stateName));
     }
+    // Chip filter — stat card / HudChip click filtering
+    if (chipFilter) {
+      const _fleetSpeedThresh = parseInt(localStorage.getItem('fleet-speed-threshold') || '80');
+      list = list.filter(v => {
+        const sn = getVState(v, deviceStatesByType).stateName;
+        switch (chipFilter) {
+          case 'running':   return sn === 'Running';
+          case 'stopped':   return sn === 'Stopped';
+          case 'idle':      return sn === 'Idle';
+          case 'no_gps':    return !getVehicleCoords(v);
+          case 'overspeed': return (v.deviceStatus?.gpsData?.speed ?? 0) > _fleetSpeedThresh;
+          default:          return true; // 'total'
+        }
+      });
+    }
     if (sortCol) {
       const dir = sortDir === 'asc' ? 1 : -1;
       list = [...list].sort((a, b) => {
@@ -958,7 +1016,7 @@ const MyFleet = () => {
       });
     }
     return list;
-  }, [vehicles, groups, selectedGroupId, search, statusFilter, sortCol, sortDir, deviceStatesByType, stateTick]);
+  }, [vehicles, groups, selectedGroupId, search, statusFilter, chipFilter, sortCol, sortDir, deviceStatesByType, stateTick]);
 
   const mapVehicles = useMemo(() => filteredVehicles.map(v => ({ ...v, coords: getVehicleCoords(v) })).filter(v => v.coords), [filteredVehicles]);
   const runningCount   = vehicles.filter(v => getVState(v, deviceStatesByType).stateName === 'Running').length;
@@ -988,7 +1046,7 @@ const MyFleet = () => {
         {/* Stat cards */}
         <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
           {ALL_FLEET_CHIPS.filter(c => visibleChips.includes(c.id)).map(c => (
-            <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 20px', background: c.gradient, borderRadius: '10px', boxShadow: c.shadow, minWidth: '145px', position: 'relative', overflow: 'hidden', flex: '0 0 auto' }}>
+            <div key={c.id} onClick={() => setChipFilter(chipFilter === c.id ? null : c.id)} style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 20px', background: c.gradient, borderRadius: '10px', boxShadow: chipFilter === c.id ? `0 0 0 3px #fff, ${c.shadow}` : c.shadow, minWidth: '145px', position: 'relative', overflow: 'hidden', flex: '0 0 auto', cursor: 'pointer', opacity: chipFilter && chipFilter !== c.id ? 0.55 : 1, transition: 'all 0.15s', transform: chipFilter === c.id ? 'scale(1.03)' : 'none' }}>
               <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: '40%', background: 'linear-gradient(135deg, transparent 0%, rgba(255,255,255,0.06) 100%)', pointerEvents: 'none' }} />
               <div style={{ flex: 1, position: 'relative' }}>
                 <div style={{ fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.72)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '5px' }}>{c.label}</div>
@@ -1512,7 +1570,6 @@ const MyFleet = () => {
                         { id: 'trips',    label: 'Trips',    icon: 'route'    },
                         { id: 'reports',  label: 'Reports',  icon: 'chart'    },
                         { id: 'sensors',  label: 'Sensors',  icon: 'radio'    },
-                        { id: 'edit',     label: 'Edit',     icon: 'edit'     },
                       ].map(t => (
                         <button key={t.id} onClick={() => setActiveTab(t.id)}
                           className="fv-tab-btn"
@@ -1545,9 +1602,6 @@ const MyFleet = () => {
                             showSensorForm={showSensorForm} sensorForm={sensorForm} editingSensor={editingSensor}
                             savingSensor={savingSensor} setSensorForm={setSensorForm} setShowSensorForm={setShowSensorForm}
                             openSensorForm={openSensorForm} handleSaveSensor={handleSaveSensor} handleDeleteSensor={handleDeleteSensor} />
-                        )}
-                        {activeTab === 'edit' && (
-                          <EditTab editForm={editForm} setEditForm={setEditForm} saving={saving} handleSaveEdit={handleSaveEdit} />
                         )}
                       </div>
                     </div>
@@ -1658,7 +1712,7 @@ const MyFleet = () => {
 
       {/* ══════ TOP HUD BAR ══════ */}
       <div style={{
-        flexShrink: 0, height: HUD_H, zIndex: 20,
+        flexShrink: 0, height: HUD_H, zIndex: 1000, position: 'relative',
         background: '#ffffff',
         borderBottom: '1px solid #E2E8F0',
         display: 'flex', alignItems: 'center', gap: 8, padding: '0 14px',
@@ -1770,7 +1824,7 @@ const MyFleet = () => {
         {/* Stat chips — click to filter by status */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           {ALL_FLEET_CHIPS.filter(c => visibleChips.includes(c.id)).map(c => (
-            <HudChip key={c.id} value={CHIP_COUNTS[c.id]} label={c.label} dot={c.dot} />
+            <HudChip key={c.id} value={CHIP_COUNTS[c.id]} label={c.label} dot={c.dot} active={chipFilter === c.id} onClick={() => setChipFilter(chipFilter === c.id ? null : c.id)} />
           ))}
         </div>
 
@@ -1930,65 +1984,69 @@ const MyFleet = () => {
             const ageLabel   = minsAgo === null ? null : minsAgo < 2 ? 'Live' : minsAgo < 60 ? `${minsAgo}m` : minsAgo < 1440 ? `${Math.floor(minsAgo/60)}h` : `${Math.floor(minsAgo/1440)}d`;
             const ageColor   = minsAgo === null ? '#94A3B8' : minsAgo < 5 ? '#16a34a' : minsAgo < 30 ? '#d97706' : '#ef4444';
             const hasCoords  = !!getVehicleCoords(v);
+            const ign        = getIgnition(v);
             return (
               <div key={v.id}
                 onClick={() => selectVehicle(v)}
                 title={`${vehicleDisplayName(v)} — click to view details and locate on map`}
                 className="fv-card"
                 style={{
-                  padding: '9px 11px 8px', cursor: 'pointer', borderRadius: 8, marginBottom: 3,
+                  padding: '8px 10px 7px', cursor: 'pointer', borderRadius: 8, marginBottom: 2,
                   background: isSel ? '#EFF6FF' : '#FFFFFF',
                   border: `1px solid ${isSel ? '#93C5FD' : '#F1F5F9'}`,
                   borderLeft: `3px solid ${isSel ? '#2563EB' : stColor}`,
                   transition: 'all 0.12s',
-                  boxShadow: isSel ? '0 1px 6px rgba(37,99,235,0.10)' : '0 1px 2px rgba(0,0,0,0.04)',
+                  boxShadow: isSel ? '0 1px 6px rgba(37,99,235,0.10)' : 'none',
                 }}>
-                {/* Row 1: icon + name + status badge */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 32, height: 32, borderRadius: 8, background: stColor + '14', border: `1.5px solid ${stColor}30`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>
+                {/* Row 1: icon + name + status + age */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <div style={{ width: 28, height: 28, borderRadius: 7, background: stColor + '14', border: `1.5px solid ${stColor}30`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0 }}>
                     {VEHICLE_ICON_MAP[v.vehicleIcon] || '🚗'}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#0F172A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.25 }}>
-                      {vehicleDisplayName(v)}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <span style={{ fontSize: 11.5, fontWeight: 700, color: '#0F172A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.2 }}>
+                        {vehicleDisplayName(v)}
+                      </span>
+                      {ageLabel && (
+                        <span style={{ fontSize: 8, color: ageColor, fontWeight: 700, flexShrink: 0, background: ageColor + '12', padding: '1px 4px', borderRadius: 3 }}>{ageLabel}</span>
+                      )}
                     </div>
                     {v.vehicleNumber && v.vehicleName && (
-                      <div style={{ fontSize: 9.5, color: '#94A3B8', fontFamily: 'monospace', marginTop: 1 }}>{v.vehicleNumber}</div>
+                      <div style={{ fontSize: 9, color: '#94A3B8', fontFamily: 'monospace', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.vehicleNumber}</div>
                     )}
                   </div>
                   <div style={{ display: 'inline-flex', alignItems: 'center', gap: 3, flexShrink: 0, padding: '2px 6px', borderRadius: 20, background: stColor + '14', border: `1px solid ${stColor}28` }}>
-                    <span style={{ width: 4.5, height: 4.5, borderRadius: '50%', background: stColor, flexShrink: 0 }} />
-                    <span style={{ fontSize: 9, fontWeight: 700, color: stColor }}>{stLabel}</span>
+                    <span style={{ width: 4, height: 4, borderRadius: '50%', background: stColor, flexShrink: 0 }} />
+                    <span style={{ fontSize: 8.5, fontWeight: 700, color: stColor }}>{stLabel}</span>
                   </div>
                 </div>
 
-                {/* Row 2: speed + age + battery */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 5, paddingLeft: 40 }}>
+                {/* Row 2: speed + ignition + battery + fuel — compact metrics strip */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, paddingLeft: 35 }}>
                   {speed != null ? (
-                    <span title="Current speed" style={{ fontSize: 10.5, fontWeight: 800, color: speed > 80 ? '#ef4444' : speed > 5 ? '#2563EB' : '#64748B', fontVariantNumeric: 'tabular-nums' }}>
-                      {speed}<span style={{ fontSize: 8.5, fontWeight: 500, marginLeft: 1 }}>km/h</span>
+                    <span title="Current speed" style={{ fontSize: 10, fontWeight: 800, color: speed > 80 ? '#ef4444' : speed > 5 ? '#2563EB' : '#64748B', fontVariantNumeric: 'tabular-nums' }}>
+                      {speed}<span style={{ fontSize: 8, fontWeight: 500, marginLeft: 1 }}>km/h</span>
                     </span>
                   ) : !hasCoords ? (
-                    <span title="No GPS signal received" style={{ fontSize: 9, color: '#F59E0B', fontWeight: 600 }}>No GPS</span>
+                    <span title="No GPS signal received" style={{ fontSize: 8.5, color: '#F59E0B', fontWeight: 600 }}>No GPS</span>
                   ) : null}
+                  {ign !== null && (
+                    <span title={`Ignition ${ign ? 'ON' : 'OFF'}`} style={{ fontSize: 8, fontWeight: 700, color: ign ? '#16a34a' : '#94A3B8', background: ign ? '#16a34a14' : '#F1F5F9', padding: '1px 4px', borderRadius: 3 }}>IGN</span>
+                  )}
                   <span style={{ flex: 1 }} />
                   {battery != null && (
-                    <span title={`Device battery: ${Math.round(battery)}%`} style={{ fontSize: 9, color: battery < 20 ? '#ef4444' : '#64748B' }}>🔋{Math.round(battery)}%</span>
+                    <span title={`Battery: ${Math.round(battery)}%`} style={{ fontSize: 8.5, color: battery < 20 ? '#ef4444' : '#64748B', fontWeight: 600 }}>{Math.round(battery)}%</span>
                   )}
-                  {ageLabel && (
-                    <span title={minsAgo === null ? 'No data' : `Last updated ${minsAgo}m ago`} style={{ fontSize: 9, color: ageColor, fontWeight: 700 }}>{ageLabel}</span>
+                  {fuel != null && (
+                    <span title={`Fuel: ${Math.round(fuel)}%`} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 8.5, color: fuel < 20 ? '#ef4444' : '#64748B', fontWeight: 600 }}>
+                      <span style={{ width: 20, height: 3, background: '#F1F5F9', borderRadius: 2, overflow: 'hidden', display: 'inline-block', verticalAlign: 'middle' }}>
+                        <span style={{ width: `${Math.max(0, Math.min(100, fuel))}%`, height: '100%', display: 'block', borderRadius: 2, background: fuel > 30 ? '#22c55e' : fuel > 15 ? '#f59e0b' : '#ef4444' }} />
+                      </span>
+                      {Math.round(fuel)}%
+                    </span>
                   )}
                 </div>
-
-                {/* Fuel level bar — shows remaining fuel as a coloured progress bar */}
-                {fuel != null && (
-                  <div style={{ marginTop: 5, paddingLeft: 40 }}>
-                    <div style={{ height: 3, background: '#F1F5F9', borderRadius: 2, overflow: 'hidden' }}>
-                      <div style={{ width: `${Math.max(0, Math.min(100, fuel))}%`, height: '100%', borderRadius: 2, background: fuel > 30 ? '#22c55e' : fuel > 15 ? '#f59e0b' : '#ef4444', transition: 'width 0.3s' }} />
-                    </div>
-                    <span title={`Fuel level: ${Math.round(fuel)}%`} style={{ fontSize: 8.5, color: '#94A3B8', marginTop: 1.5, display: 'block' }}>⛽ {Math.round(fuel)}%</span>
-                  </div>
-                )}
               </div>
             );
           })}
@@ -2159,6 +2217,43 @@ const MyFleet = () => {
                     <Ic n="trash" size={13} color="#E11D48" />
                   </button>
                 </div>
+
+                {/* Custom fields — user-defined name:value pairs */}
+                {(customFields.length > 0 || showCfForm) && (
+                  <div style={{ marginTop: 8, borderTop: '1px solid #F1F5F9', paddingTop: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+                      <span style={{ fontSize: 9, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Custom Fields</span>
+                      <button onClick={() => openCfForm(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex', color: '#2563EB', fontSize: 10, fontWeight: 700, gap: 2, alignItems: 'center' }}><Ic n="plus" size={9} color="#2563EB" /> Add</button>
+                    </div>
+                    {showCfForm && (
+                      <div style={{ display: 'flex', gap: 5, marginBottom: 6, alignItems: 'flex-end' }}>
+                        <div style={{ flex: 1 }}>
+                          <input style={{ ...inp, fontSize: 11, padding: '5px 8px' }} value={cfForm.fieldName} onChange={e => setCfForm({ ...cfForm, fieldName: e.target.value })} placeholder="Field name" />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <input style={{ ...inp, fontSize: 11, padding: '5px 8px' }} value={cfForm.fieldValue} onChange={e => setCfForm({ ...cfForm, fieldValue: e.target.value })} placeholder="Value" />
+                        </div>
+                        <button onClick={handleSaveCf} disabled={savingCf || !cfForm.fieldName.trim()} style={{ padding: '5px 8px', background: '#2563EB', color: '#fff', border: 'none', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer', flexShrink: 0, opacity: savingCf || !cfForm.fieldName.trim() ? 0.5 : 1 }}>{savingCf ? '…' : editingCf ? 'Save' : 'Add'}</button>
+                        <button onClick={() => setShowCfForm(false)} style={{ padding: '5px 6px', background: '#F1F5F9', border: 'none', borderRadius: 5, cursor: 'pointer', display: 'flex' }}><Ic n="x" size={10} color="#94A3B8" /></button>
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {customFields.map(cf => (
+                        <div key={cf.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 5, fontSize: 10 }}>
+                          <span style={{ fontWeight: 700, color: '#64748B' }}>{cf.fieldName}:</span>
+                          <span style={{ color: '#0F172A', fontWeight: 600 }}>{cf.fieldValue || '—'}</span>
+                          <button onClick={() => openCfForm(cf)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 1, display: 'flex' }}><Ic n="edit" size={8} color="#94A3B8" /></button>
+                          <button onClick={() => handleDeleteCf(cf.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 1, display: 'flex' }}><Ic n="x" size={8} color="#DC2626" /></button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {customFields.length === 0 && !showCfForm && (
+                  <button onClick={() => openCfForm(null)} style={{ marginTop: 6, background: 'none', border: '1px dashed #CBD5E1', borderRadius: 6, padding: '5px 10px', cursor: 'pointer', fontSize: 10, color: '#94A3B8', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4, width: '100%', justifyContent: 'center' }}>
+                    <Ic n="plus" size={10} color="#94A3B8" /> Add Custom Field
+                  </button>
+                )}
               </div>
 
               {/* ── Tab Bar ── */}
@@ -2168,7 +2263,6 @@ const MyFleet = () => {
                   { id: 'trips',    label: 'Trips',    icon: 'route',    hint: 'View individual trip history with distance and duration' },
                   { id: 'reports',  label: 'Reports',  icon: 'chart',    hint: 'Daily, engine-hours and fuel reports with export' },
                   { id: 'sensors',  label: 'Sensors',  icon: 'radio',    hint: 'Custom sensor channels configured for this vehicle' },
-                  { id: 'edit',     label: 'Edit',     icon: 'edit',     hint: 'Edit vehicle name, icon, IMEI and device type' },
                 ].map(tab => (
                   <button key={tab.id} onClick={() => setActiveTab(tab.id)}
                     title={tab.hint}
@@ -2210,9 +2304,6 @@ const MyFleet = () => {
                       showSensorForm={showSensorForm} sensorForm={sensorForm} editingSensor={editingSensor}
                       savingSensor={savingSensor} setSensorForm={setSensorForm} setShowSensorForm={setShowSensorForm}
                       openSensorForm={openSensorForm} handleSaveSensor={handleSaveSensor} handleDeleteSensor={handleDeleteSensor} />
-                  )}
-                  {activeTab === 'edit' && (
-                    <EditTab editForm={editForm} setEditForm={setEditForm} saving={saving} handleSaveEdit={handleSaveEdit} />
                   )}
                 </div>
               </div>
@@ -2429,11 +2520,11 @@ const DarkStatusPill = ({ vs }) => {
   );
 };
 
-const HudChip = ({ value, label, dot }) => (
-  <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 20 }}>
+const HudChip = ({ value, label, dot, active, onClick }) => (
+  <div onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', background: active ? dot + '18' : '#F8FAFC', border: `1px solid ${active ? dot : '#E2E8F0'}`, borderRadius: 20, cursor: 'pointer', transition: 'all 0.15s' }}>
     <span style={{ width: 6, height: 6, borderRadius: '50%', background: dot }} />
-    <span style={{ fontSize: 13, fontWeight: 800, color: '#0F172A' }}>{value}</span>
-    <span style={{ fontSize: 11, color: '#64748B', fontWeight: 500 }}>{label}</span>
+    <span style={{ fontSize: 13, fontWeight: 800, color: active ? dot : '#0F172A' }}>{value}</span>
+    <span style={{ fontSize: 11, color: active ? dot : '#64748B', fontWeight: 500 }}>{label}</span>
   </div>
 );
 
@@ -2914,72 +3005,131 @@ const ReportData = ({ type, data, vehicle, reportPage, setReportPage, reportFrom
 // ══════════════════════════════════════════════════════════════════════════════
 const SensorsTab = ({ vehicle, sensors, loadingSensors, showSensorForm, sensorForm, editingSensor, savingSensor, setSensorForm, setShowSensorForm, openSensorForm, handleSaveSensor, handleDeleteSensor }) => {
   const io = vehicle.deviceStatus?.gpsData?.ioElements || {};
+  const gps = vehicle.deviceStatus?.gpsData || {};
+  const dst = vehicle.deviceStatus?.status || {};
+  const dfuel = vehicle.deviceStatus?.fuel || {};
+
+  // Build flat list of all available device attributes for dropdown
+  const availableAttrs = useMemo(() => {
+    const attrs = [];
+    // GPS-level attributes
+    const gpsKeys = ['speed', 'latitude', 'longitude', 'altitude', 'satellites', 'course', 'heading', 'hdop'];
+    gpsKeys.forEach(k => { if (gps[k] != null) attrs.push({ key: k, label: k, value: gps[k], group: 'GPS' }); });
+    // Status attributes
+    Object.entries(dst).forEach(([k, v]) => { if (v != null && typeof v !== 'object') attrs.push({ key: `status.${k}`, label: k, value: v, group: 'Status' }); });
+    // Fuel attributes
+    Object.entries(dfuel).forEach(([k, v]) => { if (v != null && typeof v !== 'object') attrs.push({ key: `fuel.${k}`, label: k, value: v, group: 'Fuel' }); });
+    // IO elements
+    Object.entries(io).forEach(([k, v]) => {
+      const val = typeof v === 'object' && v !== null ? v.value : v;
+      attrs.push({ key: k, label: k, value: val, group: 'IO' });
+    });
+    return attrs;
+  }, [gps, dst, dfuel, io]);
+
+  // Resolve live value for a mapped parameter
+  const resolveLive = (param) => {
+    if (!param) return undefined;
+    if (param.startsWith('status.')) return dst[param.slice(7)];
+    if (param.startsWith('fuel.')) return dfuel[param.slice(5)];
+    if (['speed','latitude','longitude','altitude','satellites','course','heading','hdop'].includes(param)) return gps[param];
+    const raw = io[param];
+    return raw !== undefined ? (typeof raw === 'object' && raw !== null ? raw.value : raw) : undefined;
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* Configured sensors — show as friendly-name: live-value cards */}
+      <div style={{ background: C.white, borderRadius: 10, border: `1px solid ${C.border}` }}>
+        <div style={{ padding: '9px 12px', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Sensors ({sensors.length})</span>
+          <button onClick={() => openSensorForm(null)} style={btn(C.primary)}><Ic n="plus" size={12} /> Add Sensor</button>
+        </div>
+        {showSensorForm && (
+          <div style={{ padding: 12, background: C.surface, borderBottom: `1px solid ${C.border}` }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 9, marginBottom: 9 }}>
+              <div>
+                <label style={lbl}>Device Attribute *</label>
+                <select style={inp} value={sensorForm.mappedParameter || ''} onChange={e => {
+                  const attr = availableAttrs.find(a => a.key === e.target.value);
+                  setSensorForm({ ...sensorForm, mappedParameter: e.target.value, name: sensorForm.name || (attr ? attr.label : '') });
+                }}>
+                  <option value="">Select attribute…</option>
+                  {['GPS', 'Status', 'Fuel', 'IO'].map(group => {
+                    const items = availableAttrs.filter(a => a.group === group);
+                    return items.length > 0 ? (
+                      <optgroup key={group} label={group}>
+                        {items.map(a => (
+                          <option key={a.key} value={a.key}>{a.label} ({String(a.value)})</option>
+                        ))}
+                      </optgroup>
+                    ) : null;
+                  })}
+                </select>
+              </div>
+              <div>
+                <label style={lbl}>Friendly Name *</label>
+                <input style={inp} value={sensorForm.name} onChange={e => setSensorForm({ ...sensorForm, name: e.target.value })} placeholder="e.g. Ignition, Temperature" />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9 }}>
+                <div><label style={lbl}>Unit</label><input style={inp} value={sensorForm.unit} onChange={e => setSensorForm({ ...sensorForm, unit: e.target.value })} placeholder="e.g. °C, km/h" /></div>
+                <div><label style={lbl}>Type</label><select style={inp} value={sensorForm.type} onChange={e => setSensorForm({ ...sensorForm, type: e.target.value })}>{SENSOR_TYPES.map(t => <option key={t}>{t}</option>)}</select></div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div style={{ flex: 1 }} />
+              <button onClick={() => setShowSensorForm(false)} style={{ padding: '5px 11px', border: `1px solid ${C.border}`, borderRadius: 7, background: C.white, cursor: 'pointer', fontSize: 12, color: C.textSub }}>Cancel</button>
+              <button onClick={handleSaveSensor} disabled={savingSensor || !sensorForm.name || !sensorForm.mappedParameter} style={btn(C.primary, savingSensor || !sensorForm.name || !sensorForm.mappedParameter)}>{savingSensor ? 'Saving…' : editingSensor ? 'Update' : 'Add'}</button>
+            </div>
+          </div>
+        )}
+        {loadingSensors && <div style={{ padding: 18, textAlign: 'center', color: C.textLight }}>Loading…</div>}
+        {!loadingSensors && sensors.length === 0 && !showSensorForm && (
+          <div style={{ padding: 24, textAlign: 'center' }}>
+            <div style={{ fontSize: 12, color: C.textLight, marginBottom: 4 }}>No sensors configured yet.</div>
+            <div style={{ fontSize: 11, color: C.textMuted }}>Click "Add Sensor" to map a device attribute to a friendly name.</div>
+          </div>
+        )}
+        {sensors.length > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 6, padding: 10 }}>
+            {sensors.map(s => {
+              const live = resolveLive(s.mappedParameter);
+              return (
+                <div key={s.id} style={{ background: C.surface, borderRadius: 8, padding: '8px 10px', border: `1px solid ${C.borderLight}`, position: 'relative' }}>
+                  <div style={{ fontSize: 9, color: C.textLight, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: 30 }}>{s.name}</div>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: live !== undefined ? C.primary : C.textMuted, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
+                    {live !== undefined ? String(live) : '—'}
+                    {s.unit && <span style={{ fontSize: 9, fontWeight: 500, color: C.textLight, marginLeft: 2 }}>{s.unit}</span>}
+                  </div>
+                  <div style={{ fontSize: 8.5, color: C.textMuted, marginTop: 2, fontFamily: 'monospace' }}>{s.mappedParameter}</div>
+                  <div style={{ position: 'absolute', top: 5, right: 5, display: 'flex', gap: 2 }}>
+                    <button onClick={() => openSensorForm(s)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex' }}><Ic n="edit" size={10} color={C.textMuted} /></button>
+                    <button onClick={() => handleDeleteSensor(s.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex' }}><Ic n="trash" size={10} color={C.danger} /></button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Raw device data — show all available io attributes */}
       {Object.keys(io).length > 0 && (
-        <SectionCard icon="radio" title="Live Device Data">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 7 }}>
-            {Object.entries(io).slice(0, 24).map(([k, v]) => {
+        <SectionCard icon="radio" title="Raw Device Data">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 6 }}>
+            {Object.entries(io).slice(0, 30).map(([k, v]) => {
               const label = typeof v === 'object' && v !== null ? (v.name || k) : k;
               const val   = typeof v === 'object' && v !== null ? v.value : v;
               return (
-                <div key={k} style={{ background: C.surface, borderRadius: 7, padding: '7px 9px', border: `1px solid ${C.borderLight}` }}>
-                  <div style={{ fontSize: 9, color: C.textLight, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>{label}</div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{String(val ?? '—')}</div>
+                <div key={k} style={{ background: C.surface, borderRadius: 7, padding: '6px 8px', border: `1px solid ${C.borderLight}` }}>
+                  <div style={{ fontSize: 8.5, color: C.textLight, fontFamily: 'monospace', marginBottom: 2 }}>{label}</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{String(val ?? '—')}</div>
                 </div>
               );
             })}
           </div>
         </SectionCard>
       )}
-      <div style={{ background: C.white, borderRadius: 10, border: `1px solid ${C.border}` }}>
-        <div style={{ padding: '9px 12px', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Custom Sensors ({sensors.length})</span>
-          <button onClick={() => openSensorForm(null)} style={btn(C.primary)}><Ic n="plus" size={12} /> Add</button>
-        </div>
-        {showSensorForm && (
-          <div style={{ padding: 12, background: C.surface, borderBottom: `1px solid ${C.border}` }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9, marginBottom: 9 }}>
-              <div><label style={lbl}>Name *</label><input style={inp} value={sensorForm.name} onChange={e => setSensorForm({ ...sensorForm, name: e.target.value })} placeholder="e.g. Temperature" /></div>
-              <div><label style={lbl}>Type</label><select style={inp} value={sensorForm.type} onChange={e => setSensorForm({ ...sensorForm, type: e.target.value })}>{SENSOR_TYPES.map(t => <option key={t}>{t}</option>)}</select></div>
-              <div><label style={lbl}>Unit</label><input style={inp} value={sensorForm.unit} onChange={e => setSensorForm({ ...sensorForm, unit: e.target.value })} placeholder="e.g. °C" /></div>
-              <div><label style={lbl}>Mapped Param</label><input style={inp} value={sensorForm.mappedParameter} onChange={e => setSensorForm({ ...sensorForm, mappedParameter: e.target.value })} placeholder="e.g. io_69" /></div>
-            </div>
-            <div style={{ marginBottom: 9 }}><label style={lbl}>Description</label><input style={inp} value={sensorForm.description} onChange={e => setSensorForm({ ...sensorForm, description: e.target.value })} placeholder="Optional" /></div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <label style={{ display: 'flex', gap: 5, alignItems: 'center', fontSize: 12, color: C.textSub, cursor: 'pointer' }}>
-                <input type="checkbox" checked={sensorForm.visible} onChange={e => setSensorForm({ ...sensorForm, visible: e.target.checked })} style={{ accentColor: C.primary }} /> Visible
-              </label>
-              <div style={{ flex: 1 }} />
-              <button onClick={() => setShowSensorForm(false)} style={{ padding: '5px 11px', border: `1px solid ${C.border}`, borderRadius: 7, background: C.white, cursor: 'pointer', fontSize: 12, color: C.textSub }}>Cancel</button>
-              <button onClick={handleSaveSensor} disabled={savingSensor || !sensorForm.name} style={btn(C.primary, savingSensor || !sensorForm.name)}>{savingSensor ? 'Saving…' : editingSensor ? 'Update' : 'Add'}</button>
-            </div>
-          </div>
-        )}
-        {loadingSensors && <div style={{ padding: 18, textAlign: 'center', color: C.textLight }}>Loading…</div>}
-        {!loadingSensors && sensors.length === 0 && !showSensorForm && <div style={{ padding: 20, textAlign: 'center', color: C.textLight, fontSize: 12 }}>No sensors configured.</div>}
-        {sensors.map(s => {
-          const rawLive = s.mappedParameter ? io[s.mappedParameter] : undefined;
-          const live = rawLive !== undefined
-            ? (typeof rawLive === 'object' && rawLive !== null ? rawLive.value : rawLive)
-            : undefined;
-          return (
-            <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 12px', borderBottom: `1px solid ${C.borderLight}` }}>
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: s.visible !== false ? C.success : C.textLight, flexShrink: 0 }} />
-              <div style={{ flex: 1 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{s.name}</span>
-                  {s.unit && <span style={{ fontSize: 10, color: C.textMuted, background: C.surface, borderRadius: 4, padding: '1px 5px', border: `1px solid ${C.borderLight}` }}>{s.unit}</span>}
-                  {live !== undefined && <span style={{ fontSize: 11, fontWeight: 700, color: C.primary, background: C.primaryBg, borderRadius: 4, padding: '1px 7px' }}>{String(live)}</span>}
-                </div>
-                <div style={{ fontSize: 10, color: C.textLight, marginTop: 1 }}>{[s.mappedParameter, s.type, s.description].filter(Boolean).join(' · ')}</div>
-              </div>
-              <button onClick={() => openSensorForm(s)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, display: 'flex' }}><Ic n="edit" size={12} color={C.textMuted} /></button>
-              <button onClick={() => handleDeleteSensor(s.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, display: 'flex' }}><Ic n="trash" size={12} color={C.danger} /></button>
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 };
@@ -3010,22 +3160,6 @@ const EditTab = ({ editForm, setEditForm, saving, handleSaveEdit }) => (
               </button>
             ))}
           </div>
-        </div>
-      </div>
-    </div>
-
-    <div style={{ background: C.white, borderRadius: 10, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
-      <div style={{ padding: '8px 12px', background: C.surface, borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 6 }}>
-        <Ic n="cpu" size={12} color={C.primary} />
-        <span style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: 'uppercase', letterSpacing: '0.06em' }}>GPS Device</span>
-      </div>
-      <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <div><label style={lbl}>IMEI</label><input style={{ ...inp, fontFamily: 'monospace' }} value={editForm.imei || ''} onChange={e => setEditForm({ ...editForm, imei: e.target.value })} /></div>
-        <div><label style={lbl}>Device Name</label><input style={inp} value={editForm.deviceName || ''} onChange={e => setEditForm({ ...editForm, deviceName: e.target.value })} /></div>
-        <div><label style={lbl}>Device Type</label><select style={inp} value={editForm.deviceType || ''} onChange={e => setEditForm({ ...editForm, deviceType: e.target.value })}><option value="">Select…</option>{DEVICE_TYPES.map(t => <option key={t}>{t}</option>)}</select></div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9 }}>
-          <div><label style={lbl}>Server IP</label><input style={{ ...inp, fontFamily: 'monospace' }} value={editForm.serverIp || ''} onChange={e => setEditForm({ ...editForm, serverIp: e.target.value })} placeholder="192.168.1.1" /></div>
-          <div><label style={lbl}>Port</label><input style={{ ...inp, fontFamily: 'monospace' }} type="number" value={editForm.serverPort || ''} onChange={e => setEditForm({ ...editForm, serverPort: e.target.value })} placeholder="5001" /></div>
         </div>
       </div>
     </div>

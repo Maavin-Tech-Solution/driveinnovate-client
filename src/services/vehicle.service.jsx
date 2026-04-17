@@ -47,3 +47,9 @@ export const downloadRawPacketsExcel      = (id, from, to) => api.get(`/vehicles
 
 /** POST /api/vehicles/:id/reprocess — PAPA only: rebuild trips from MongoDB packets (uses date range if provided) */
 export const reprocessVehicleData = (id, from, to) => api.post(`/vehicles/${id}/reprocess`, { from, to });
+
+// Custom Fields CRUD
+export const getCustomFields    = (id) => api.get(`/vehicles/${id}/custom-fields`);
+export const createCustomField  = (id, data) => api.post(`/vehicles/${id}/custom-fields`, data);
+export const updateCustomField  = (id, fieldId, data) => api.put(`/vehicles/${id}/custom-fields/${fieldId}`, data);
+export const deleteCustomField  = (id, fieldId) => api.delete(`/vehicles/${id}/custom-fields/${fieldId}`);

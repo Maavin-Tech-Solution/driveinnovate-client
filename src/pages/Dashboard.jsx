@@ -498,31 +498,45 @@ const Dashboard = () => {
                     subdomains="0123"
                     maxZoom={20}
                   />
-                  {mapVehicles.map((vehicle) => (
-                    <CircleMarker
-                      key={vehicle.id}
-                      center={[vehicle.coords.lat, vehicle.coords.lng]}
-                      radius={7}
-                      pathOptions={{ color: '#1D4ED8', fillColor: '#3B82F6', fillOpacity: 0.85, weight: 2 }}
-                    >
-                      <Popup>
-                        <div style={{ minWidth: '170px', fontFamily: "'Inter', sans-serif", fontSize: '12px' }}>
-                          <div style={{ fontWeight: 700, color: '#0F172A', fontSize: '13px', marginBottom: '6px' }}>
-                            {vehicle.vehicleNumber || `Vehicle #${vehicle.id}`}
+                  {mapVehicles.map((vehicle) => {
+                    const ign = vehicle.deviceStatus?.gpsData?.ignition ?? vehicle.deviceStatus?.status?.ignition;
+                    const speed = vehicle.deviceStatus?.gpsData?.speed ?? 0;
+                    const isRunning = ign === 1 || ign === true || speed > 2;
+                    const markerColor = isRunning ? '#059669' : '#ef4444';
+                    const markerFill = isRunning ? '#22c55e' : '#f87171';
+                    const vName = vehicle.vehicleName || vehicle.vehicleNumber || `Vehicle #${vehicle.id}`;
+                    return (
+                      <CircleMarker
+                        key={vehicle.id}
+                        center={[vehicle.coords.lat, vehicle.coords.lng]}
+                        radius={7}
+                        pathOptions={{ color: markerColor, fillColor: markerFill, fillOpacity: 0.85, weight: 2 }}
+                      >
+                        <Popup>
+                          <div style={{ minWidth: '180px', fontFamily: "'Inter', sans-serif", fontSize: '12px' }}>
+                            <div style={{ fontWeight: 700, color: '#0F172A', fontSize: '13px', marginBottom: '4px' }}>
+                              {vName}
+                            </div>
+                            {vehicle.vehicleName && vehicle.vehicleNumber && (
+                              <div style={{ color: '#64748B', fontFamily: 'monospace', fontSize: '11px', marginBottom: '4px' }}>{vehicle.vehicleNumber}</div>
+                            )}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '12px', fontSize: '10px', fontWeight: 700, background: markerColor + '18', color: markerColor, border: `1px solid ${markerColor}35` }}>
+                                <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: markerColor }} />
+                                {isRunning ? 'Running' : 'Stopped'}
+                              </span>
+                              {speed > 0 && <span style={{ fontSize: '11px', fontWeight: 700, color: speed > 80 ? '#ef4444' : '#2563EB' }}>{speed} km/h</span>}
+                            </div>
+                            {vehicle.imei && (
+                              <div style={{ color: '#94A3B8', fontSize: '10px', fontFamily: 'monospace' }}>
+                                IMEI: {vehicle.imei}
+                              </div>
+                            )}
                           </div>
-                          <div style={{ color: '#64748B', marginBottom: '2px' }}>
-                            Status: <strong>{(vehicle.status || 'active').toUpperCase()}</strong>
-                          </div>
-                          <div style={{ color: '#64748B', marginBottom: '2px' }}>
-                            IMEI: <span style={{ fontFamily: 'monospace' }}>{vehicle.imei || '—'}</span>
-                          </div>
-                          <div style={{ color: '#94A3B8', fontSize: '11px', marginTop: '4px' }}>
-                            {vehicle.coords.lat.toFixed(5)}, {vehicle.coords.lng.toFixed(5)}
-                          </div>
-                        </div>
-                      </Popup>
-                    </CircleMarker>
-                  ))}
+                        </Popup>
+                      </CircleMarker>
+                    );
+                  })}
                 </MapContainer>
               ) : (
                 <div style={{
