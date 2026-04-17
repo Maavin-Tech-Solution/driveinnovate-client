@@ -1,12 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { MapContainer, TileLayer, CircleMarker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
-import StatCard from '../components/common/StatCard';
 import { getDashboardUserStats, getOverspeedVehicles, getNetworkStats } from '../services/dashboard.service';
 import { getVehicles } from '../services/vehicle.service';
 import { getSettings } from '../services/settings.service';
-import { toISTString } from '../utils/dateFormat';
 import { useAuth } from '../context/AuthContext';
 import {
   SignalIcon,
@@ -15,7 +13,10 @@ import {
   UserPlusIcon,
   ClipboardDocumentCheckIcon,
   DocumentTextIcon,
-  ArrowRightIcon,
+  MagnifyingGlassIcon,
+  MapIcon,
+  Bars3Icon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline';
 
 const INDIA_CENTER = [22.9734, 78.6569];
@@ -36,217 +37,36 @@ const getVehicleCoordinates = (vehicle) => {
     const lng = toNumber(vehicle.gpsData.longitude ?? vehicle.gpsData.lng);
     if (lat !== null && lng !== null) return { lat, lng };
   }
-  const lat = toNumber(vehicle.latitude ?? vehicle.lat ?? vehicle.gpsLat);
-  const lng = toNumber(vehicle.longitude ?? vehicle.lng ?? vehicle.gpsLng);
-  if (lat !== null && lng !== null) return { lat, lng };
-  const nLat = toNumber(vehicle.location?.latitude ?? vehicle.location?.lat);
-  const nLng = toNumber(vehicle.location?.longitude ?? vehicle.location?.lng);
-  if (nLat !== null && nLng !== null) return { lat: nLat, lng: nLng };
   return null;
 };
 
-/* ── Vehicle row with hover state ─────────────────── */
-const VehicleRow = ({ vehicle, idx, overspeedVehicles, speedThreshold }) => {
-  const [hovered, setHovered] = useState(false);
-  const hasGps = !!getVehicleCoordinates(vehicle);
-  const overspeedData = overspeedVehicles.find((ov) => ov.id === vehicle.id);
-  const isOverspeed = !!overspeedData;
-  const currentSpeed = vehicle.deviceStatus?.gpsData?.speed || vehicle.gpsData?.speed || 0;
-
-  const rowBg = isOverspeed
-    ? hovered ? '#FEE2E2' : '#FFF5F5'
-    : hovered ? '#EFF6FF' : idx % 2 === 0 ? '#FFFFFF' : '#FAFBFC';
-  const leftBorder = isOverspeed
-    ? '3px solid #DC2626'
-    : hovered ? '3px solid #2563EB' : '3px solid transparent';
-
-  return (
-    <tr
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        background: rowBg,
-        borderBottom: idx % 2 === 0 ? '1px solid #F1F5F9' : '1px solid #EAECF0',
-        borderLeft: leftBorder,
-        transition: 'background 0.1s, border-left 0.1s',
-        cursor: 'default',
-      }}
-    >
-      {/* Vehicle # + IMEI */}
-      <td style={{ padding: '10px 14px' }}>
-        <div style={{ fontWeight: 700, color: '#0F172A', fontSize: '12.5px' }}>
-          {vehicle.vehicleNumber || `#${vehicle.id}`}
-        </div>
-        <div style={{ fontSize: '10px', color: '#94A3B8', marginTop: '1px', fontFamily: "'Roboto Mono', monospace" }}>
-          {vehicle.imei || '—'}
-        </div>
-      </td>
-
-      {/* GPS dot */}
-      <td style={{ padding: '10px 14px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-          <div style={{
-            width: '7px',
-            height: '7px',
-            borderRadius: '50%',
-            background: hasGps ? '#10B981' : '#CBD5E1',
-            flexShrink: 0,
-          }} />
-          <span style={{ fontSize: '11px', color: hasGps ? '#059669' : '#94A3B8', fontWeight: 600 }}>
-            {hasGps ? 'Live' : 'None'}
-          </span>
-        </div>
-      </td>
-
-      {/* Speed */}
-      <td style={{ padding: '10px 14px' }}>
-        {hasGps && currentSpeed > 0 ? (
-          <span style={{
-            fontSize: '11px',
-            fontWeight: 700,
-            color: currentSpeed > speedThreshold ? '#DC2626' : '#059669',
-            fontFamily: "'Roboto Mono', monospace",
-          }}>
-            {currentSpeed} <span style={{ fontWeight: 400, fontFamily: 'inherit' }}>km/h</span>
-          </span>
-        ) : (
-          <span style={{ fontSize: '11px', color: '#CBD5E1' }}>—</span>
-        )}
-      </td>
-
-      {/* 24h status */}
-      <td style={{ padding: '10px 14px' }}>
-        {isOverspeed && overspeedData ? (
-          <div>
-            <span style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '3px',
-              background: '#FEE2E2',
-              color: '#DC2626',
-              fontSize: '10px',
-              fontWeight: 700,
-              padding: '2px 6px',
-              borderRadius: '2px',
-              letterSpacing: '0.02em',
-            }}>
-              ⚠ {overspeedData.maxSpeed} km/h
-            </span>
-            <div style={{ fontSize: '10px', color: '#94A3B8', marginTop: '2px' }}>
-              {overspeedData.overspeedCount} violation{overspeedData.overspeedCount > 1 ? 's' : ''}
-            </div>
-          </div>
-        ) : (
-          <span style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '3px',
-            background: '#D1FAE5',
-            color: '#059669',
-            fontSize: '10px',
-            fontWeight: 700,
-            padding: '2px 6px',
-            borderRadius: '2px',
-          }}>
-            ✓ Normal
-          </span>
-        )}
-      </td>
-
-      {/* Row actions */}
-      <td style={{ padding: '10px 14px' }}>
-        <div className="row-actions">
-          <Link
-            to="/my-fleet"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '3px',
-              fontSize: '10px',
-              fontWeight: 600,
-              color: '#2563EB',
-              background: '#EFF6FF',
-              border: '1px solid #BFDBFE',
-              padding: '3px 8px',
-              borderRadius: '2px',
-              textDecoration: 'none',
-            }}
-          >
-            Track <ArrowRightIcon style={{ width: '10px', height: '10px' }} />
-          </Link>
-        </div>
-      </td>
-    </tr>
-  );
+const getVehicleStatus = (v, speedThreshold) => {
+  const coords = getVehicleCoordinates(v);
+  if (!coords) return 'no_gps';
+  const ign = v.deviceStatus?.gpsData?.ignition ?? v.deviceStatus?.status?.ignition;
+  const speed = v.deviceStatus?.gpsData?.speed ?? 0;
+  if (speed > speedThreshold) return 'overspeed';
+  if (ign === 1 || ign === true || speed > 2) return 'running';
+  return 'stopped';
 };
 
-/* ── Quick action card ─────────────────────────────── */
-const QuickActionLink = ({ to, label, Icon, color, colorPale, colorBorder }) => {
-  const [hovered, setHovered] = useState(false);
-
-  return (
-    <Link
-      to={to}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '10px',
-        padding: '11px 14px',
-        background: hovered ? colorPale : '#F8FAFC',
-        border: `1px solid ${hovered ? colorBorder : '#E2E8F0'}`,
-        borderLeft: `3px solid ${hovered ? color : '#E2E8F0'}`,
-        borderRadius: '2px',
-        color: hovered ? color : '#334155',
-        fontSize: '12.5px',
-        fontWeight: 600,
-        textDecoration: 'none',
-        transition: 'all 0.1s',
-      }}
-    >
-      <div style={{
-        width: '28px',
-        height: '28px',
-        borderRadius: '2px',
-        background: hovered ? colorPale : '#FFFFFF',
-        border: `1px solid ${hovered ? colorBorder : '#E2E8F0'}`,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexShrink: 0,
-        transition: 'all 0.1s',
-      }}>
-        <Icon style={{ width: '14px', height: '14px', color: hovered ? color : '#64748B' }} />
-      </div>
-      <span style={{ flex: 1 }}>{label}</span>
-      <ArrowRightIcon style={{ width: '13px', height: '13px', opacity: hovered ? 1 : 0.3, transition: 'opacity 0.1s' }} />
-    </Link>
-  );
+const STATUS_CONFIG = {
+  all:       { label: 'All',       color: '#2563EB', bg: '#EFF6FF' },
+  running:   { label: 'Running',   color: '#059669', bg: '#D1FAE5' },
+  stopped:   { label: 'Stopped',   color: '#DC2626', bg: '#FEE2E2' },
+  no_gps:    { label: 'No GPS',    color: '#D97706', bg: '#FEF3C7' },
+  overspeed: { label: 'Overspeed', color: '#B91C1C', bg: '#FEE2E2' },
 };
 
-// ─── All available dashboard stat cards ───────────────────────────────────────
-const ALL_DASH_CARDS = [
-  { id: 'registered',  title: 'Registered Vehicles', icon: '🚗', bgColor: '#dbeafe', defaultOn: true  },
-  { id: 'active',      title: 'Active Vehicles',     icon: '✅', bgColor: '#d1fae5', defaultOn: true  },
-  { id: 'overspeed',   title: 'Overspeed Alerts',    icon: '⚠️', bgColor: '#fee2e2', defaultOn: true  },
-  { id: 'inactive',    title: 'Inactive Vehicles',   icon: '⏸️', bgColor: '#fef3c7', defaultOn: true  },
-  { id: 'gps_active',  title: 'GPS Active',          icon: '📡', bgColor: '#ede9fe', defaultOn: true  },
-  { id: 'challans',    title: 'Pending Challans',    icon: '📋', bgColor: '#fce7f3', defaultOn: true  },
-  { id: 'renewals',    title: 'Upcoming Renewals',   icon: '📅', bgColor: '#fef9c3', defaultOn: true  },
-  { id: 'deleted',     title: 'Deleted Vehicles',    icon: '🗑️', bgColor: '#f1f5f9', defaultOn: false },
-];
+// Recenter map when center changes
+const MapCenterer = ({ center }) => {
+  const map = useMap();
+  useEffect(() => {
+    if (center) map.flyTo(center, map.getZoom() < 8 ? 8 : map.getZoom(), { duration: 0.8 });
+  }, [center, map]);
+  return null;
+};
 
-const DEFAULT_DASH_CARDS = ALL_DASH_CARDS.filter((c) => c.defaultOn).map((c) => c.id);
-
-function getVisibleDashCards() {
-  try {
-    const saved = localStorage.getItem('dashboard-visible-cards');
-    return saved ? JSON.parse(saved) : DEFAULT_DASH_CARDS;
-  } catch { return DEFAULT_DASH_CARDS; }
-}
-
-/* ── Dashboard ─────────────────────────────────────── */
 const Dashboard = () => {
   const { user } = useAuth();
   const isNetworkUser = user?.role === 'papa' || user?.role === 'dealer' || Number(user?.parentId) === 0;
@@ -257,24 +77,15 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [speedThreshold, setSpeedThreshold] = useState(80);
   const [overspeedVehicles, setOverspeedVehicles] = useState([]);
-  const [visibleCards, setVisibleCards] = useState(getVisibleDashCards);
-
-  // Re-read visibility whenever settings may change (e.g. after navigating from Settings)
-  useEffect(() => {
-    const onFocus = () => setVisibleCards(getVisibleDashCards());
-    window.addEventListener('focus', onFocus);
-    window.addEventListener('dashboard-cards-updated', onFocus);
-    return () => {
-      window.removeEventListener('focus', onFocus);
-      window.removeEventListener('dashboard-cards-updated', onFocus);
-    };
-  }, []);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [search, setSearch] = useState('');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [mapStyle, setMapStyle] = useState('roadmap');
+  const [flyToCoords, setFlyToCoords] = useState(null);
 
   useEffect(() => {
     if (isNetworkUser) {
-      getNetworkStats()
-        .then(res => setNetworkStats(res.data || null))
-        .catch(() => {});
+      getNetworkStats().then(res => setNetworkStats(res.data || null)).catch(() => {});
     }
   }, [isNetworkUser]);
 
@@ -283,14 +94,9 @@ const Dashboard = () => {
       .then(([statsRes, vehiclesRes, settingsRes]) => {
         setStats(statsRes.data);
         setVehicles(vehiclesRes.data || []);
-
         let settingsData;
-        if (settingsRes.data.success && settingsRes.data.data) {
-          settingsData = settingsRes.data.data;
-        } else if (settingsRes.data.speedThreshold !== undefined) {
-          settingsData = settingsRes.data;
-        }
-
+        if (settingsRes.data.success && settingsRes.data.data) settingsData = settingsRes.data.data;
+        else if (settingsRes.data.speedThreshold !== undefined) settingsData = settingsRes.data;
         if (settingsData) {
           const threshold = settingsData.speedThreshold || 80;
           setSpeedThreshold(threshold);
@@ -299,29 +105,51 @@ const Dashboard = () => {
       })
       .then((overspeedRes) => {
         if (overspeedRes) {
-          if (overspeedRes.data.success && overspeedRes.data.data) {
-            setOverspeedVehicles(overspeedRes.data.data);
-          } else if (Array.isArray(overspeedRes.data)) {
-            setOverspeedVehicles(overspeedRes.data);
-          }
+          if (overspeedRes.data.success && overspeedRes.data.data) setOverspeedVehicles(overspeedRes.data.data);
+          else if (Array.isArray(overspeedRes.data)) setOverspeedVehicles(overspeedRes.data);
         }
       })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
 
-  const availableVehicles = useMemo(
+  const activeVehicles = useMemo(
     () => vehicles.filter((v) => (v.status || '').toLowerCase() === 'active'),
     [vehicles]
   );
 
-  const mapVehicles = useMemo(
-    () =>
-      availableVehicles
-        .map((v) => ({ ...v, coords: getVehicleCoordinates(v) }))
-        .filter((v) => !!v.coords),
-    [availableVehicles]
+  // Enrich with coords and status
+  const enrichedVehicles = useMemo(
+    () => activeVehicles.map(v => ({
+      ...v,
+      coords: getVehicleCoordinates(v),
+      _status: getVehicleStatus(v, speedThreshold),
+    })),
+    [activeVehicles, speedThreshold]
   );
+
+  const counts = useMemo(() => {
+    const c = { all: enrichedVehicles.length, running: 0, stopped: 0, no_gps: 0, overspeed: 0 };
+    enrichedVehicles.forEach(v => { c[v._status] = (c[v._status] || 0) + 1; });
+    return c;
+  }, [enrichedVehicles]);
+
+  // Apply status filter + search
+  const filteredVehicles = useMemo(() => {
+    let list = enrichedVehicles;
+    if (statusFilter !== 'all') list = list.filter(v => v._status === statusFilter);
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(v =>
+        (v.vehicleNumber || '').toLowerCase().includes(q) ||
+        (v.vehicleName || '').toLowerCase().includes(q) ||
+        (v.imei || '').toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [enrichedVehicles, statusFilter, search]);
+
+  const mapVehicles = useMemo(() => filteredVehicles.filter(v => v.coords), [filteredVehicles]);
 
   const mapCenter = useMemo(() => {
     if (!mapVehicles.length) return INDIA_CENTER;
@@ -330,345 +158,281 @@ const Dashboard = () => {
     return [avgLat, avgLng];
   }, [mapVehicles]);
 
-  const CARD_DATA = {
-    registered: { value: stats?.registeredVehicles ?? '—',              change: 'Total fleet size' },
-    active:     { value: stats?.vehicleStatusWise?.active ?? 0,         change: 'Operational status' },
-    overspeed:  { value: overspeedVehicles.length,                      change: `Exceeded ${speedThreshold} km/h (24h)` },
-    inactive:   { value: stats?.vehicleStatusWise?.inactive ?? 0,       change: 'Temporarily inactive' },
-    gps_active: { value: mapVehicles.length,                            change: 'Live GPS signal' },
-    challans:   { value: stats?.pendingChallans ?? 0,                   change: 'Awaiting payment' },
-    renewals:   { value: stats?.upcomingRenewals ?? 0,                  change: 'Expiring within 30 days' },
-    deleted:    { value: stats?.vehicleStatusWise?.deleted ?? 0,        change: 'Removed from fleet' },
+  const MAP_TILES = {
+    roadmap:   { url: 'https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', subdomains: '0123', label: 'Road' },
+    satellite: { url: 'https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', subdomains: '0123', label: 'Satellite' },
+    hybrid:    { url: 'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', subdomains: '0123', label: 'Hybrid' },
+    terrain:   { url: 'https://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', subdomains: '0123', label: 'Terrain' },
   };
 
-  const statCards = ALL_DASH_CARDS
-    .filter((c) => visibleCards.includes(c.id))
-    .map((c) => ({ ...c, ...CARD_DATA[c.id] }));
-
   const quickActions = [
-    { to: '/add-vehicle', label: 'Add Vehicle',      Icon: PlusIcon,                   color: '#2563EB', colorPale: '#EFF6FF', colorBorder: '#BFDBFE' },
-    { to: '/add-client',  label: 'Add Client',       Icon: UserPlusIcon,               color: '#059669', colorPale: '#D1FAE5', colorBorder: '#6EE7B7' },
-    { to: '/rto-details', label: 'RTO Compliance',   Icon: ClipboardDocumentCheckIcon, color: '#7C3AED', colorPale: '#F5F3FF', colorBorder: '#C4B5FD' },
-    { to: '/challans',    label: 'Pending Challans', Icon: DocumentTextIcon,           color: '#D97706', colorPale: '#FEF3C7', colorBorder: '#FCD34D' },
+    { to: '/add-vehicle', label: 'Add Vehicle',    Icon: PlusIcon,                   color: '#2563EB' },
+    { to: '/add-client',  label: 'Add Client',     Icon: UserPlusIcon,               color: '#059669' },
+    { to: '/rto-details', label: 'RTO',            Icon: ClipboardDocumentCheckIcon, color: '#7C3AED' },
+    { to: '/challans',    label: 'Challans',       Icon: DocumentTextIcon,           color: '#D97706' },
   ];
 
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - 60px)', gap: 10, color: '#94A3B8' }}>
+        <div style={{ width: 16, height: 16, border: '2px solid #E2E8F0', borderTopColor: '#2563EB', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+        Loading dashboard...
+        <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+      </div>
+    );
+  }
+
   return (
-    <div style={{ minHeight: '100%' }}>
+    <div style={{ height: 'calc(100vh - 70px)', display: 'flex', flexDirection: 'column', fontFamily: "'Plus Jakarta Sans', sans-serif", position: 'relative' }}>
 
-      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '20px' }}>
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: '7px',
-            padding: '7px 13px',
-            background: '#EFF6FF',
-            border: '1px solid #BFDBFE',
-            borderLeft: '3px solid #2563EB',
-            borderRadius: '2px',
-          }}>
-            <SignalIcon style={{ width: '14px', height: '14px', color: '#2563EB' }} />
-            <span style={{ fontSize: '12px', fontWeight: 700, color: '#1D4ED8' }}>
-              {loading ? '…' : mapVehicles.length} GPS Active
-            </span>
-            {!loading && (
-              <span style={{ fontSize: '11px', color: '#94A3B8' }}>/ {availableVehicles.length}</span>
-            )}
-          </div>
-
-          {!loading && overspeedVehicles.length > 0 && (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: '7px',
-              padding: '7px 13px',
-              background: '#FEF2F2',
-              border: '1px solid #FECACA',
-              borderLeft: '3px solid #DC2626',
-              borderRadius: '2px',
-            }}>
-              <ExclamationTriangleIcon style={{ width: '14px', height: '14px', color: '#DC2626' }} />
-              <span style={{ fontSize: '12px', fontWeight: 700, color: '#B91C1C' }}>
-                {overspeedVehicles.length} Overspeed Alert{overspeedVehicles.length > 1 ? 's' : ''}
-              </span>
+      {/* ══ Top stat strip — compact horizontal scrolling cards ══ */}
+      <div style={{ display: 'flex', gap: 8, padding: '10px 14px', background: '#FFFFFF', borderBottom: '1px solid #E2E8F0', overflowX: 'auto', flexShrink: 0 }}>
+        {Object.entries(STATUS_CONFIG).map(([id, cfg]) => (
+          <button
+            key={id}
+            onClick={() => setStatusFilter(id)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px',
+              background: statusFilter === id ? cfg.color : cfg.bg,
+              border: `1.5px solid ${statusFilter === id ? cfg.color : cfg.color + '40'}`,
+              borderRadius: 8, cursor: 'pointer', minWidth: 110, flexShrink: 0,
+              fontFamily: 'inherit', transition: 'all 0.15s',
+              boxShadow: statusFilter === id ? `0 2px 8px ${cfg.color}40` : 'none',
+            }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+              <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: statusFilter === id ? 'rgba(255,255,255,0.85)' : cfg.color, lineHeight: 1 }}>{cfg.label}</span>
+              <span style={{ fontSize: 22, fontWeight: 800, color: statusFilter === id ? '#fff' : cfg.color, lineHeight: 1, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{counts[id] || 0}</span>
             </div>
-          )}
+          </button>
+        ))}
+
+        <div style={{ flex: 1 }} />
+
+        {/* Search */}
+        <div style={{ position: 'relative', flexShrink: 0 }}>
+          <MagnifyingGlassIcon style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 14, height: 14, color: '#94A3B8' }} />
+          <input
+            placeholder="Search vehicle…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ padding: '8px 12px 8px 32px', border: '1px solid #E2E8F0', borderRadius: 8, fontSize: 12.5, outline: 'none', width: 200, fontFamily: 'inherit' }}
+          />
+        </div>
+
+        {/* Map style selector */}
+        <select
+          value={mapStyle}
+          onChange={e => setMapStyle(e.target.value)}
+          style={{ padding: '8px 10px', border: '1px solid #E2E8F0', borderRadius: 8, fontSize: 12, fontWeight: 600, outline: 'none', fontFamily: 'inherit', cursor: 'pointer', background: '#fff' }}
+        >
+          {Object.entries(MAP_TILES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+        </select>
+
+        {/* Toggle sidebar */}
+        <button
+          onClick={() => setSidebarOpen(p => !p)}
+          title={sidebarOpen ? 'Hide vehicle list' : 'Show vehicle list'}
+          style={{ padding: '8px 10px', border: '1px solid #E2E8F0', borderRadius: 8, background: sidebarOpen ? '#EFF6FF' : '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+        >
+          {sidebarOpen ? <XMarkIcon style={{ width: 16, height: 16, color: '#2563EB' }} /> : <Bars3Icon style={{ width: 16, height: 16, color: '#64748B' }} />}
+        </button>
       </div>
 
-      {loading ? (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '80px',
-          color: '#94A3B8',
-          fontSize: '13.5px',
-          fontWeight: 500,
-          gap: '10px',
-        }}>
-          <div style={{
-            width: '16px', height: '16px', border: '2px solid #E2E8F0',
-            borderTopColor: '#2563EB', borderRadius: '50%',
-            animation: 'spin 0.8s linear infinite',
-          }} />
-          Loading dashboard...
-          <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
-        </div>
-      ) : (
-        <>
-          {/* ── Network stat cards (papa / dealer only) ── */}
-          {isNetworkUser && networkStats && (
-            <div style={{
-              background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '2px',
-              padding: '14px 18px', marginBottom: '14px',
-            }}>
-              <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: '12px' }}>
-                Network Overview
-              </div>
-              <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
-                {[
-                  { label: 'Total Clients',    value: networkStats.totalClients,    icon: '👥', bg: '#EDE9FE', color: '#7C3AED' },
-                  { label: 'Network Vehicles', value: networkStats.totalVehicles,   icon: '🚗', bg: '#DBEAFE', color: '#2563EB' },
-                  { label: 'Active Vehicles',  value: networkStats.activeVehicles,  icon: '✅', bg: '#D1FAE5', color: '#059669' },
-                  { label: 'Inactive Vehicles',value: networkStats.inactiveVehicles,icon: '⏸️', bg: '#FEF3C7', color: '#D97706' },
-                ].map(({ label, value, icon, bg, color }) => (
-                  <div key={label} style={{
-                    flex: '1', minWidth: '130px', padding: '12px 16px', borderRadius: '2px',
-                    background: bg, display: 'flex', alignItems: 'center', gap: '10px',
-                  }}>
-                    <span style={{ fontSize: '20px' }}>{icon}</span>
-                    <div>
-                      <div style={{ fontSize: '20px', fontWeight: 800, color, lineHeight: 1 }}>{value ?? '—'}</div>
-                      <div style={{ fontSize: '11px', color, opacity: 0.75, marginTop: '2px', fontWeight: 500 }}>{label}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+      {/* ══ Main content: map + optional sidebar ══ */}
+      <div style={{ flex: 1, display: 'flex', minHeight: 0, position: 'relative' }}>
 
-          {/* ── Stat cards ───────────────────────────── */}
-          <div className="stat-cards-row" style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginBottom: '18px' }}>
-            {statCards.map((card) => (
-              <StatCard key={card.title} {...card} />
+        {/* ── Map ── */}
+        <div style={{ flex: 1, position: 'relative', minWidth: 0 }}>
+          <MapContainer
+            center={mapCenter}
+            zoom={5}
+            style={{ position: 'absolute', inset: 0 }}
+            scrollWheelZoom
+            zoomControl={false}
+          >
+            <TileLayer
+              attribution='&copy; Google Maps'
+              url={MAP_TILES[mapStyle].url}
+              subdomains={MAP_TILES[mapStyle].subdomains}
+              maxZoom={20}
+            />
+            {flyToCoords && <MapCenterer center={flyToCoords} />}
+            {mapVehicles.map((vehicle) => {
+              const markerColor = vehicle._status === 'running' ? '#059669'
+                : vehicle._status === 'overspeed' ? '#DC2626'
+                : vehicle._status === 'stopped' ? '#ef4444'
+                : '#94A3B8';
+              const markerFill = vehicle._status === 'running' ? '#22c55e'
+                : vehicle._status === 'overspeed' ? '#DC2626'
+                : vehicle._status === 'stopped' ? '#f87171'
+                : '#CBD5E1';
+              const vName = vehicle.vehicleName || vehicle.vehicleNumber || `Vehicle #${vehicle.id}`;
+              const speed = vehicle.deviceStatus?.gpsData?.speed ?? 0;
+              return (
+                <CircleMarker
+                  key={vehicle.id}
+                  center={[vehicle.coords.lat, vehicle.coords.lng]}
+                  radius={vehicle._status === 'overspeed' ? 9 : 7}
+                  pathOptions={{ color: markerColor, fillColor: markerFill, fillOpacity: 0.85, weight: 2 }}
+                >
+                  <Popup>
+                    <div style={{ minWidth: 180, fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 12 }}>
+                      <div style={{ fontWeight: 700, color: '#0F172A', fontSize: 13, marginBottom: 4 }}>{vName}</div>
+                      {vehicle.vehicleName && vehicle.vehicleNumber && (
+                        <div style={{ color: '#64748B', fontFamily: 'monospace', fontSize: 11, marginBottom: 4 }}>{vehicle.vehicleNumber}</div>
+                      )}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 12, fontSize: 10, fontWeight: 700, background: markerColor + '18', color: markerColor, border: `1px solid ${markerColor}35` }}>
+                          <span style={{ width: 5, height: 5, borderRadius: '50%', background: markerColor }} />
+                          {STATUS_CONFIG[vehicle._status]?.label || vehicle._status}
+                        </span>
+                        {speed > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: speed > speedThreshold ? '#ef4444' : '#2563EB' }}>{speed} km/h</span>}
+                      </div>
+                      {vehicle.imei && (
+                        <div style={{ color: '#94A3B8', fontSize: 10, fontFamily: 'monospace' }}>IMEI: {vehicle.imei}</div>
+                      )}
+                      <Link to="/my-fleet" style={{ display: 'inline-block', marginTop: 6, padding: '4px 10px', background: '#2563EB', color: '#fff', fontSize: 11, fontWeight: 700, borderRadius: 5, textDecoration: 'none' }}>Track →</Link>
+                    </div>
+                  </Popup>
+                </CircleMarker>
+              );
+            })}
+          </MapContainer>
+
+          {/* ── Floating overlay: quick actions (top-right) ── */}
+          <div style={{ position: 'absolute', top: 14, right: 14, zIndex: 500, display: 'flex', flexDirection: 'column', gap: 4, background: '#fff', border: '1px solid #E2E8F0', borderRadius: 8, padding: 6, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+            {quickActions.map(a => (
+              <Link key={a.to} to={a.to}
+                title={a.label}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 6, textDecoration: 'none', color: a.color, fontSize: 11.5, fontWeight: 700, transition: 'background 0.15s' }}
+                onMouseEnter={e => e.currentTarget.style.background = a.color + '10'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <a.Icon style={{ width: 14, height: 14, color: a.color, flexShrink: 0 }} />
+                {a.label}
+              </Link>
             ))}
           </div>
 
-          {/* ── Main grid ────────────────────────────── */}
-          <div
-            className="dashboard-main-grid"
-            style={{ display: 'grid', gridTemplateColumns: '1.55fr 1fr', gap: '14px' }}
-          >
-            {/* ── Map card ─────────────────────────── */}
-            <div style={{
-              background: '#FFFFFF',
-              border: '1px solid #E2E8F0',
-              borderRadius: '2px',
-              overflow: 'hidden',
-            }}>
-              {/* Map header */}
-              <div style={{
-                padding: '13px 16px',
-                borderBottom: '1px solid #E2E8F0',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-              }}>
-                <div>
-                  <div style={{ fontSize: '13.5px', fontWeight: 700, color: '#0F172A' }}>Fleet Location Map</div>
-                  <div style={{ fontSize: '11px', color: '#94A3B8', marginTop: '1px' }}>
-                    Active vehicles with GPS coordinates
-                  </div>
-                </div>
-                <span style={{
-                  fontSize: '10.5px', fontWeight: 700, letterSpacing: '0.04em',
-                  color: '#2563EB', background: '#EFF6FF',
-                  padding: '3px 8px', borderRadius: '2px',
-                }}>
-                  {mapVehicles.length} ON MAP
-                </span>
-              </div>
+          {/* ── Floating overlay: result count (bottom-left) ── */}
+          <div style={{ position: 'absolute', bottom: 14, left: 14, zIndex: 500, background: '#fff', border: '1px solid #E2E8F0', borderRadius: 8, padding: '6px 12px', fontSize: 11, fontWeight: 700, color: '#475569', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+            Showing <span style={{ color: STATUS_CONFIG[statusFilter].color }}>{mapVehicles.length}</span> of {enrichedVehicles.length} vehicles
+            {statusFilter !== 'all' && <button onClick={() => setStatusFilter('all')} style={{ marginLeft: 8, background: 'none', border: 'none', color: '#2563EB', fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: 0, fontFamily: 'inherit' }}>clear filter</button>}
+          </div>
 
-              {/* Map body */}
-              {mapVehicles.length ? (
-                <MapContainer
-                  center={mapCenter}
-                  zoom={5}
-                  style={{ height: '400px', width: '100%' }}
-                  scrollWheelZoom
-                >
-                  <TileLayer
-                    attribution='&copy; Google Maps'
-                    url="https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
-                    subdomains="0123"
-                    maxZoom={20}
-                  />
-                  {mapVehicles.map((vehicle) => {
-                    const ign = vehicle.deviceStatus?.gpsData?.ignition ?? vehicle.deviceStatus?.status?.ignition;
-                    const speed = vehicle.deviceStatus?.gpsData?.speed ?? 0;
-                    const isRunning = ign === 1 || ign === true || speed > 2;
-                    const markerColor = isRunning ? '#059669' : '#ef4444';
-                    const markerFill = isRunning ? '#22c55e' : '#f87171';
-                    const vName = vehicle.vehicleName || vehicle.vehicleNumber || `Vehicle #${vehicle.id}`;
-                    return (
-                      <CircleMarker
-                        key={vehicle.id}
-                        center={[vehicle.coords.lat, vehicle.coords.lng]}
-                        radius={7}
-                        pathOptions={{ color: markerColor, fillColor: markerFill, fillOpacity: 0.85, weight: 2 }}
-                      >
-                        <Popup>
-                          <div style={{ minWidth: '180px', fontFamily: "'Inter', sans-serif", fontSize: '12px' }}>
-                            <div style={{ fontWeight: 700, color: '#0F172A', fontSize: '13px', marginBottom: '4px' }}>
-                              {vName}
-                            </div>
-                            {vehicle.vehicleName && vehicle.vehicleNumber && (
-                              <div style={{ color: '#64748B', fontFamily: 'monospace', fontSize: '11px', marginBottom: '4px' }}>{vehicle.vehicleNumber}</div>
-                            )}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '12px', fontSize: '10px', fontWeight: 700, background: markerColor + '18', color: markerColor, border: `1px solid ${markerColor}35` }}>
-                                <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: markerColor }} />
-                                {isRunning ? 'Running' : 'Stopped'}
-                              </span>
-                              {speed > 0 && <span style={{ fontSize: '11px', fontWeight: 700, color: speed > 80 ? '#ef4444' : '#2563EB' }}>{speed} km/h</span>}
-                            </div>
-                            {vehicle.imei && (
-                              <div style={{ color: '#94A3B8', fontSize: '10px', fontFamily: 'monospace' }}>
-                                IMEI: {vehicle.imei}
-                              </div>
-                            )}
-                          </div>
-                        </Popup>
-                      </CircleMarker>
-                    );
-                  })}
-                </MapContainer>
+          {/* ── Overspeed alert banner (top-left, if any) ── */}
+          {overspeedVehicles.length > 0 && statusFilter !== 'overspeed' && (
+            <button
+              onClick={() => setStatusFilter('overspeed')}
+              style={{ position: 'absolute', top: 14, left: 14, zIndex: 500, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', background: '#FEE2E2', border: '1.5px solid #DC2626', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#B91C1C', cursor: 'pointer', boxShadow: '0 2px 8px rgba(220,38,38,0.2)', fontFamily: 'inherit' }}
+            >
+              <ExclamationTriangleIcon style={{ width: 15, height: 15, color: '#DC2626' }} />
+              {overspeedVehicles.length} Overspeed Alert{overspeedVehicles.length > 1 ? 's' : ''} (24h)
+            </button>
+          )}
+
+          {/* ── No GPS empty state ── */}
+          {mapVehicles.length === 0 && (
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+              <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: 10, padding: '20px 28px', boxShadow: '0 4px 16px rgba(0,0,0,0.1)', textAlign: 'center', pointerEvents: 'auto' }}>
+                <SignalIcon style={{ width: 36, height: 36, color: '#94A3B8', margin: '0 auto 8px' }} />
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#334155', marginBottom: 4 }}>No vehicles to display</div>
+                <div style={{ fontSize: 12, color: '#94A3B8' }}>
+                  {statusFilter !== 'all' ? `No vehicles match "${STATUS_CONFIG[statusFilter].label}" filter` : 'No GPS locations available'}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── Sidebar: vehicle list ── */}
+        {sidebarOpen && (
+          <div style={{ width: 300, flexShrink: 0, borderLeft: '1px solid #E2E8F0', background: '#FFFFFF', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <div style={{ padding: '10px 14px', borderBottom: '1px solid #F1F5F9', background: '#FAFBFC', flexShrink: 0 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                {STATUS_CONFIG[statusFilter].label} Vehicles ({filteredVehicles.length})
+              </div>
+            </div>
+            <div style={{ flex: 1, overflow: 'auto', padding: '6px 8px 14px' }}>
+              {filteredVehicles.length === 0 ? (
+                <div style={{ padding: 30, textAlign: 'center', color: '#94A3B8', fontSize: 12 }}>No vehicles found</div>
               ) : (
-                <div style={{
-                  height: '400px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '10px',
-                  background: '#F8FAFC',
-                }}>
-                  <div style={{
-                    width: '44px', height: '44px',
-                    background: '#EFF6FF',
-                    border: '1px solid #BFDBFE',
-                    borderRadius: '2px',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    <SignalIcon style={{ width: '22px', height: '22px', color: '#2563EB' }} />
-                  </div>
-                  <div style={{ fontSize: '14px', fontWeight: 700, color: '#0F172A' }}>No GPS locations</div>
-                  <div style={{ fontSize: '12px', color: '#94A3B8', textAlign: 'center', maxWidth: '270px', lineHeight: 1.5 }}>
-                    Active vehicles are loaded but GPS coordinates are not yet available.
+                filteredVehicles.map(v => {
+                  const cfg = STATUS_CONFIG[v._status];
+                  const speed = v.deviceStatus?.gpsData?.speed ?? 0;
+                  const vName = v.vehicleName || v.vehicleNumber || `Vehicle #${v.id}`;
+                  return (
+                    <div key={v.id}
+                      onClick={() => v.coords && setFlyToCoords([v.coords.lat, v.coords.lng])}
+                      style={{ padding: '9px 10px', marginBottom: 3, background: '#fff', border: '1px solid #F1F5F9', borderLeft: `3px solid ${cfg.color}`, borderRadius: 7, cursor: v.coords ? 'pointer' : 'default', transition: 'all 0.12s' }}
+                      onMouseEnter={e => e.currentTarget.style.background = '#F8FAFC'}
+                      onMouseLeave={e => e.currentTarget.style.background = '#fff'}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{vName}</div>
+                          {v.vehicleNumber && v.vehicleName && (
+                            <div style={{ fontSize: 9.5, color: '#94A3B8', fontFamily: 'monospace', marginTop: 1 }}>{v.vehicleNumber}</div>
+                          )}
+                        </div>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 6px', borderRadius: 20, background: cfg.bg, border: `1px solid ${cfg.color}35`, flexShrink: 0 }}>
+                          <span style={{ width: 4, height: 4, borderRadius: '50%', background: cfg.color }} />
+                          <span style={{ fontSize: 8.5, fontWeight: 700, color: cfg.color }}>{cfg.label}</span>
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                        {speed > 0 && (
+                          <span style={{ fontSize: 10, fontWeight: 700, color: speed > speedThreshold ? '#ef4444' : '#2563EB' }}>{speed} km/h</span>
+                        )}
+                        {!v.coords && (
+                          <span style={{ fontSize: 9, fontWeight: 600, color: '#D97706' }}>No GPS</span>
+                        )}
+                        <span style={{ flex: 1 }} />
+                        {v.imei && (
+                          <span style={{ fontSize: 8.5, color: '#94A3B8', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 110 }}>{v.imei}</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* ── Sidebar footer: stats summary ── */}
+            <div style={{ padding: '10px 14px', borderTop: '1px solid #F1F5F9', background: '#FAFBFC', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                <div style={{ padding: '6px 8px', background: '#fff', border: '1px solid #E2E8F0', borderRadius: 5 }}>
+                  <div style={{ fontSize: 8.5, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Total Fleet</div>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: '#0F172A', lineHeight: 1, marginTop: 2 }}>{stats?.registeredVehicles ?? '—'}</div>
+                </div>
+                <div style={{ padding: '6px 8px', background: '#fff', border: '1px solid #E2E8F0', borderRadius: 5 }}>
+                  <div style={{ fontSize: 8.5, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Challans</div>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: '#D97706', lineHeight: 1, marginTop: 2 }}>{stats?.pendingChallans ?? 0}</div>
+                </div>
+                <div style={{ padding: '6px 8px', background: '#fff', border: '1px solid #E2E8F0', borderRadius: 5 }}>
+                  <div style={{ fontSize: 8.5, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Renewals</div>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: '#7C3AED', lineHeight: 1, marginTop: 2 }}>{stats?.upcomingRenewals ?? 0}</div>
+                </div>
+                <div style={{ padding: '6px 8px', background: '#fff', border: '1px solid #E2E8F0', borderRadius: 5 }}>
+                  <div style={{ fontSize: 8.5, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Inactive</div>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: '#94A3B8', lineHeight: 1, marginTop: 2 }}>{stats?.vehicleStatusWise?.inactive ?? 0}</div>
+                </div>
+              </div>
+              {isNetworkUser && networkStats && (
+                <div style={{ padding: '8px 10px', background: 'linear-gradient(135deg,#1D4ED8,#3B82F6)', borderRadius: 6, color: '#fff' }}>
+                  <div style={{ fontSize: 8.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', opacity: 0.8, marginBottom: 3 }}>Network</div>
+                  <div style={{ display: 'flex', gap: 10, fontSize: 11, fontWeight: 700 }}>
+                    <span>{networkStats.totalClients ?? '—'} clients</span>
+                    <span>·</span>
+                    <span>{networkStats.totalVehicles ?? '—'} vehicles</span>
                   </div>
                 </div>
               )}
             </div>
-
-            {/* ── Right panel ──────────────────────── */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-
-              {/* Vehicle table */}
-              <div style={{
-                background: '#FFFFFF',
-                border: '1px solid #E2E8F0',
-                borderRadius: '2px',
-                overflow: 'hidden',
-                flex: 1,
-              }}>
-                {/* Table header */}
-                <div style={{
-                  padding: '13px 16px',
-                  borderBottom: '1px solid #E2E8F0',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                }}>
-                  <div style={{ fontSize: '13.5px', fontWeight: 700, color: '#0F172A' }}>Active Vehicles</div>
-                  <span style={{
-                    fontSize: '10.5px', fontWeight: 700, letterSpacing: '0.04em',
-                    background: '#F1F5F9', color: '#475569',
-                    padding: '3px 8px', borderRadius: '2px',
-                  }}>
-                    {availableVehicles.length} TOTAL
-                  </span>
-                </div>
-
-                {/* Table body */}
-                <div style={{ overflowY: 'auto', maxHeight: '330px' }}>
-                  {availableVehicles.length ? (
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--theme-table-body-font-size, 13px)' }}>
-                      <thead>
-                        <tr style={{ background: 'var(--theme-table-header-bg, #f8fafc)', borderBottom: '2px solid var(--theme-table-border, #e2e8f0)', position: 'sticky', top: 0, zIndex: 1 }}>
-                          {['Vehicle', 'GPS', 'Speed', '24h Status', ''].map((h) => (
-                            <th key={h} style={{
-                              padding: '9px 14px',
-                              textAlign: 'left',
-                              fontWeight: 700,
-                              color: 'var(--theme-table-header-text, #64748b)',
-                              fontSize: 'var(--theme-table-header-font-size, 10px)',
-                              textTransform: 'uppercase',
-                              letterSpacing: '0.07em',
-                              whiteSpace: 'nowrap',
-                              background: 'var(--theme-table-header-bg, #f8fafc)',
-                            }}>
-                              {h}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {availableVehicles.map((vehicle, idx) => (
-                          <VehicleRow
-                            key={vehicle.id}
-                            vehicle={vehicle}
-                            idx={idx}
-                            overspeedVehicles={overspeedVehicles}
-                            speedThreshold={speedThreshold}
-                          />
-                        ))}
-                      </tbody>
-                    </table>
-                  ) : (
-                    <div style={{
-                      padding: '48px',
-                      textAlign: 'center',
-                      color: '#94A3B8',
-                      fontSize: '13px',
-                    }}>
-                      No active vehicles found.
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Quick actions */}
-              <div style={{
-                background: '#FFFFFF',
-                border: '1px solid #E2E8F0',
-                borderRadius: '2px',
-                padding: '14px 16px',
-              }}>
-                <div style={{
-                  fontSize: '13.5px',
-                  fontWeight: 700,
-                  color: '#0F172A',
-                  marginBottom: '10px',
-                  paddingBottom: '10px',
-                  borderBottom: '1px solid #F1F5F9',
-                }}>
-                  Quick Actions
-                </div>
-                <div className="quick-actions-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                  {quickActions.map((a) => (
-                    <QuickActionLink key={a.to} {...a} />
-                  ))}
-                </div>
-              </div>
-            </div>
           </div>
-        </>
-      )}
+        )}
+      </div>
     </div>
   );
 };

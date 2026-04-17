@@ -502,6 +502,11 @@ const MyFleet = () => {
   const [mapCenter, setMapCenter] = useState(null);
   const [panelOpen, setPanelOpen] = useState(true);
 
+  // Delete confirmation modal state
+  const [deleteConfirm, setDeleteConfirm] = useState(null); // { vehicleId, vehicleName, phrase }
+  const [deleteTyped, setDeleteTyped] = useState('');
+  const [deleting, setDeleting] = useState(false);
+
   const [drawerVehicle, setDrawerVehicle] = useState(null);
   const [drawerEditForm, setDrawerEditForm] = useState({});
   const [drawerSaving, setDrawerSaving] = useState(false);
@@ -756,14 +761,25 @@ const MyFleet = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedVehicle?.id]);
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Remove this vehicle from your fleet?')) return;
+  const CONFIRM_WORDS = ['alpha','bravo','charlie','delta','echo','foxtrot','golf','hotel','india','juliet','kilo','lima','mike','november','oscar','papa','quebec','romeo','sierra','tango'];
+  const handleDelete = (id) => {
+    const v = vehicles.find(x => x.id === id);
+    const w1 = CONFIRM_WORDS[Math.floor(Math.random() * CONFIRM_WORDS.length)];
+    const w2 = CONFIRM_WORDS[Math.floor(Math.random() * CONFIRM_WORDS.length)];
+    setDeleteConfirm({ vehicleId: id, vehicleName: vehicleDisplayName(v || { id }), phrase: `${w1}-${w2}` });
+    setDeleteTyped('');
+  };
+  const executeDelete = async () => {
+    if (!deleteConfirm) return;
+    setDeleting(true);
     try {
-      await deleteVehicle(id);
+      await deleteVehicle(deleteConfirm.vehicleId);
       toast.success('Vehicle removed');
-      if (selectedVehicle?.id === id) setSelectedVehicle(null);
+      if (selectedVehicle?.id === deleteConfirm.vehicleId) setSelectedVehicle(null);
+      setDeleteConfirm(null);
       fetchVehicles();
     } catch (e) { toast.error(e.message || 'Delete failed'); }
+    finally { setDeleting(false); }
   };
 
   const selectVehicle = (v) => {
@@ -1570,6 +1586,7 @@ const MyFleet = () => {
                         { id: 'trips',    label: 'Trips',    icon: 'route'    },
                         { id: 'reports',  label: 'Reports',  icon: 'chart'    },
                         { id: 'sensors',  label: 'Sensors',  icon: 'radio'    },
+                        { id: 'edit',     label: 'Edit',     icon: 'edit'     },
                       ].map(t => (
                         <button key={t.id} onClick={() => setActiveTab(t.id)}
                           className="fv-tab-btn"
@@ -1602,6 +1619,9 @@ const MyFleet = () => {
                             showSensorForm={showSensorForm} sensorForm={sensorForm} editingSensor={editingSensor}
                             savingSensor={savingSensor} setSensorForm={setSensorForm} setShowSensorForm={setShowSensorForm}
                             openSensorForm={openSensorForm} handleSaveSensor={handleSaveSensor} handleDeleteSensor={handleDeleteSensor} />
+                        )}
+                        {activeTab === 'edit' && (
+                          <EditTab editForm={editForm} setEditForm={setEditForm} saving={saving} handleSaveEdit={handleSaveEdit} />
                         )}
                       </div>
                     </div>
@@ -2263,6 +2283,7 @@ const MyFleet = () => {
                   { id: 'trips',    label: 'Trips',    icon: 'route',    hint: 'View individual trip history with distance and duration' },
                   { id: 'reports',  label: 'Reports',  icon: 'chart',    hint: 'Daily, engine-hours and fuel reports with export' },
                   { id: 'sensors',  label: 'Sensors',  icon: 'radio',    hint: 'Custom sensor channels configured for this vehicle' },
+                  { id: 'edit',     label: 'Edit',     icon: 'edit',     hint: 'Edit vehicle name, icon and thresholds' },
                 ].map(tab => (
                   <button key={tab.id} onClick={() => setActiveTab(tab.id)}
                     title={tab.hint}
@@ -2305,6 +2326,9 @@ const MyFleet = () => {
                       savingSensor={savingSensor} setSensorForm={setSensorForm} setShowSensorForm={setShowSensorForm}
                       openSensorForm={openSensorForm} handleSaveSensor={handleSaveSensor} handleDeleteSensor={handleDeleteSensor} />
                   )}
+                  {activeTab === 'edit' && (
+                    <EditTab editForm={editForm} setEditForm={setEditForm} saving={saving} handleSaveEdit={handleSaveEdit} />
+                  )}
                 </div>
               </div>
             </>
@@ -2314,6 +2338,50 @@ const MyFleet = () => {
       </div>{/* /outer right panel */}
 
       </div>{/* /content row */}
+
+      {/* ══════ DELETE CONFIRMATION MODAL ══════ */}
+      {deleteConfirm && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => !deleting && setDeleteConfirm(null)}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)' }} />
+          <div style={{ position: 'relative', zIndex: 1, background: '#fff', borderRadius: 14, width: 420, maxWidth: '95vw', boxShadow: '0 24px 80px rgba(0,0,0,0.3)', fontFamily: "'Plus Jakarta Sans',sans-serif", overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
+            <div style={{ background: 'linear-gradient(135deg,#B91C1C,#DC2626)', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(255,255,255,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
+                <Ic n="trash" size={20} color="#fff" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: '#fff' }}>Delete Vehicle</div>
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>{deleteConfirm.vehicleName}</div>
+              </div>
+              <button onClick={() => setDeleteConfirm(null)} disabled={deleting} style={{ width: 30, height: 30, background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 7, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Ic n="x" size={14} color="#fff" />
+              </button>
+            </div>
+            <div style={{ padding: '20px' }}>
+              <div style={{ background: '#FEF2F2', border: '1px solid #FECDD3', borderRadius: 8, padding: '12px 14px', marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#991B1B', marginBottom: 4 }}>This action cannot be undone.</div>
+                <div style={{ fontSize: 11, color: '#B91C1C', lineHeight: 1.5 }}>This will permanently delete the vehicle and all associated tracking data, trips, sensors, and custom fields.</div>
+              </div>
+              <div style={{ fontSize: 12, color: '#374151', marginBottom: 8 }}>
+                To confirm, type <strong style={{ background: '#FEF3C7', padding: '2px 8px', borderRadius: 4, fontFamily: 'monospace', fontSize: 13, color: '#92400E', letterSpacing: '0.05em' }}>{deleteConfirm.phrase}</strong> below:
+              </div>
+              <input
+                autoFocus
+                style={{ width: '100%', padding: '10px 12px', border: '2px solid #E2E8F0', borderRadius: 8, fontSize: 14, fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box', letterSpacing: '0.05em', transition: 'border-color 0.15s', borderColor: deleteTyped === deleteConfirm.phrase ? '#22c55e' : deleteTyped.length > 0 ? '#f59e0b' : '#E2E8F0' }}
+                placeholder={deleteConfirm.phrase}
+                value={deleteTyped}
+                onChange={e => setDeleteTyped(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && deleteTyped === deleteConfirm.phrase) executeDelete(); }}
+              />
+              <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                <button onClick={() => setDeleteConfirm(null)} disabled={deleting} style={{ flex: 1, padding: '10px', border: '1px solid #E2E8F0', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#64748B', fontFamily: 'inherit' }}>Cancel</button>
+                <button onClick={executeDelete} disabled={deleteTyped !== deleteConfirm.phrase || deleting} style={{ flex: 1, padding: '10px', border: 'none', borderRadius: 8, background: deleteTyped === deleteConfirm.phrase ? '#DC2626' : '#FCA5A5', cursor: deleteTyped === deleteConfirm.phrase ? 'pointer' : 'not-allowed', fontSize: 13, fontWeight: 700, color: '#fff', fontFamily: 'inherit', transition: 'background 0.15s' }}>
+                  {deleting ? 'Deleting…' : 'Delete Permanently'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ══════ MODALS (fixed — work anywhere in DOM) ══════ */}
       {showGroupModal && (
