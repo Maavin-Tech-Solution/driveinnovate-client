@@ -2626,10 +2626,11 @@ const TripsTab = ({ vehicle, reportFrom, reportTo, reportData, reportLoading, re
   const [sharingIdx, setSharingIdx] = useState(null);
   const [reprocessing, setReprocessing] = useState(false);
   const handleReprocess = async () => {
-    if (!window.confirm('Reprocess all trips for this vehicle from scratch? This will delete existing trips and rebuild them from raw GPS packets.')) return;
+    if (!reportFrom || !reportTo) { toast.error('Select a date range first'); return; }
+    if (!window.confirm(`Reprocess trips for ${reportFrom} to ${reportTo}? This will delete existing trips in this range and rebuild from raw GPS packets.`)) return;
     setReprocessing(true);
     try {
-      const res = await reprocessVehicleData(vehicle.id);
+      const res = await reprocessVehicleData(vehicle.id, reportFrom, reportTo);
       toast.success(`Reprocessed: ${res.data?.processed || 0} packets, ${res.data?.tripsCreated || 0} trips created`);
       handleLoad();
     } catch (err) { toast.error(err?.response?.data?.message || 'Reprocess failed'); }
