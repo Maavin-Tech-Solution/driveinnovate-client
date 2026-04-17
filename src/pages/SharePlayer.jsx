@@ -213,8 +213,10 @@ const SharePlayer = () => {
         ) : (
           <MapContainer center={mapCenter} zoom={13} style={{ height: '100%', width: '100%' }}>
             <TileLayer
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              url="https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
+              attribution='&copy; Google Maps'
+              subdomains="0123"
+              maxZoom={20}
             />
             <FitBounds locations={locations} />
             <MapUpdater center={mapCenter} />

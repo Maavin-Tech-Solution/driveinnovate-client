@@ -343,12 +343,13 @@ const VehicleSettings = () => {
           <div style={{ padding: '20px 24px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '12px' }}>
               {[
-                { id: 'voyager',  label: 'Voyager',     desc: 'Colorful default',  preview: 'linear-gradient(135deg,#e8f4f8 0%,#b8d4e8 50%,#7ab3d4 100%)',  badge: '⭐ Default' },
-                { id: 'light',    label: 'Light',        desc: 'Clean minimal',     preview: 'linear-gradient(135deg,#f5f5f5 0%,#e8e8e8 50%,#d0d0d0 100%)',  badge: '' },
-                { id: 'osm',      label: 'Street Map',   desc: 'OpenStreetMap',     preview: 'linear-gradient(135deg,#f0ebe0 0%,#ddd 50%,#c8c8b8 100%)',     badge: '' },
-                { id: 'terrain',  label: 'Terrain',      desc: 'Topographic view',  preview: 'linear-gradient(135deg,#d4e8c8 0%,#a8c890 50%,#78a060 100%)',  badge: '🏔️' },
-                { id: 'dark',     label: 'Dark',         desc: 'Night mode',        preview: 'linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%)',  badge: '🌙' },
-                { id: 'satellite',label: 'Satellite',    desc: 'Esri World Imagery',preview: 'linear-gradient(135deg,#1a3a1a 0%,#2d5a27 50%,#4a7c42 100%)', badge: '🛰️' },
+                { id: 'roadmap',  label: 'Roadmap',      desc: 'Google Maps',       preview: 'linear-gradient(135deg,#e8f4f8 0%,#b8d4e8 50%,#7ab3d4 100%)',  badge: '⭐ Default' },
+                { id: 'light',    label: 'Light',         desc: 'Clean minimal',     preview: 'linear-gradient(135deg,#f5f5f5 0%,#e8e8e8 50%,#d0d0d0 100%)',  badge: '' },
+                { id: 'osm',      label: 'Street Map',    desc: 'OpenStreetMap',     preview: 'linear-gradient(135deg,#f0ebe0 0%,#ddd 50%,#c8c8b8 100%)',     badge: '' },
+                { id: 'terrain',  label: 'Terrain',       desc: 'Google Terrain',    preview: 'linear-gradient(135deg,#d4e8c8 0%,#a8c890 50%,#78a060 100%)',  badge: '🏔️' },
+                { id: 'dark',     label: 'Dark',          desc: 'Night mode',        preview: 'linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%)',  badge: '🌙' },
+                { id: 'satellite',label: 'Satellite',     desc: 'Google Satellite',  preview: 'linear-gradient(135deg,#1a3a1a 0%,#2d5a27 50%,#4a7c42 100%)', badge: '🛰️' },
+                { id: 'hybrid',   label: 'Hybrid',        desc: 'Satellite + Labels',preview: 'linear-gradient(135deg,#1a3a2e 0%,#2d4a37 50%,#3a6c52 100%)', badge: '🗺️' },
               ].map(opt => (
                 <button
                   key={opt.id}

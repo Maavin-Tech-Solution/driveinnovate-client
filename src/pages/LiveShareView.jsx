@@ -190,9 +190,9 @@ export default function LiveShareView() {
           zoomControl
         >
           <TileLayer
-            url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-            subdomains="abcd"
+            url="https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
+            attribution='&copy; Google Maps'
+            subdomains="0123"
             maxZoom={20}
           />
 

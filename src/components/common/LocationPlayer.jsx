@@ -381,8 +381,10 @@ const LocationPlayer = ({ vehicle, onClose, initialFrom, initialTo }) => {
           ) : (
             <MapContainer center={mapCenter} zoom={13} style={{ height: '100%', width: '100%' }} key="lp-map">
               <TileLayer
-                url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                url="https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
+                attribution='&copy; Google Maps'
+                subdomains="0123"
+                maxZoom={20}
               />
               <FitBounds locations={locations} />
               <MapPan center={isPlaying ? mapCenter : null} />

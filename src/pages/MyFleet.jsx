@@ -11,7 +11,7 @@ import {
   getVehicleSensors, createVehicleSensor, updateVehicleSensor, deleteVehicleSensor,
   getVehicleReportSummary, getVehicleReportDaily, getVehicleReportEngineHours,
   getVehicleReportTrips, getVehicleReportFuelFillings, exportVehicleReportExcel,
-  downloadRawPacketsExcel,
+  downloadRawPacketsExcel, reprocessVehicleData,
 } from '../services/vehicle.service';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -164,14 +164,24 @@ function getVisibleFleetChips() {
 
 // ─── Map tile URL from saved preference ──────────────────────────────────────
 const MAP_TILES = {
-  voyager:   'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+  roadmap:   'https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
   light:     'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
   osm:       'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-  terrain:   'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+  terrain:   'https://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}',
   dark:      'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-  satellite: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+  satellite: 'https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+  hybrid:    'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
 };
-const getMapTileUrl = () => MAP_TILES[localStorage.getItem('mapStyle') || 'voyager'] || MAP_TILES.voyager;
+// Migrate old 'voyager' preference to 'roadmap'
+const getMapTileUrl = () => {
+  let style = localStorage.getItem('mapStyle') || 'roadmap';
+  if (style === 'voyager') { style = 'roadmap'; localStorage.setItem('mapStyle', 'roadmap'); }
+  return MAP_TILES[style] || MAP_TILES.roadmap;
+};
+const getMapSubdomains = () => {
+  const style = localStorage.getItem('mapStyle') || 'roadmap';
+  return ['roadmap', 'terrain', 'satellite', 'hybrid'].includes(style) ? '0123' : 'abcd';
+};
 
 // ─── Map Marker Icon ──────────────────────────────────────────────────────────
 // Accepts an optional stateColor so it can reflect DB-defined vehicle states
@@ -1991,8 +2001,8 @@ const MyFleet = () => {
         <MapContainer center={INDIA_CENTER} zoom={5} style={{ position: 'absolute', inset: 0, height: '100%', width: '100%' }} scrollWheelZoom zoomControl={false}>
           <TileLayer
             url={getMapTileUrl()}
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-            subdomains="abcd"
+            attribution='&copy; Google Maps'
+            subdomains={getMapSubdomains()}
             maxZoom={20}
           />
           <MapResizer />
@@ -2609,10 +2619,22 @@ const OverviewTab = ({ vehicle }) => {
 // Trips Tab
 // ══════════════════════════════════════════════════════════════════════════════
 const TripsTab = ({ vehicle, reportFrom, reportTo, reportData, reportLoading, reportPage, setReportFrom, setReportTo, setReportPage, fetchReport, openPlayer }) => {
+  const { user } = useAuth();
   const trips = Array.isArray(reportData?.rows) ? reportData.rows : [];
   const total = reportData?.total ?? trips.length;
   const handleLoad = () => { setReportPage(0); fetchReport(vehicle.id, 'trips', reportFrom, reportTo, 0); };
   const [sharingIdx, setSharingIdx] = useState(null);
+  const [reprocessing, setReprocessing] = useState(false);
+  const handleReprocess = async () => {
+    if (!window.confirm('Reprocess all trips for this vehicle from scratch? This will delete existing trips and rebuild them from raw GPS packets.')) return;
+    setReprocessing(true);
+    try {
+      const res = await reprocessVehicleData(vehicle.id);
+      toast.success(`Reprocessed: ${res.data?.processed || 0} packets, ${res.data?.tripsCreated || 0} trips created`);
+      handleLoad();
+    } catch (err) { toast.error(err?.response?.data?.message || 'Reprocess failed'); }
+    finally { setReprocessing(false); }
+  };
   const handleShareTrip = async (trip, idx) => {
     setSharingIdx(idx);
     try {
@@ -2633,6 +2655,14 @@ const TripsTab = ({ vehicle, reportFrom, reportTo, reportData, reportLoading, re
         <input type="date" value={reportTo} onChange={e => setReportTo(e.target.value)} style={{ ...inp, width: 'auto', padding: '5px 8px' }} />
         <button onClick={handleLoad} style={btn(C.primary)}>Load</button>
         {trips.length > 0 && <span style={{ fontSize: 12, color: C.textMuted }}>{total} trip{total !== 1 ? 's' : ''}</span>}
+        {user?.role === 'papa' && (
+          <>
+            <div style={{ flex: 1 }} />
+            <button onClick={handleReprocess} disabled={reprocessing} style={btn('#dc2626', reprocessing)}>
+              <Ic n="refresh" size={12} /> {reprocessing ? 'Reprocessing…' : 'Reprocess'}
+            </button>
+          </>
+        )}
       </div>
       {reportLoading && <div style={{ textAlign: 'center', padding: 28, color: C.textMuted }}>Loading trips…</div>}
       {!reportLoading && !reportData && <Empty msg='Select a date range and click "Load".' />}

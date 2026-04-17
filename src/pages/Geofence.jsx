@@ -377,7 +377,7 @@ function DrawModal({ mode, editTarget, vehicles, groups, onSave, onClose }) {
           {/* Map */}
           <div style={{ flex: 1, position: 'relative' }}>
             <MapContainer key={mapKey} center={initialCenter} zoom={initialZoom} style={{ width: '100%', height: '100%' }} scrollWheelZoom>
-              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; OpenStreetMap' />
+              <TileLayer url="https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}" attribution='&copy; Google Maps' subdomains="0123" maxZoom={20} />
               <MapController mapRef={modalMapRef} />
               <DrawClickHandler
                 drawType={fType}
@@ -875,7 +875,7 @@ export default function Geofence() {
         {/* Right: overview map */}
         <div style={{ flex: 1, position: 'relative' }}>
           <MapContainer center={INDIA_CENTER} zoom={5} style={{ width: '100%', height: '100%' }} scrollWheelZoom>
-            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a>' />
+            <TileLayer url="https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}" attribution='&copy; Google Maps' subdomains="0123" maxZoom={20} />
             <MapController mapRef={overviewMapRef} />
             {geofences.map(geo => (
               <GeoShape

@@ -493,8 +493,10 @@ const Dashboard = () => {
                   scrollWheelZoom
                 >
                   <TileLayer
-                    attribution='&copy; OpenStreetMap contributors'
-                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    attribution='&copy; Google Maps'
+                    url="https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
+                    subdomains="0123"
+                    maxZoom={20}
                   />
                   {mapVehicles.map((vehicle) => (
                     <CircleMarker

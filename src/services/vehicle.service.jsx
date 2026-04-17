@@ -44,3 +44,6 @@ export const getVehicleReportFuelFillings = (id, from, to) => api.get(`/vehicles
 export const exportVehicleReport          = (id, type, from, to) => api.get(`/vehicles/${id}/reports/export`,       { params: { type, from, to }, responseType: 'blob' });
 export const exportVehicleReportExcel     = (id, from, to)       => api.get(`/vehicles/${id}/reports/export-xlsx`,  { params: { from, to },       responseType: 'blob' });
 export const downloadRawPacketsExcel      = (id, from, to) => api.get(`/vehicles/${id}/reports/raw-packets`, { params: { from, to, fmt: 'xlsx' }, responseType: 'blob' });
+
+/** POST /api/vehicles/:id/reprocess — PAPA only: rebuild trips from all MongoDB packets */
+export const reprocessVehicleData = (id) => api.post(`/vehicles/${id}/reprocess`);
