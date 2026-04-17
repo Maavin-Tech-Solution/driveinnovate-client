@@ -19,7 +19,6 @@ import {
   getVehicleReportSummary, getVehicleReportDaily,
   getVehicleReportEngineHours, getVehicleReportTrips,
   getVehicleReportFuelFillings, exportVehicleReportExcel,
-  reprocessVehicleDataBg, getReprocessStatus,
 } from '../services/vehicle.service.jsx';
 import { getSettings } from '../services/settings.service.jsx';
 import { toISTString } from '../utils/dateFormat';
@@ -66,7 +65,6 @@ const Reports = () => {
     data: null,
     loading: false,
     page: 0,
-    bgRunning: false,
   });
 
   // Common Filters
@@ -122,28 +120,6 @@ const Reports = () => {
       else if (state.tab === 'fuel')    res = await getVehicleReportFuelFillings(state.vehicleId, state.from, state.to);
       setVr(p => ({ ...p, loading: false, data: res?.data?.data ?? res?.data ?? null }));
     } catch { toast.error('Failed to load report'); setVr(p => ({ ...p, loading: false })); }
-  };
-
-  const startBgReprocess = async () => {
-    if (!vr.vehicleId) return;
-    setVr(p => ({ ...p, bgRunning: true }));
-    try {
-      await reprocessVehicleDataBg(vr.vehicleId, vr.from, vr.to);
-      const poll = setInterval(async () => {
-        try {
-          const r = await getReprocessStatus(vr.vehicleId, vr.from, vr.to);
-          const job = r?.data?.data || r?.data;
-          if (job?.status === 'done') {
-            clearInterval(poll);
-            setVr(p => ({ ...p, bgRunning: false }));
-            toast.success('Reprocess complete — reloading…');
-            loadVehicleReport();
-          } else if (job?.status === 'error' || job?.status === 'idle') {
-            clearInterval(poll); setVr(p => ({ ...p, bgRunning: false }));
-          }
-        } catch { clearInterval(poll); setVr(p => ({ ...p, bgRunning: false })); }
-      }, 3000);
-    } catch { setVr(p => ({ ...p, bgRunning: false })); }
   };
 
   const exportVehicleExcel = async () => {
@@ -1318,20 +1294,11 @@ const Reports = () => {
                 style={pb('#2563eb', vr.loading || !vr.vehicleId)}>
                 {vr.loading ? '⏳ Loading…' : '🔍 Load'}
               </button>
-              <button onClick={startBgReprocess} disabled={vr.bgRunning || !vr.vehicleId}
-                style={pb('#d97706', vr.bgRunning || !vr.vehicleId)} title="Re-calculate trips & engine sessions from raw packets">
-                {vr.bgRunning ? '⏳ Syncing…' : '🔄 Reprocess'}
-              </button>
               <button onClick={exportVehicleExcel} disabled={!vr.vehicleId}
                 style={pb('#059669', !vr.vehicleId)}>
                 📥 Excel
               </button>
             </div>
-            {vr.bgRunning && (
-              <div style={{ marginTop: 10, fontSize: 12, color: '#92400E', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 6, padding: '6px 12px' }}>
-                Background reprocess running — report will auto-reload when complete.
-              </div>
-            )}
 
             {/* Sub-tab pills */}
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 14 }}>

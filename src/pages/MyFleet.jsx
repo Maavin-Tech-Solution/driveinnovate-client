@@ -10,8 +10,7 @@ import {
   getVehicles, deleteVehicle, updateVehicle, syncVehicleData,
   getVehicleSensors, createVehicleSensor, updateVehicleSensor, deleteVehicleSensor,
   getVehicleReportSummary, getVehicleReportDaily, getVehicleReportEngineHours,
-  getVehicleReportTrips, getVehicleReportFuelFillings, exportVehicleReportExcel, reprocessVehicleData,
-  reprocessVehicleDataBg, getReprocessStatus,
+  getVehicleReportTrips, getVehicleReportFuelFillings, exportVehicleReportExcel,
   downloadRawPacketsExcel,
 } from '../services/vehicle.service';
 import api from '../services/api';
@@ -472,8 +471,6 @@ const MyFleet = () => {
   const [reportLoading, setReportLoading] = useState(false);
   const [reportPage, setReportPage] = useState(0);
   const [reportExporting, setReportExporting] = useState(false);
-  const [reprocessing, setReprocessing] = useState(false);
-  const [bgReprocessing, setBgReprocessing] = useState(false); // background auto-reprocess indicator
   const [packetsDownloading, setPacketsDownloading] = useState(false);
   const [viewMode, setViewMode] = useState('map');
 
@@ -677,14 +674,12 @@ const MyFleet = () => {
 
   useEffect(() => {
     if (!selectedVehicle || activeTab !== 'reports') return;
-    triggerBgReprocess(selectedVehicle.id, reportFrom, reportTo);
     fetchReport(selectedVehicle.id, reportTab, reportFrom, reportTo, 0);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedVehicle?.id, activeTab, reportTab, reportFrom, reportTo]);
 
   useEffect(() => {
     if (!selectedVehicle || activeTab !== 'trips') return;
-    triggerBgReprocess(selectedVehicle.id, reportFrom, reportTo);
     fetchReport(selectedVehicle.id, 'trips', reportFrom, reportTo, 0);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedVehicle?.id, activeTab, reportFrom, reportTo]);
@@ -695,39 +690,6 @@ const MyFleet = () => {
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
   }, []);
-
-  // ─── Background auto-reprocess ────────────────────────────────────────────
-  // Keyed by "vehicleId|from|to" in sessionStorage so each unique range is only
-  // triggered once per browser session (avoids hammering on every tab switch).
-  // Use refs to read latest activeTab / reportTab without stale closures.
-  const activeTabRef  = useRef(activeTab);
-  const reportTabRef  = useRef(reportTab);
-  useEffect(() => { activeTabRef.current  = activeTab;  }, [activeTab]);
-  useEffect(() => { reportTabRef.current  = reportTab;  }, [reportTab]);
-
-  const triggerBgReprocess = (vehicleId, from, to) => {
-    const key = `bgr|${vehicleId}|${from}|${to}`;
-    if (sessionStorage.getItem(key)) return; // already kicked off this session
-    sessionStorage.setItem(key, '1');
-    setBgReprocessing(true);
-    reprocessVehicleDataBg(vehicleId, from, to).catch(() => {});
-    // Poll until done, then auto-reload the active report tab
-    const poll = setInterval(async () => {
-      try {
-        const r = await getReprocessStatus(vehicleId, from, to);
-        const job = r?.data?.data || r?.data;
-        if (job?.status === 'done') {
-          clearInterval(poll);
-          setBgReprocessing(false);
-          const tab = activeTabRef.current;
-          fetchReport(vehicleId, tab === 'trips' ? 'trips' : reportTabRef.current, from, to, 0);
-        } else if (job?.status === 'error' || job?.status === 'idle') {
-          clearInterval(poll);
-          setBgReprocessing(false);
-        }
-      } catch { clearInterval(poll); setBgReprocessing(false); }
-    }, 3000);
-  };
 
   const fetchReport = async (vehicleId, tab, from, to, page = 0) => {
     setReportLoading(true); setReportData(null);
@@ -850,18 +812,6 @@ const MyFleet = () => {
       a.click(); window.URL.revokeObjectURL(url);
     } catch { toast.error('Export failed'); }
     finally { setReportExporting(false); }
-  };
-
-  const handleReprocess = async () => {
-    if (!selectedVehicle) return;
-    if (!window.confirm(`Reprocess data for ${vehicleDisplayName(selectedVehicle)}?`)) return;
-    setReprocessing(true);
-    try {
-      const r = await reprocessVehicleData(selectedVehicle.id, reportFrom, reportTo);
-      toast.success(`Reprocessed ${r.data?.data?.processed ?? 0} packets`);
-      fetchReport(selectedVehicle.id, reportTab, reportFrom, reportTo, reportPage);
-    } catch { toast.error('Reprocess failed'); }
-    finally { setReprocessing(false); }
   };
 
   const handleDownloadPackets = async () => {
@@ -1577,8 +1527,8 @@ const MyFleet = () => {
                           <ReportsTab vehicle={dv} reportTab={reportTab} setReportTab={setReportTab}
                             reportFrom={reportFrom} reportTo={reportTo} setReportFrom={setReportFrom} setReportTo={setReportTo}
                             reportData={reportData} reportLoading={reportLoading} reportPage={reportPage} setReportPage={setReportPage}
-                            reportExporting={reportExporting} reprocessing={reprocessing} packetsDownloading={packetsDownloading}
-                            fetchReport={fetchReport} handleExport={handleExport} handleReprocess={handleReprocess} handleDownloadPackets={handleDownloadPackets} />
+                            reportExporting={reportExporting} packetsDownloading={packetsDownloading}
+                            fetchReport={fetchReport} handleExport={handleExport} handleDownloadPackets={handleDownloadPackets} />
                         )}
                         {activeTab === 'sensors' && (
                           <SensorsTab vehicle={dv} sensors={sensors} loadingSensors={loadingSensors}
@@ -2148,12 +2098,6 @@ const MyFleet = () => {
                       <Ic n="clock" size={9} color={ageColor} /> {ageStr}
                     </span>
                   )}
-                  {bgReprocessing && (
-                    <span title="Background trip data sync in progress" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 9px', borderRadius: 20, background: '#FFFBEB', border: '1px solid #FDE68A', fontSize: 9.5, color: '#92400E', fontWeight: 700 }}>
-                      <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#F59E0B', animation: 'fv-pulse-g 1.5s infinite' }} />
-                      Syncing data…
-                    </span>
-                  )}
                 </div>
 
                 {/* Live stats grid — real-time sensor readings from the device */}
@@ -2248,8 +2192,8 @@ const MyFleet = () => {
                     <ReportsTab vehicle={sv} reportTab={reportTab} setReportTab={setReportTab}
                       reportFrom={reportFrom} reportTo={reportTo} setReportFrom={setReportFrom} setReportTo={setReportTo}
                       reportData={reportData} reportLoading={reportLoading} reportPage={reportPage} setReportPage={setReportPage}
-                      reportExporting={reportExporting} reprocessing={reprocessing} packetsDownloading={packetsDownloading}
-                      fetchReport={fetchReport} handleExport={handleExport} handleReprocess={handleReprocess} handleDownloadPackets={handleDownloadPackets} />
+                      reportExporting={reportExporting} packetsDownloading={packetsDownloading}
+                      fetchReport={fetchReport} handleExport={handleExport} handleDownloadPackets={handleDownloadPackets} />
                   )}
                   {activeTab === 'sensors' && (
                     <SensorsTab vehicle={sv} sensors={sensors} loadingSensors={loadingSensors}
@@ -2702,9 +2646,16 @@ const TripsTab = ({ vehicle, reportFrom, reportTo, reportData, reportLoading, re
               {trip.no || reportPage * REPORT_PAGE_SIZE + idx + 1}
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: C.text, marginBottom: 4 }}>
-                {start ? new Date(start).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
-                {end && <span style={{ color: C.textMuted, fontWeight: 400 }}> → {new Date(end).toLocaleString('en-IN', { timeStyle: 'short' })}</span>}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: C.text }}>
+                  {start ? new Date(start).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
+                  {end && trip.status !== 'in_progress' && <span style={{ color: C.textMuted, fontWeight: 400 }}> → {new Date(end).toLocaleString('en-IN', { timeStyle: 'short' })}</span>}
+                </span>
+                {trip.status === 'in_progress' && (
+                  <span style={{ fontSize: 9.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: '#DCFCE7', color: '#166534', border: '1px solid #BBF7D0' }}>
+                    LIVE
+                  </span>
+                )}
               </div>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 11, color: C.textSub }}>
                 {trip.mileage !== undefined && <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}><Ic n="route" size={10} color={C.textLight} /> {Number(trip.mileage || 0).toFixed(2)} km</span>}
@@ -2740,7 +2691,7 @@ const TripsTab = ({ vehicle, reportFrom, reportTo, reportData, reportLoading, re
 // ══════════════════════════════════════════════════════════════════════════════
 // Reports Tab
 // ══════════════════════════════════════════════════════════════════════════════
-const ReportsTab = ({ vehicle, reportTab, setReportTab, reportFrom, reportTo, setReportFrom, setReportTo, reportData, reportLoading, reportPage, setReportPage, reportExporting, reprocessing, packetsDownloading, fetchReport, handleExport, handleReprocess, handleDownloadPackets }) => {
+const ReportsTab = ({ vehicle, reportTab, setReportTab, reportFrom, reportTo, setReportFrom, setReportTo, reportData, reportLoading, reportPage, setReportPage, reportExporting, packetsDownloading, fetchReport, handleExport, handleDownloadPackets }) => {
   const TABS = [
     { id: 'summary',      label: 'Summary',    icon: 'chart' },
     { id: 'daily',        label: 'Daily',       icon: 'calendar' },
@@ -2761,9 +2712,6 @@ const ReportsTab = ({ vehicle, reportTab, setReportTab, reportFrom, reportTo, se
         </button>
         <button onClick={handleDownloadPackets} disabled={packetsDownloading} style={btn('#6366f1', packetsDownloading)}>
           <Ic n="download" size={12} /> {packetsDownloading ? '…' : 'Packets'}
-        </button>
-        <button onClick={handleReprocess} disabled={reprocessing} style={btn('#d97706', reprocessing)}>
-          <Ic n="refresh" size={12} /> {reprocessing ? '…' : 'Reprocess'}
         </button>
       </div>
       <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
