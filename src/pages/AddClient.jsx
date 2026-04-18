@@ -27,8 +27,6 @@ const fieldStyle = { marginBottom: '18px' };
 const ACCOUNT_TYPE_OPTIONS = [
   { value: 'trial',    label: 'Trial',    desc: 'Time-limited access; auto-expires based on platform settings' },
   { value: 'billable', label: 'Billable', desc: 'Active paid account; subscription expiry set per vehicle on upgrade' },
-  { value: 'demo',     label: 'Demo',     desc: 'Showcase account for product demos; not subject to trial expiry' },
-  { value: 'master',   label: 'Master',   desc: 'Top-level papa account; full platform access, never expires' },
 ];
 
 const initialForm = {

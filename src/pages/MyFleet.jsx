@@ -1087,6 +1087,86 @@ const MyFleet = () => {
             />
           </div>
 
+          {/* Client Picker — papa / dealer only: switch whose fleet is displayed (shared with map view) */}
+          {isPapaOrDealer && clientNodes.length > 0 && (
+            <div ref={cpRef} style={{ position: 'relative' }}>
+              <button
+                onClick={() => setCpOpen(o => !o)}
+                title="Switch client fleet"
+                className="btn btn-outline"
+                style={{ gap: 6, background: viewClientId ? '#EFF6FF' : '#fff', borderColor: viewClientId ? '#93C5FD' : undefined, color: viewClientId ? '#2563EB' : '#475569', fontWeight: 600, maxWidth: 220, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+                <Ic n="users" size={13} color={viewClientId ? '#2563EB' : '#64748B'} />
+                {viewClientId
+                  ? (clientNodes.find(n => n.id === viewClientId)?.name || 'Client')
+                  : 'My Fleet'}
+                {viewClientId && (
+                  <span
+                    onClick={e => { e.stopPropagation(); setViewClientId(null); setCpOpen(false); }}
+                    title="Back to my fleet"
+                    style={{ marginLeft: 2, cursor: 'pointer', color: '#94A3B8', lineHeight: 1 }}>✕</span>
+                )}
+                <Ic n={cpOpen ? 'chevUp' : 'chevD'} size={11} color="#94A3B8" />
+              </button>
+
+              {cpOpen && (
+                <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 200, width: 280, background: '#fff', border: '1px solid #E2E8F0', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.13)', overflow: 'hidden' }}>
+                  <div style={{ padding: '8px 10px', borderBottom: '1px solid #F1F5F9', position: 'relative' }}>
+                    <span style={{ position: 'absolute', left: 19, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
+                      <Ic n="search" size={12} color="#94A3B8" />
+                    </span>
+                    <input
+                      autoFocus
+                      value={cpSearch}
+                      onChange={e => setCpSearch(e.target.value)}
+                      placeholder="Search clients…"
+                      style={{ width: '100%', padding: '5px 8px 5px 26px', border: '1px solid #E2E8F0', borderRadius: 6, fontSize: 12, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+                    <button
+                      onClick={() => { setViewClientId(null); setCpOpen(false); setCpSearch(''); }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '9px 12px', border: 'none', background: viewClientId === null ? '#EFF6FF' : 'transparent', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600, color: viewClientId === null ? '#2563EB' : '#374151', textAlign: 'left' }}>
+                      <div style={{ width: 28, height: 28, borderRadius: 8, background: 'linear-gradient(135deg,#1D4ED8,#3B82F6)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 13 }}>👤</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>My Fleet</div>
+                        <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 400 }}>Your own vehicles</div>
+                      </div>
+                      {viewClientId === null && <span style={{ fontSize: 10, background: '#2563EB', color: '#fff', padding: '1px 7px', borderRadius: 20, fontWeight: 700, flexShrink: 0 }}>Active</span>}
+                    </button>
+
+                    {clientNodes
+                      .filter(n => !cpSearch.trim() || n.name?.toLowerCase().includes(cpSearch.toLowerCase()) || n.email?.toLowerCase().includes(cpSearch.toLowerCase()))
+                      .map(n => {
+                        const avatarColors = [
+                          ['#1D4ED8','#3B82F6'], ['#047857','#10B981'], ['#7C3AED','#8B5CF6'],
+                          ['#B45309','#F59E0B'], ['#B91C1C','#EF4444'], ['#0E7490','#06B6D4'],
+                        ];
+                        const [from, to] = avatarColors[n.depth % avatarColors.length];
+                        const breadcrumb = n.path?.slice(0, -1).join(' › ');
+                        return (
+                          <button key={n.id}
+                            onClick={() => { setViewClientId(n.id); setCpOpen(false); setCpSearch(''); }}
+                            style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: `8px 12px 8px ${12 + n.depth * 12}px`, border: 'none', background: viewClientId === n.id ? '#EFF6FF' : 'transparent', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600, color: viewClientId === n.id ? '#2563EB' : '#374151', textAlign: 'left', borderTop: '1px solid #F8FAFC' }}>
+                            <div style={{ width: 28, height: 28, borderRadius: 8, background: `linear-gradient(135deg,${from},${to})`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 11, fontWeight: 800, color: '#fff', textTransform: 'uppercase' }}>{(n.name || '?')[0]}</div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              {breadcrumb && <div style={{ fontSize: 9, color: '#94A3B8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 1 }}>{breadcrumb}</div>}
+                              <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.name}</div>
+                              {n.email && <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.email}</div>}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                              {n.depth > 0 && <span style={{ fontSize: 9, background: '#F1F5F9', color: '#64748B', padding: '1px 5px', borderRadius: 20, fontWeight: 700 }}>L{n.depth}</span>}
+                              {viewClientId === n.id && <span style={{ fontSize: 10, background: '#2563EB', color: '#fff', padding: '1px 7px', borderRadius: 20, fontWeight: 700 }}>Active</span>}
+                            </div>
+                          </button>
+                        );
+                      })
+                    }
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Status filter */}
           <div style={{ position: 'relative' }} onMouseDown={e => e.stopPropagation()}>
             <button
