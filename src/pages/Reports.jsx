@@ -21,6 +21,8 @@ import {
   getVehicleReportFuelFillings, exportVehicleReportExcel,
 } from '../services/vehicle.service.jsx';
 import { getSettings } from '../services/settings.service.jsx';
+import { getClients } from '../services/user.service.jsx';
+import { useAuth } from '../context/AuthContext';
 import { toISTString } from '../utils/dateFormat';
 import './Reports.css';
 
@@ -35,10 +37,18 @@ const fmtDT = (ts) => ts ? new Date(ts).toLocaleString('en-IN', { dateStyle: 'sh
 const PAGE = 20;
 
 const Reports = () => {
+  const { user } = useAuth();
+  const isNetworkUser = user?.role === 'papa' || user?.role === 'dealer' || Number(user?.parentId) === 0;
+
   const [activeTab, setActiveTab] = useState('speed-violations');
   const [vehicles, setVehicles] = useState([]);
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  // Scope selectors (network users pick a client; everyone picks a vehicle)
+  const [clients, setClients] = useState([]);
+  const [scopeClientId, setScopeClientId] = useState(''); // '' = own fleet
+  const [scopeVehicleId, setScopeVehicleId] = useState(''); // '' = all vehicles
   
   // Speed Violations State
   const [violations, setViolations] = useState([]);
@@ -78,9 +88,27 @@ const Reports = () => {
   });
 
   useEffect(() => {
-    fetchVehicles();
     fetchSettings();
-  }, []);
+    if (isNetworkUser) {
+      getClients()
+        .then(r => setClients(r.data || []))
+        .catch(err => console.error('Failed to load clients:', err));
+    }
+  }, [isNetworkUser]);
+
+  // Reload vehicles whenever the scoped client changes; reset vehicle filter.
+  useEffect(() => {
+    fetchVehicles(scopeClientId || undefined);
+    setScopeVehicleId('');
+  }, [scopeClientId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fold scope into filters.vehicleIds so all existing tab fetches pick it up.
+  useEffect(() => {
+    let ids = [];
+    if (scopeVehicleId) ids = [Number(scopeVehicleId)];
+    else if (vehicles.length) ids = vehicles.map(v => v.id);
+    setFilters(f => ({ ...f, vehicleIds: ids }));
+  }, [scopeVehicleId, vehicles]);
 
   useEffect(() => {
     if (activeTab === 'speed-violations') {
@@ -93,11 +121,11 @@ const Reports = () => {
     } else if (activeTab === 'engine-hours') {
       fetchEngineHoursReport();
     }
-  }, [activeTab]);
+  }, [activeTab, filters.vehicleIds, filters.startDate, filters.endDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const fetchVehicles = async () => {
+  const fetchVehicles = async (clientId) => {
     try {
-      const response = await getVehicles();
+      const response = await getVehicles(clientId);
       setVehicles(response.data || []);
     } catch (error) {
       console.error('Error fetching vehicles:', error);
@@ -196,7 +224,7 @@ const Reports = () => {
         startDate: filters.startDate,
         endDate: filters.endDate,
         speedLimit: speedThreshold,
-        minDuration: 3,
+        minDuration: 1,
         autoSave: true
       });
 
@@ -381,6 +409,57 @@ const Reports = () => {
         <div>
           <h2 className="page-title">📊 Reports & Analytics</h2>
           <p className="page-subtitle">Comprehensive fleet performance and violation reports</p>
+        </div>
+      </div>
+
+      {/* Scope Selector — applies to every report tab */}
+      <div className="card" style={{ padding: '14px 18px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', background: 'linear-gradient(135deg, #EFF6FF 0%, #F0F9FF 100%)', border: '1px solid #BFDBFE' }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#1E40AF', textTransform: 'uppercase', letterSpacing: '0.06em' }}>🎯 Scope</div>
+
+        {isNetworkUser && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <label style={{ fontSize: 10.5, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Client</label>
+            <select
+              value={scopeClientId}
+              onChange={e => setScopeClientId(e.target.value)}
+              style={{ padding: '7px 10px', border: '1px solid #93C5FD', borderRadius: 7, background: '#fff', fontSize: 13, fontWeight: 600, color: '#0F172A', outline: 'none', minWidth: 200, cursor: 'pointer' }}
+            >
+              <option value="">My own fleet</option>
+              {clients.map(c => (
+                <option key={c.id} value={c.id}>
+                  {c.name || c.email || `Client #${c.id}`}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <label style={{ fontSize: 10.5, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Vehicle</label>
+          <select
+            value={scopeVehicleId}
+            onChange={e => setScopeVehicleId(e.target.value)}
+            style={{ padding: '7px 10px', border: '1px solid #93C5FD', borderRadius: 7, background: '#fff', fontSize: 13, fontWeight: 600, color: '#0F172A', outline: 'none', minWidth: 240, cursor: 'pointer' }}
+          >
+            <option value="">All vehicles ({vehicles.length})</option>
+            {vehicles.map(v => (
+              <option key={v.id} value={v.id}>
+                {v.vehicleNumber || `#${v.id}`}
+                {v.vehicleName ? ` — ${v.vehicleName}` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div style={{ flex: 1 }} />
+
+        <div style={{ fontSize: 11.5, color: '#475569', fontWeight: 600 }}>
+          {isNetworkUser && scopeClientId
+            ? <>Viewing client <strong>{clients.find(c => String(c.id) === String(scopeClientId))?.name || '—'}</strong> · </>
+            : null}
+          {scopeVehicleId
+            ? <>1 vehicle selected</>
+            : <>{vehicles.length} vehicle{vehicles.length !== 1 ? 's' : ''} in scope</>}
         </div>
       </div>
 

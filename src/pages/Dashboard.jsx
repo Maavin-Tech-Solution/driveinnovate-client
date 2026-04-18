@@ -1,70 +1,159 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet';
-import 'leaflet/dist/leaflet.css';
 import { getDashboardUserStats, getOverspeedVehicles, getNetworkStats } from '../services/dashboard.service';
-import { getVehicles } from '../services/vehicle.service';
+import { getActivities } from '../services/activity.service';
 import { getSettings } from '../services/settings.service';
 import { useAuth } from '../context/AuthContext';
 import {
-  SignalIcon,
+  TruckIcon,
+  UsersIcon,
+  CheckCircleIcon,
+  XCircleIcon,
+  DocumentTextIcon,
+  ClockIcon,
+  BoltIcon,
   ExclamationTriangleIcon,
   PlusIcon,
   UserPlusIcon,
   ClipboardDocumentCheckIcon,
-  DocumentTextIcon,
-  MagnifyingGlassIcon,
-  MapIcon,
-  Bars3Icon,
-  XMarkIcon,
+  ChartBarIcon,
+  BellAlertIcon,
+  ArrowTrendingUpIcon,
+  ShieldCheckIcon,
 } from '@heroicons/react/24/outline';
 
-const INDIA_CENTER = [22.9734, 78.6569];
-
-const toNumber = (v) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
+// ── Utility ─────────────────────────────────────────────────────────────
+const fmtInt = (n) => (n == null ? '—' : Number(n).toLocaleString('en-IN'));
+const fmtDateShort = (d) => new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+const fmtDay = (d) => new Date(d).toLocaleDateString('en-IN', { weekday: 'short' });
+const fmtRelative = (iso) => {
+  if (!iso) return '';
+  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
 };
 
-const getVehicleCoordinates = (vehicle) => {
-  if (vehicle.deviceStatus?.gpsData) {
-    const lat = toNumber(vehicle.deviceStatus.gpsData.latitude ?? vehicle.deviceStatus.gpsData.lat);
-    const lng = toNumber(vehicle.deviceStatus.gpsData.longitude ?? vehicle.deviceStatus.gpsData.lng);
-    if (lat !== null && lng !== null) return { lat, lng };
-  }
-  if (vehicle.gpsData) {
-    const lat = toNumber(vehicle.gpsData.latitude ?? vehicle.gpsData.lat);
-    const lng = toNumber(vehicle.gpsData.longitude ?? vehicle.gpsData.lng);
-    if (lat !== null && lng !== null) return { lat, lng };
-  }
-  return null;
+// ── Stat card (colorful, clickable) ─────────────────────────────────────
+const StatCard = ({ label, value, Icon, gradient, to, subtitle, trend }) => {
+  const card = (
+    <div style={{
+      background: gradient,
+      border: 'none',
+      borderRadius: 14,
+      padding: '20px 22px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 6,
+      color: '#fff',
+      position: 'relative',
+      overflow: 'hidden',
+      boxShadow: '0 6px 18px rgba(15, 23, 42, 0.10)',
+      transition: 'transform 0.18s, box-shadow 0.18s',
+      cursor: to ? 'pointer' : 'default',
+      minHeight: 128,
+    }}
+      onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.boxShadow = '0 12px 28px rgba(15,23,42,0.18)'; }}
+      onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = '0 6px 18px rgba(15,23,42,0.10)'; }}
+    >
+      {/* decorative icon bubble */}
+      <div style={{ position: 'absolute', right: -18, top: -18, width: 110, height: 110, borderRadius: '50%', background: 'rgba(255,255,255,0.12)', pointerEvents: 'none' }} />
+      <div style={{ position: 'absolute', right: 18, top: 18, width: 40, height: 40, borderRadius: 10, background: 'rgba(255,255,255,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(6px)' }}>
+        <Icon style={{ width: 20, height: 20, color: '#fff' }} />
+      </div>
+
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.88)', textTransform: 'uppercase', letterSpacing: '0.08em', position: 'relative', zIndex: 1 }}>{label}</div>
+      <div style={{ fontSize: 34, fontWeight: 800, color: '#fff', lineHeight: 1.05, fontVariantNumeric: 'tabular-nums', position: 'relative', zIndex: 1 }}>{value}</div>
+      {(subtitle || trend != null) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'rgba(255,255,255,0.9)', fontWeight: 600, position: 'relative', zIndex: 1 }}>
+          {trend != null && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: 'rgba(255,255,255,0.18)', padding: '2px 7px', borderRadius: 10 }}>
+              <ArrowTrendingUpIcon style={{ width: 12, height: 12, transform: trend < 0 ? 'rotate(180deg)' : 'none' }} />
+              {Math.abs(trend)}%
+            </span>
+          )}
+          {subtitle && <span>{subtitle}</span>}
+        </div>
+      )}
+    </div>
+  );
+  return to ? <Link to={to} style={{ textDecoration: 'none' }}>{card}</Link> : card;
 };
 
-const getVehicleStatus = (v, speedThreshold) => {
-  const coords = getVehicleCoordinates(v);
-  if (!coords) return 'no_gps';
-  const ign = v.deviceStatus?.gpsData?.ignition ?? v.deviceStatus?.status?.ignition;
-  const speed = v.deviceStatus?.gpsData?.speed ?? 0;
-  if (speed > speedThreshold) return 'overspeed';
-  if (ign === 1 || ign === true || speed > 2) return 'running';
-  return 'stopped';
+// ── Mini horizontal progress bar ────────────────────────────────────────
+const ProgressRow = ({ label, value, total, color }) => {
+  const pct = total > 0 ? Math.round((value / total) * 100) : 0;
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 5 }}>
+        <span style={{ fontWeight: 600, color: '#334155' }}>{label}</span>
+        <span style={{ fontWeight: 700, color, fontVariantNumeric: 'tabular-nums' }}>{fmtInt(value)} <span style={{ color: '#94A3B8', fontSize: 10, marginLeft: 3 }}>({pct}%)</span></span>
+      </div>
+      <div style={{ height: 8, background: '#F1F5F9', borderRadius: 6, overflow: 'hidden' }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 6, transition: 'width 0.6s' }} />
+      </div>
+    </div>
+  );
 };
 
-const STATUS_CONFIG = {
-  all:       { label: 'All',       color: '#2563EB', bg: '#EFF6FF' },
-  running:   { label: 'Running',   color: '#059669', bg: '#D1FAE5' },
-  stopped:   { label: 'Stopped',   color: '#DC2626', bg: '#FEE2E2' },
-  no_gps:    { label: 'No GPS',    color: '#D97706', bg: '#FEF3C7' },
-  overspeed: { label: 'Overspeed', color: '#B91C1C', bg: '#FEE2E2' },
+// ── SVG bar chart (last N days) ─────────────────────────────────────────
+const BarChart = ({ data, height = 160, accent = '#2563EB' }) => {
+  const W = 100;
+  const max = Math.max(1, ...data.map(d => d.value));
+  const barW = W / data.length;
+  return (
+    <div style={{ width: '100%' }}>
+      <svg viewBox={`0 0 ${W} ${height}`} preserveAspectRatio="none" style={{ width: '100%', height, display: 'block' }}>
+        {/* grid */}
+        {[0.25, 0.5, 0.75].map(p => (
+          <line key={p} x1="0" y1={height * p} x2={W} y2={height * p} stroke="#F1F5F9" strokeWidth="0.5" vectorEffect="non-scaling-stroke" />
+        ))}
+        {data.map((d, i) => {
+          const h = (d.value / max) * (height - 28);
+          const x = i * barW + barW * 0.18;
+          const w = barW * 0.64;
+          const y = height - 22 - h;
+          return (
+            <g key={i}>
+              <rect x={x} y={y} width={w} height={h || 0.5} fill={accent} rx="0.8" />
+              <text x={i * barW + barW / 2} y={y - 2.5} fontSize="4" textAnchor="middle" fill="#64748B" fontWeight="700">{d.value || ''}</text>
+              <text x={i * barW + barW / 2} y={height - 10} fontSize="4" textAnchor="middle" fill="#94A3B8">{d.label}</text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
 };
 
-// Recenter map when center changes
-const MapCenterer = ({ center }) => {
-  const map = useMap();
-  useEffect(() => {
-    if (center) map.flyTo(center, map.getZoom() < 8 ? 8 : map.getZoom(), { duration: 0.8 });
-  }, [center, map]);
-  return null;
+// ── Donut (fleet status) ────────────────────────────────────────────────
+const Donut = ({ slices, size = 150 }) => {
+  const total = slices.reduce((s, x) => s + (x.value || 0), 0);
+  const r = size / 2 - 12;
+  const c = 2 * Math.PI * r;
+  let offset = 0;
+  return (
+    <div style={{ position: 'relative', width: size, height: size }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#F1F5F9" strokeWidth="16" />
+        {total > 0 && slices.map((s, i) => {
+          const pct = (s.value || 0) / total;
+          const length = c * pct;
+          const dasharray = `${length} ${c - length}`;
+          const dashoffset = -offset;
+          offset += length;
+          return (
+            <circle key={i} cx={size / 2} cy={size / 2} r={r} fill="none" stroke={s.color} strokeWidth="16" strokeDasharray={dasharray} strokeDashoffset={dashoffset} transform={`rotate(-90 ${size / 2} ${size / 2})`} strokeLinecap="butt" />
+          );
+        })}
+      </svg>
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+        <div style={{ fontSize: 22, fontWeight: 800, color: '#0F172A', fontVariantNumeric: 'tabular-nums' }}>{fmtInt(total)}</div>
+        <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total</div>
+      </div>
+    </div>
+  );
 };
 
 const Dashboard = () => {
@@ -73,368 +162,314 @@ const Dashboard = () => {
 
   const [stats, setStats] = useState(null);
   const [networkStats, setNetworkStats] = useState(null);
-  const [vehicles, setVehicles] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [speedThreshold, setSpeedThreshold] = useState(80);
   const [overspeedVehicles, setOverspeedVehicles] = useState([]);
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [search, setSearch] = useState('');
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [mapStyle, setMapStyle] = useState('roadmap');
-  const [flyToCoords, setFlyToCoords] = useState(null);
+  const [activities, setActivities] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const tasks = [
+      getDashboardUserStats().then(r => setStats(r.data)).catch(() => {}),
+      getSettings().then(r => {
+        const d = r.data?.success && r.data.data ? r.data.data : r.data;
+        const threshold = d?.speedThreshold || 80;
+        return getOverspeedVehicles(threshold).then(or => {
+          const od = or.data?.success && or.data.data ? or.data.data : or.data;
+          setOverspeedVehicles(Array.isArray(od) ? od : []);
+        });
+      }).catch(() => {}),
+      getActivities({ page: 1, limit: 30 }).then(r => {
+        const rows = r.data?.data?.activities || r.data?.activities || r.data?.data || r.data || [];
+        setActivities(Array.isArray(rows) ? rows : []);
+      }).catch(() => {}),
+    ];
     if (isNetworkUser) {
-      getNetworkStats().then(res => setNetworkStats(res.data || null)).catch(() => {});
+      tasks.push(getNetworkStats().then(r => setNetworkStats(r.data)).catch(() => {}));
     }
+    Promise.allSettled(tasks).finally(() => setLoading(false));
   }, [isNetworkUser]);
 
-  useEffect(() => {
-    Promise.all([getDashboardUserStats(), getVehicles(), getSettings()])
-      .then(([statsRes, vehiclesRes, settingsRes]) => {
-        setStats(statsRes.data);
-        setVehicles(vehiclesRes.data || []);
-        let settingsData;
-        if (settingsRes.data.success && settingsRes.data.data) settingsData = settingsRes.data.data;
-        else if (settingsRes.data.speedThreshold !== undefined) settingsData = settingsRes.data;
-        if (settingsData) {
-          const threshold = settingsData.speedThreshold || 80;
-          setSpeedThreshold(threshold);
-          return getOverspeedVehicles(threshold);
-        }
-      })
-      .then((overspeedRes) => {
-        if (overspeedRes) {
-          if (overspeedRes.data.success && overspeedRes.data.data) setOverspeedVehicles(overspeedRes.data.data);
-          else if (Array.isArray(overspeedRes.data)) setOverspeedVehicles(overspeedRes.data);
-        }
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, []);
+  // ── derived: fleet breakdown ──
+  const active   = stats?.vehicleStatusWise?.active ?? 0;
+  const inactive = stats?.vehicleStatusWise?.inactive ?? 0;
+  const deleted  = stats?.vehicleStatusWise?.deleted ?? 0;
+  const totalReg = stats?.registeredVehicles ?? (active + inactive + deleted);
 
-  const activeVehicles = useMemo(
-    () => vehicles.filter((v) => (v.status || '').toLowerCase() === 'active'),
-    [vehicles]
-  );
-
-  // Enrich with coords and status
-  const enrichedVehicles = useMemo(
-    () => activeVehicles.map(v => ({
-      ...v,
-      coords: getVehicleCoordinates(v),
-      _status: getVehicleStatus(v, speedThreshold),
-    })),
-    [activeVehicles, speedThreshold]
-  );
-
-  const counts = useMemo(() => {
-    const c = { all: enrichedVehicles.length, running: 0, stopped: 0, no_gps: 0, overspeed: 0 };
-    enrichedVehicles.forEach(v => { c[v._status] = (c[v._status] || 0) + 1; });
-    return c;
-  }, [enrichedVehicles]);
-
-  // Apply status filter + search
-  const filteredVehicles = useMemo(() => {
-    let list = enrichedVehicles;
-    if (statusFilter !== 'all') list = list.filter(v => v._status === statusFilter);
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      list = list.filter(v =>
-        (v.vehicleNumber || '').toLowerCase().includes(q) ||
-        (v.vehicleName || '').toLowerCase().includes(q) ||
-        (v.imei || '').toLowerCase().includes(q)
-      );
+  // ── derived: last-7-day activity buckets ──
+  const weekActivity = useMemo(() => {
+    const days = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      d.setDate(d.getDate() - i);
+      days.push({ date: d, label: fmtDay(d), value: 0 });
     }
-    return list;
-  }, [enrichedVehicles, statusFilter, search]);
+    activities.forEach(a => {
+      const t = new Date(a.createdAt || a.timestamp || a.date);
+      if (!isFinite(t.getTime())) return;
+      const idx = days.findIndex(d => {
+        const next = new Date(d.date); next.setDate(next.getDate() + 1);
+        return t >= d.date && t < next;
+      });
+      if (idx >= 0) days[idx].value += 1;
+    });
+    return days;
+  }, [activities]);
 
-  const mapVehicles = useMemo(() => filteredVehicles.filter(v => v.coords), [filteredVehicles]);
+  const weekTotal = weekActivity.reduce((s, d) => s + d.value, 0);
+  const prevPeriodCount = activities.length - weekTotal;
+  const weekTrend = prevPeriodCount > 0 ? Math.round(((weekTotal - prevPeriodCount) / prevPeriodCount) * 100) : null;
 
-  const mapCenter = useMemo(() => {
-    if (!mapVehicles.length) return INDIA_CENTER;
-    const avgLat = mapVehicles.reduce((s, v) => s + v.coords.lat, 0) / mapVehicles.length;
-    const avgLng = mapVehicles.reduce((s, v) => s + v.coords.lng, 0) / mapVehicles.length;
-    return [avgLat, avgLng];
-  }, [mapVehicles]);
-
-  const MAP_TILES = {
-    roadmap:   { url: 'https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', subdomains: '0123', label: 'Road' },
-    satellite: { url: 'https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', subdomains: '0123', label: 'Satellite' },
-    hybrid:    { url: 'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', subdomains: '0123', label: 'Hybrid' },
-    terrain:   { url: 'https://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', subdomains: '0123', label: 'Terrain' },
-  };
-
-  const quickActions = [
-    { to: '/add-vehicle', label: 'Add Vehicle',    Icon: PlusIcon,                   color: '#2563EB' },
-    { to: '/add-client',  label: 'Add Client',     Icon: UserPlusIcon,               color: '#059669' },
-    { to: '/rto-details', label: 'RTO',            Icon: ClipboardDocumentCheckIcon, color: '#7C3AED' },
-    { to: '/challans',    label: 'Challans',       Icon: DocumentTextIcon,           color: '#D97706' },
+  const donutSlices = [
+    { label: 'Active',   value: active,   color: '#059669' },
+    { label: 'Inactive', value: inactive, color: '#D97706' },
+    { label: 'Deleted',  value: deleted,  color: '#94A3B8' },
   ];
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - 60px)', gap: 10, color: '#94A3B8' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - 60px)', gap: 10, color: '#94A3B8', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
         <div style={{ width: 16, height: 16, border: '2px solid #E2E8F0', borderTopColor: '#2563EB', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-        Loading dashboard...
+        Loading dashboard…
         <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
       </div>
     );
   }
 
   return (
-    <div style={{ height: 'calc(100vh - 70px)', display: 'flex', flexDirection: 'column', fontFamily: "'Plus Jakarta Sans', sans-serif", position: 'relative' }}>
+    <div style={{ padding: '18px 20px 28px', background: '#F8FAFC', minHeight: 'calc(100vh - 60px)', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
 
-      {/* ══ Top stat strip — compact horizontal scrolling cards ══ */}
-      <div style={{ display: 'flex', gap: 8, padding: '10px 14px', background: '#FFFFFF', borderBottom: '1px solid #E2E8F0', overflowX: 'auto', flexShrink: 0 }}>
-        {Object.entries(STATUS_CONFIG).map(([id, cfg]) => (
-          <button
-            key={id}
-            onClick={() => setStatusFilter(id)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px',
-              background: statusFilter === id ? cfg.color : cfg.bg,
-              border: `1.5px solid ${statusFilter === id ? cfg.color : cfg.color + '40'}`,
-              borderRadius: 8, cursor: 'pointer', minWidth: 110, flexShrink: 0,
-              fontFamily: 'inherit', transition: 'all 0.15s',
-              boxShadow: statusFilter === id ? `0 2px 8px ${cfg.color}40` : 'none',
-            }}
-          >
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-              <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: statusFilter === id ? 'rgba(255,255,255,0.85)' : cfg.color, lineHeight: 1 }}>{cfg.label}</span>
-              <span style={{ fontSize: 22, fontWeight: 800, color: statusFilter === id ? '#fff' : cfg.color, lineHeight: 1, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{counts[id] || 0}</span>
-            </div>
-          </button>
-        ))}
-
-        <div style={{ flex: 1 }} />
-
-        {/* Search */}
-        <div style={{ position: 'relative', flexShrink: 0 }}>
-          <MagnifyingGlassIcon style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 14, height: 14, color: '#94A3B8' }} />
-          <input
-            placeholder="Search vehicle…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            style={{ padding: '8px 12px 8px 32px', border: '1px solid #E2E8F0', borderRadius: 8, fontSize: 12.5, outline: 'none', width: 200, fontFamily: 'inherit' }}
-          />
+      {/* ══ Header ══ */}
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>
+            {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+          </div>
+          <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800, color: '#0F172A', letterSpacing: '-0.02em' }}>
+            Welcome back{user?.name ? `, ${user.name.split(' ')[0]}` : ''}
+          </h1>
+          <div style={{ fontSize: 13, color: '#64748B', marginTop: 2 }}>
+            Here's what's happening across your fleet today.
+          </div>
         </div>
 
-        {/* Map style selector */}
-        <select
-          value={mapStyle}
-          onChange={e => setMapStyle(e.target.value)}
-          style={{ padding: '8px 10px', border: '1px solid #E2E8F0', borderRadius: 8, fontSize: 12, fontWeight: 600, outline: 'none', fontFamily: 'inherit', cursor: 'pointer', background: '#fff' }}
-        >
-          {Object.entries(MAP_TILES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-        </select>
-
-        {/* Toggle sidebar */}
-        <button
-          onClick={() => setSidebarOpen(p => !p)}
-          title={sidebarOpen ? 'Hide vehicle list' : 'Show vehicle list'}
-          style={{ padding: '8px 10px', border: '1px solid #E2E8F0', borderRadius: 8, background: sidebarOpen ? '#EFF6FF' : '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-        >
-          {sidebarOpen ? <XMarkIcon style={{ width: 16, height: 16, color: '#2563EB' }} /> : <Bars3Icon style={{ width: 16, height: 16, color: '#64748B' }} />}
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Link to="/add-vehicle"  style={qaBtn('#2563EB')}><PlusIcon style={{ width: 15, height: 15 }} /> Add Vehicle</Link>
+          {isNetworkUser && (
+            <Link to="/add-client" style={qaBtn('#059669')}><UserPlusIcon style={{ width: 15, height: 15 }} /> Add Client</Link>
+          )}
+          <Link to="/reports"      style={qaBtn('#7C3AED')}><ChartBarIcon style={{ width: 15, height: 15 }} /> Reports</Link>
+          <Link to="/challans"     style={qaBtn('#D97706')}><DocumentTextIcon style={{ width: 15, height: 15 }} /> Challans</Link>
+          <Link to="/rto-details"  style={qaBtn('#0891B2')}><ClipboardDocumentCheckIcon style={{ width: 15, height: 15 }} /> RTO</Link>
+        </div>
       </div>
 
-      {/* ══ Main content: map + optional sidebar ══ */}
-      <div style={{ flex: 1, display: 'flex', minHeight: 0, position: 'relative' }}>
+      {/* ══ Hero stats grid ══ */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 16, marginBottom: 18 }}>
+        {isNetworkUser && (
+          <StatCard
+            label="Total Clients"
+            value={fmtInt(networkStats?.totalClients)}
+            Icon={UsersIcon}
+            gradient="linear-gradient(135deg, #2563EB 0%, #1E40AF 100%)"
+            to="/my-clients"
+            subtitle="in your network"
+          />
+        )}
+        <StatCard
+          label="Registered Vehicles"
+          value={fmtInt(isNetworkUser ? networkStats?.totalVehicles : totalReg)}
+          Icon={TruckIcon}
+          gradient="linear-gradient(135deg, #7C3AED 0%, #5B21B6 100%)"
+          to="/my-fleet"
+          subtitle={isNetworkUser ? 'across network' : 'your fleet'}
+        />
+        <StatCard
+          label="Active"
+          value={fmtInt(isNetworkUser ? networkStats?.activeVehicles : active)}
+          Icon={CheckCircleIcon}
+          gradient="linear-gradient(135deg, #10B981 0%, #047857 100%)"
+          to="/my-fleet"
+          subtitle="currently tracked"
+        />
+        <StatCard
+          label="Inactive"
+          value={fmtInt(isNetworkUser ? networkStats?.inactiveVehicles : inactive)}
+          Icon={XCircleIcon}
+          gradient="linear-gradient(135deg, #F43F5E 0%, #BE123C 100%)"
+          to="/my-fleet"
+          subtitle="not reporting"
+        />
+      </div>
 
-        {/* ── Map ── */}
-        <div style={{ flex: 1, position: 'relative', minWidth: 0 }}>
-          <MapContainer
-            center={mapCenter}
-            zoom={5}
-            style={{ position: 'absolute', inset: 0 }}
-            scrollWheelZoom
-            zoomControl={false}
-          >
-            <TileLayer
-              attribution='&copy; Google Maps'
-              url={MAP_TILES[mapStyle].url}
-              subdomains={MAP_TILES[mapStyle].subdomains}
-              maxZoom={20}
-            />
-            {flyToCoords && <MapCenterer center={flyToCoords} />}
-            {mapVehicles.map((vehicle) => {
-              const markerColor = vehicle._status === 'running' ? '#059669'
-                : vehicle._status === 'overspeed' ? '#DC2626'
-                : vehicle._status === 'stopped' ? '#ef4444'
-                : '#94A3B8';
-              const markerFill = vehicle._status === 'running' ? '#22c55e'
-                : vehicle._status === 'overspeed' ? '#DC2626'
-                : vehicle._status === 'stopped' ? '#f87171'
-                : '#CBD5E1';
-              const vName = vehicle.vehicleName || vehicle.vehicleNumber || `Vehicle #${vehicle.id}`;
-              const speed = vehicle.deviceStatus?.gpsData?.speed ?? 0;
-              return (
-                <CircleMarker
-                  key={vehicle.id}
-                  center={[vehicle.coords.lat, vehicle.coords.lng]}
-                  radius={vehicle._status === 'overspeed' ? 9 : 7}
-                  pathOptions={{ color: markerColor, fillColor: markerFill, fillOpacity: 0.85, weight: 2 }}
-                >
-                  <Popup>
-                    <div style={{ minWidth: 180, fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 12 }}>
-                      <div style={{ fontWeight: 700, color: '#0F172A', fontSize: 13, marginBottom: 4 }}>{vName}</div>
-                      {vehicle.vehicleName && vehicle.vehicleNumber && (
-                        <div style={{ color: '#64748B', fontFamily: 'monospace', fontSize: 11, marginBottom: 4 }}>{vehicle.vehicleNumber}</div>
-                      )}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 12, fontSize: 10, fontWeight: 700, background: markerColor + '18', color: markerColor, border: `1px solid ${markerColor}35` }}>
-                          <span style={{ width: 5, height: 5, borderRadius: '50%', background: markerColor }} />
-                          {STATUS_CONFIG[vehicle._status]?.label || vehicle._status}
-                        </span>
-                        {speed > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: speed > speedThreshold ? '#ef4444' : '#2563EB' }}>{speed} km/h</span>}
-                      </div>
-                      {vehicle.imei && (
-                        <div style={{ color: '#94A3B8', fontSize: 10, fontFamily: 'monospace' }}>IMEI: {vehicle.imei}</div>
-                      )}
-                      <Link to="/my-fleet" style={{ display: 'inline-block', marginTop: 6, padding: '4px 10px', background: '#2563EB', color: '#fff', fontSize: 11, fontWeight: 700, borderRadius: 5, textDecoration: 'none' }}>Track →</Link>
-                    </div>
-                  </Popup>
-                </CircleMarker>
-              );
-            })}
-          </MapContainer>
+      {/* ══ Secondary stats ══ */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 16, marginBottom: 18 }}>
+        <StatCard
+          label="Pending Challans"
+          value={fmtInt(stats?.pendingChallans)}
+          Icon={DocumentTextIcon}
+          gradient="linear-gradient(135deg, #F59E0B 0%, #B45309 100%)"
+          to="/challans"
+          subtitle="awaiting resolution"
+        />
+        <StatCard
+          label="Upcoming Renewals"
+          value={fmtInt(stats?.upcomingRenewals)}
+          Icon={ClockIcon}
+          gradient="linear-gradient(135deg, #A855F7 0%, #6B21A8 100%)"
+          to="/rto-details"
+          subtitle="within 30 days"
+        />
+        <StatCard
+          label="Overspeed (24h)"
+          value={fmtInt(overspeedVehicles.length)}
+          Icon={BoltIcon}
+          gradient="linear-gradient(135deg, #EF4444 0%, #991B1B 100%)"
+          to="/reports"
+          subtitle={overspeedVehicles.length ? 'alerts flagged' : 'all clear'}
+        />
+        <StatCard
+          label="Activity (7d)"
+          value={fmtInt(weekTotal)}
+          Icon={ArrowTrendingUpIcon}
+          gradient="linear-gradient(135deg, #06B6D4 0%, #0E7490 100%)"
+          to="/user-activity"
+          subtitle="events logged"
+          trend={weekTrend}
+        />
+      </div>
 
-          {/* ── Floating overlay: quick actions (top-right) ── */}
-          <div style={{ position: 'absolute', top: 14, right: 14, zIndex: 500, display: 'flex', flexDirection: 'column', gap: 4, background: '#fff', border: '1px solid #E2E8F0', borderRadius: 8, padding: 6, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-            {quickActions.map(a => (
-              <Link key={a.to} to={a.to}
-                title={a.label}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 6, textDecoration: 'none', color: a.color, fontSize: 11.5, fontWeight: 700, transition: 'background 0.15s' }}
-                onMouseEnter={e => e.currentTarget.style.background = a.color + '10'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
-                <a.Icon style={{ width: 14, height: 14, color: a.color, flexShrink: 0 }} />
-                {a.label}
-              </Link>
-            ))}
-          </div>
+      {/* ══ Middle row: fleet status donut + weekly chart ══ */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14, marginBottom: 18 }}>
 
-          {/* ── Floating overlay: result count (bottom-left) ── */}
-          <div style={{ position: 'absolute', bottom: 14, left: 14, zIndex: 500, background: '#fff', border: '1px solid #E2E8F0', borderRadius: 8, padding: '6px 12px', fontSize: 11, fontWeight: 700, color: '#475569', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-            Showing <span style={{ color: STATUS_CONFIG[statusFilter].color }}>{mapVehicles.length}</span> of {enrichedVehicles.length} vehicles
-            {statusFilter !== 'all' && <button onClick={() => setStatusFilter('all')} style={{ marginLeft: 8, background: 'none', border: 'none', color: '#2563EB', fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: 0, fontFamily: 'inherit' }}>clear filter</button>}
-          </div>
-
-          {/* ── Overspeed alert banner (top-left, if any) ── */}
-          {overspeedVehicles.length > 0 && statusFilter !== 'overspeed' && (
-            <button
-              onClick={() => setStatusFilter('overspeed')}
-              style={{ position: 'absolute', top: 14, left: 14, zIndex: 500, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', background: '#FEE2E2', border: '1.5px solid #DC2626', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#B91C1C', cursor: 'pointer', boxShadow: '0 2px 8px rgba(220,38,38,0.2)', fontFamily: 'inherit' }}
-            >
-              <ExclamationTriangleIcon style={{ width: 15, height: 15, color: '#DC2626' }} />
-              {overspeedVehicles.length} Overspeed Alert{overspeedVehicles.length > 1 ? 's' : ''} (24h)
-            </button>
-          )}
-
-          {/* ── No GPS empty state ── */}
-          {mapVehicles.length === 0 && (
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-              <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: 10, padding: '20px 28px', boxShadow: '0 4px 16px rgba(0,0,0,0.1)', textAlign: 'center', pointerEvents: 'auto' }}>
-                <SignalIcon style={{ width: 36, height: 36, color: '#94A3B8', margin: '0 auto 8px' }} />
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#334155', marginBottom: 4 }}>No vehicles to display</div>
-                <div style={{ fontSize: 12, color: '#94A3B8' }}>
-                  {statusFilter !== 'all' ? `No vehicles match "${STATUS_CONFIG[statusFilter].label}" filter` : 'No GPS locations available'}
-                </div>
-              </div>
+        {/* Fleet status breakdown */}
+        <div style={panelStyle}>
+          <div style={panelHeader}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <ShieldCheckIcon style={{ width: 16, height: 16, color: '#2563EB' }} />
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>Fleet Status</div>
             </div>
-          )}
+            <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600 }}>{fmtInt(totalReg)} vehicles</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 22, padding: '16px 18px' }}>
+            <Donut slices={donutSlices} />
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <ProgressRow label="Active"   value={active}   total={totalReg} color="#059669" />
+              <ProgressRow label="Inactive" value={inactive} total={totalReg} color="#D97706" />
+              <ProgressRow label="Deleted"  value={deleted}  total={totalReg} color="#94A3B8" />
+            </div>
+          </div>
         </div>
 
-        {/* ── Sidebar: vehicle list ── */}
-        {sidebarOpen && (
-          <div style={{ width: 300, flexShrink: 0, borderLeft: '1px solid #E2E8F0', background: '#FFFFFF', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-            <div style={{ padding: '10px 14px', borderBottom: '1px solid #F1F5F9', background: '#FAFBFC', flexShrink: 0 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                {STATUS_CONFIG[statusFilter].label} Vehicles ({filteredVehicles.length})
-              </div>
+        {/* 7-day activity chart */}
+        <div style={panelStyle}>
+          <div style={panelHeader}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <ChartBarIcon style={{ width: 16, height: 16, color: '#7C3AED' }} />
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>Last 7 Days · Activity</div>
             </div>
-            <div style={{ flex: 1, overflow: 'auto', padding: '6px 8px 14px' }}>
-              {filteredVehicles.length === 0 ? (
-                <div style={{ padding: 30, textAlign: 'center', color: '#94A3B8', fontSize: 12 }}>No vehicles found</div>
-              ) : (
-                filteredVehicles.map(v => {
-                  const cfg = STATUS_CONFIG[v._status];
-                  const speed = v.deviceStatus?.gpsData?.speed ?? 0;
-                  const vName = v.vehicleName || v.vehicleNumber || `Vehicle #${v.id}`;
-                  return (
-                    <div key={v.id}
-                      onClick={() => v.coords && setFlyToCoords([v.coords.lat, v.coords.lng])}
-                      style={{ padding: '9px 10px', marginBottom: 3, background: '#fff', border: '1px solid #F1F5F9', borderLeft: `3px solid ${cfg.color}`, borderRadius: 7, cursor: v.coords ? 'pointer' : 'default', transition: 'all 0.12s' }}
-                      onMouseEnter={e => e.currentTarget.style.background = '#F8FAFC'}
-                      onMouseLeave={e => e.currentTarget.style.background = '#fff'}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{vName}</div>
-                          {v.vehicleNumber && v.vehicleName && (
-                            <div style={{ fontSize: 9.5, color: '#94A3B8', fontFamily: 'monospace', marginTop: 1 }}>{v.vehicleNumber}</div>
-                          )}
-                        </div>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 6px', borderRadius: 20, background: cfg.bg, border: `1px solid ${cfg.color}35`, flexShrink: 0 }}>
-                          <span style={{ width: 4, height: 4, borderRadius: '50%', background: cfg.color }} />
-                          <span style={{ fontSize: 8.5, fontWeight: 700, color: cfg.color }}>{cfg.label}</span>
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                        {speed > 0 && (
-                          <span style={{ fontSize: 10, fontWeight: 700, color: speed > speedThreshold ? '#ef4444' : '#2563EB' }}>{speed} km/h</span>
-                        )}
-                        {!v.coords && (
-                          <span style={{ fontSize: 9, fontWeight: 600, color: '#D97706' }}>No GPS</span>
-                        )}
-                        <span style={{ flex: 1 }} />
-                        {v.imei && (
-                          <span style={{ fontSize: 8.5, color: '#94A3B8', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 110 }}>{v.imei}</span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
+            <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600 }}>{fmtInt(weekTotal)} events</span>
+          </div>
+          <div style={{ padding: '14px 16px 16px' }}>
+            <BarChart data={weekActivity} accent="#7C3AED" />
+          </div>
+        </div>
+      </div>
 
-            {/* ── Sidebar footer: stats summary ── */}
-            <div style={{ padding: '10px 14px', borderTop: '1px solid #F1F5F9', background: '#FAFBFC', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                <div style={{ padding: '6px 8px', background: '#fff', border: '1px solid #E2E8F0', borderRadius: 5 }}>
-                  <div style={{ fontSize: 8.5, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Total Fleet</div>
-                  <div style={{ fontSize: 15, fontWeight: 800, color: '#0F172A', lineHeight: 1, marginTop: 2 }}>{stats?.registeredVehicles ?? '—'}</div>
-                </div>
-                <div style={{ padding: '6px 8px', background: '#fff', border: '1px solid #E2E8F0', borderRadius: 5 }}>
-                  <div style={{ fontSize: 8.5, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Challans</div>
-                  <div style={{ fontSize: 15, fontWeight: 800, color: '#D97706', lineHeight: 1, marginTop: 2 }}>{stats?.pendingChallans ?? 0}</div>
-                </div>
-                <div style={{ padding: '6px 8px', background: '#fff', border: '1px solid #E2E8F0', borderRadius: 5 }}>
-                  <div style={{ fontSize: 8.5, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Renewals</div>
-                  <div style={{ fontSize: 15, fontWeight: 800, color: '#7C3AED', lineHeight: 1, marginTop: 2 }}>{stats?.upcomingRenewals ?? 0}</div>
-                </div>
-                <div style={{ padding: '6px 8px', background: '#fff', border: '1px solid #E2E8F0', borderRadius: 5 }}>
-                  <div style={{ fontSize: 8.5, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Inactive</div>
-                  <div style={{ fontSize: 15, fontWeight: 800, color: '#94A3B8', lineHeight: 1, marginTop: 2 }}>{stats?.vehicleStatusWise?.inactive ?? 0}</div>
-                </div>
+      {/* ══ Bottom row: overspeed list + recent activity ══ */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14 }}>
+
+        {/* Overspeed violators */}
+        <div style={panelStyle}>
+          <div style={panelHeader}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <ExclamationTriangleIcon style={{ width: 16, height: 16, color: '#EF4444' }} />
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>Overspeed Violators (24h)</div>
+            </div>
+            <Link to="/reports" style={linkStyle}>View all →</Link>
+          </div>
+          <div style={{ maxHeight: 260, overflow: 'auto' }}>
+            {overspeedVehicles.length === 0 ? (
+              <div style={{ padding: '36px 18px', textAlign: 'center', color: '#94A3B8', fontSize: 13 }}>
+                <CheckCircleIcon style={{ width: 30, height: 30, color: '#86EFAC', margin: '0 auto 8px' }} />
+                <div style={{ fontWeight: 700, color: '#059669', marginBottom: 3 }}>All clear</div>
+                <div style={{ fontSize: 12 }}>No overspeeding detected in the last 24 hours.</div>
               </div>
-              {isNetworkUser && networkStats && (
-                <div style={{ padding: '8px 10px', background: 'linear-gradient(135deg,#1D4ED8,#3B82F6)', borderRadius: 6, color: '#fff' }}>
-                  <div style={{ fontSize: 8.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', opacity: 0.8, marginBottom: 3 }}>Network</div>
-                  <div style={{ display: 'flex', gap: 10, fontSize: 11, fontWeight: 700 }}>
-                    <span>{networkStats.totalClients ?? '—'} clients</span>
-                    <span>·</span>
-                    <span>{networkStats.totalVehicles ?? '—'} vehicles</span>
+            ) : (
+              overspeedVehicles.slice(0, 6).map(v => (
+                <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 18px', borderBottom: '1px solid #F1F5F9' }}>
+                  <div style={{ width: 34, height: 34, borderRadius: 8, background: '#FEE2E2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <BoltIcon style={{ width: 16, height: 16, color: '#DC2626' }} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.vehicleNumber || `Vehicle #${v.id}`}</div>
+                    <div style={{ fontSize: 11, color: '#64748B', marginTop: 1 }}>
+                      {v.overspeedCount} violation{v.overspeedCount !== 1 ? 's' : ''} · {fmtRelative(v.lastOverspeedTime)}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: '#DC2626', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{v.maxSpeed}</div>
+                    <div style={{ fontSize: 9.5, color: '#94A3B8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 2 }}>km/h</div>
                   </div>
                 </div>
-              )}
-            </div>
+              ))
+            )}
           </div>
-        )}
+        </div>
+
+        {/* Recent activity */}
+        <div style={panelStyle}>
+          <div style={panelHeader}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <BellAlertIcon style={{ width: 16, height: 16, color: '#0891B2' }} />
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>Recent Activity</div>
+            </div>
+            <Link to="/activity" style={linkStyle}>View all →</Link>
+          </div>
+          <div style={{ maxHeight: 260, overflow: 'auto' }}>
+            {activities.length === 0 ? (
+              <div style={{ padding: '36px 18px', textAlign: 'center', color: '#94A3B8', fontSize: 13 }}>
+                <ClockIcon style={{ width: 30, height: 30, color: '#CBD5E1', margin: '0 auto 8px' }} />
+                <div>No activity yet.</div>
+              </div>
+            ) : (
+              activities.slice(0, 8).map((a, i) => (
+                <div key={a.id || i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 18px', borderBottom: '1px solid #F1F5F9' }}>
+                  <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#0891B2', marginTop: 6, flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 600, color: '#0F172A', lineHeight: 1.35 }}>{a.message || a.description || a.action || a.type || 'Activity'}</div>
+                    <div style={{ fontSize: 10.5, color: '#94A3B8', fontWeight: 600, marginTop: 2 }}>
+                      {a.createdAt ? `${fmtDateShort(a.createdAt)} · ${fmtRelative(a.createdAt)}` : ''}
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
 };
+
+// ── styles ──────────────────────────────────────────────────────────────
+const panelStyle = {
+  background: '#fff',
+  border: '1px solid #E2E8F0',
+  borderRadius: 12,
+  overflow: 'hidden',
+  boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+};
+const panelHeader = {
+  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+  padding: '12px 18px', borderBottom: '1px solid #F1F5F9', background: '#FAFBFC',
+};
+const linkStyle = { fontSize: 11, fontWeight: 700, color: '#2563EB', textDecoration: 'none' };
+const qaBtn = (color) => ({
+  display: 'inline-flex', alignItems: 'center', gap: 6,
+  padding: '8px 12px', borderRadius: 8,
+  background: '#fff', border: `1px solid ${color}33`,
+  color, fontSize: 12, fontWeight: 700, textDecoration: 'none',
+  fontFamily: 'inherit', cursor: 'pointer', transition: 'all 0.15s',
+});
 
 export default Dashboard;
