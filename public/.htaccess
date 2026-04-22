@@ -1,21 +1,30 @@
-# SPA routing fallback for Apache — client-side router owns all paths.
-# Vite copies files under /public into /dist at build time, so this deploys
-# automatically alongside index.html.
+# SPA routing fallback — any path that isn't a real file/directory falls
+# through to index.html so React Router can handle it on the client.
+#
+# Requires one of the following on the Apache vhost:
+#   • AllowOverride All  (so this .htaccess is honored), OR
+#   • the same directives copied into the <VirtualHost> / <Directory> block.
+#
+# FallbackResource works out of the box on Apache 2.2.16+ and does not
+# require mod_rewrite. We keep a mod_rewrite block as a fallback for
+# unusual setups.
+
+DirectoryIndex index.html
+
+<IfModule mod_dir.c>
+  FallbackResource /index.html
+</IfModule>
 
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /
-
-  # Let existing files and directories serve normally (assets, favicon, etc).
   RewriteCond %{REQUEST_FILENAME} -f [OR]
   RewriteCond %{REQUEST_FILENAME} -d
   RewriteRule ^ - [L]
-
-  # Everything else → index.html (React Router handles the rest).
   RewriteRule ^ index.html [L]
 </IfModule>
 
-# Do not cache index.html so new deploys are picked up immediately.
+# Never cache index.html so new deploys are picked up immediately.
 <IfModule mod_headers.c>
   <FilesMatch "index\.html$">
     Header set Cache-Control "no-cache, no-store, must-revalidate"

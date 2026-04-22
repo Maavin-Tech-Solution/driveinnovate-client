@@ -1,20 +1,18 @@
-# SPA routing fallback for Apache — client-side router owns all paths.
-# Also maintained in /public/.htaccess so future builds keep this file.
+DirectoryIndex index.html
+
+<IfModule mod_dir.c>
+  FallbackResource /index.html
+</IfModule>
 
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /
-
-  # Let existing files and directories serve normally (assets, favicon, etc).
   RewriteCond %{REQUEST_FILENAME} -f [OR]
   RewriteCond %{REQUEST_FILENAME} -d
   RewriteRule ^ - [L]
-
-  # Everything else → index.html (React Router handles the rest).
   RewriteRule ^ index.html [L]
 </IfModule>
 
-# Do not cache index.html so new deploys are picked up immediately.
 <IfModule mod_headers.c>
   <FilesMatch "index\.html$">
     Header set Cache-Control "no-cache, no-store, must-revalidate"
