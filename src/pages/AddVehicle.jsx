@@ -228,6 +228,8 @@ const AddVehicle = () => {
     chasisNumber: '',
     engineNumber: '',
     imei: '',
+    sim1: '',
+    sim2: '',
     deviceType: '',
     serverIp: '',
     serverPort: '',
@@ -284,7 +286,7 @@ const AddVehicle = () => {
   };
 
   const handleReset = () => {
-    setForm({ vehicleNumber: '', vehicleName: '', chasisNumber: '', engineNumber: '', imei: '', deviceType: '', serverIp: '', serverPort: '', vehicleIcon: 'car' });
+    setForm({ vehicleNumber: '', vehicleName: '', chasisNumber: '', engineNumber: '', imei: '', sim1: '', sim2: '', deviceType: '', serverIp: '', serverPort: '', vehicleIcon: 'car' });
     setForClientId('');
   };
 
@@ -440,6 +442,31 @@ const AddVehicle = () => {
                   Auto-filled from device type — configure in Master Settings
                 </div>
               )}
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 18px' }}>
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>SIM 1 Number <span style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 500 }}>(Optional)</span></label>
+                  <input
+                    name="sim1"
+                    style={{ ...inputStyle, fontFamily: 'monospace', fontSize: '14px', letterSpacing: '0.05em' }}
+                    placeholder="e.g. 9876543210"
+                    value={form.sim1}
+                    onChange={handleChange}
+                    maxLength={20}
+                  />
+                </div>
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>SIM 2 Number <span style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 500 }}>(Optional)</span></label>
+                  <input
+                    name="sim2"
+                    style={{ ...inputStyle, fontFamily: 'monospace', fontSize: '14px', letterSpacing: '0.05em' }}
+                    placeholder="e.g. 9876543211"
+                    value={form.sim2}
+                    onChange={handleChange}
+                    maxLength={20}
+                  />
+                </div>
+              </div>
             </div>
 
             {/* Section divider: Vehicle Icon */}
@@ -526,6 +553,8 @@ const AddVehicle = () => {
               { key: 'chasisNumber',  label: 'Chassis Number',      required: false },
               { key: 'engineNumber',  label: 'Engine Number',       required: false },
               { key: 'imei',         label: 'IMEI Number',         required: false },
+              { key: 'sim1',         label: 'SIM 1 Number',        required: false },
+              { key: 'sim2',         label: 'SIM 2 Number',        required: false },
               { key: 'deviceType',   label: 'Device Type',         required: false },
               { key: 'serverIp',     label: 'Server IP',           required: false },
               { key: 'serverPort',   label: 'Port',                required: false },

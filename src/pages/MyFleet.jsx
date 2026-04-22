@@ -505,6 +505,9 @@ const MyFleet = () => {
   // Delete confirmation modal state
   const [deleteConfirm, setDeleteConfirm] = useState(null); // { vehicleId, vehicleName, phrase }
   const [deleteTyped, setDeleteTyped] = useState('');
+  const [imeiEditConfirm, setImeiEditConfirm] = useState(null); // { vehicleId, newImei, oldImei, phrase }
+  const [imeiTyped, setImeiTyped] = useState('');
+  const [savingImei, setSavingImei] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   const [drawerVehicle, setDrawerVehicle] = useState(null);
@@ -792,18 +795,52 @@ const MyFleet = () => {
     setEditForm({
       vehicleNumber: v.vehicleNumber || '', vehicleName: v.vehicleName || '',
       chasisNumber: v.chasisNumber || '', engineNumber: v.engineNumber || '',
-      imei: v.imei || '', deviceName: v.deviceName || '', deviceType: v.deviceType || '',
+      imei: v.imei || '', sim1: v.sim1 || '', sim2: v.sim2 || '',
+      deviceName: v.deviceName || '', deviceType: v.deviceType || '',
       serverIp: v.serverIp || '', serverPort: v.serverPort || '',
       vehicleIcon: v.vehicleIcon || 'car', status: v.status || 'active',
       idleThreshold: v.idleThreshold || 5, fuelFillThreshold: v.fuelFillThreshold || 5,
     });
   };
 
+  const requestImeiEdit = (newImei) => {
+    if (!selectedVehicle) return;
+    const clean = (newImei || '').trim();
+    if (!clean) { toast.error('IMEI cannot be empty'); return; }
+    if (clean === (selectedVehicle.imei || '')) { toast.info?.('IMEI unchanged'); return; }
+    const w1 = CONFIRM_WORDS[Math.floor(Math.random() * CONFIRM_WORDS.length)];
+    const w2 = CONFIRM_WORDS[Math.floor(Math.random() * CONFIRM_WORDS.length)];
+    setImeiEditConfirm({
+      vehicleId: selectedVehicle.id,
+      newImei: clean,
+      oldImei: selectedVehicle.imei || '',
+      phrase: `${w1}-${w2}`,
+    });
+    setImeiTyped('');
+  };
+
+  const executeImeiEdit = async () => {
+    if (!imeiEditConfirm) return;
+    setSavingImei(true);
+    try {
+      const r = await updateVehicle(imeiEditConfirm.vehicleId, { imei: imeiEditConfirm.newImei });
+      const u = r.data?.data || r.data;
+      setVehicles(p => p.map(x => x.id === u.id ? { ...x, ...u } : x));
+      setSelectedVehicle(p => p ? { ...p, ...u } : p);
+      setEditForm(f => ({ ...f, imei: u.imei || imeiEditConfirm.newImei }));
+      toast.success('IMEI updated');
+      setImeiEditConfirm(null);
+    } catch (e) { toast.error(e.message || 'IMEI update failed'); }
+    finally { setSavingImei(false); }
+  };
+
   const handleSaveEdit = async () => {
     if (!selectedVehicle) return;
     setSaving(true);
     try {
-      const r = await updateVehicle(selectedVehicle.id, editForm);
+      // IMEI is edited via a dedicated phrase-confirmation flow — strip from generic save.
+      const { imei: _ignoredImei, ...payload } = editForm;
+      const r = await updateVehicle(selectedVehicle.id, payload);
       const u = r.data?.data || r.data;
       setVehicles(p => p.map(x => x.id === u.id ? { ...x, ...u } : x));
       setSelectedVehicle(p => ({ ...p, ...u }));
@@ -1701,7 +1738,7 @@ const MyFleet = () => {
                             openSensorForm={openSensorForm} handleSaveSensor={handleSaveSensor} handleDeleteSensor={handleDeleteSensor} />
                         )}
                         {activeTab === 'edit' && (
-                          <EditTab editForm={editForm} setEditForm={setEditForm} saving={saving} handleSaveEdit={handleSaveEdit} />
+                          <EditTab editForm={editForm} setEditForm={setEditForm} saving={saving} handleSaveEdit={handleSaveEdit} currentImei={selectedVehicle?.imei || ''} onRequestImeiEdit={requestImeiEdit} />
                         )}
                       </div>
                     </div>
@@ -2407,7 +2444,7 @@ const MyFleet = () => {
                       openSensorForm={openSensorForm} handleSaveSensor={handleSaveSensor} handleDeleteSensor={handleDeleteSensor} />
                   )}
                   {activeTab === 'edit' && (
-                    <EditTab editForm={editForm} setEditForm={setEditForm} saving={saving} handleSaveEdit={handleSaveEdit} />
+                    <EditTab editForm={editForm} setEditForm={setEditForm} saving={saving} handleSaveEdit={handleSaveEdit} currentImei={selectedVehicle?.imei || ''} onRequestImeiEdit={requestImeiEdit} />
                   )}
                 </div>
               </div>
@@ -2456,6 +2493,55 @@ const MyFleet = () => {
                 <button onClick={() => setDeleteConfirm(null)} disabled={deleting} style={{ flex: 1, padding: '10px', border: '1px solid #E2E8F0', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#64748B', fontFamily: 'inherit' }}>Cancel</button>
                 <button onClick={executeDelete} disabled={deleteTyped !== deleteConfirm.phrase || deleting} style={{ flex: 1, padding: '10px', border: 'none', borderRadius: 8, background: deleteTyped === deleteConfirm.phrase ? '#DC2626' : '#FCA5A5', cursor: deleteTyped === deleteConfirm.phrase ? 'pointer' : 'not-allowed', fontSize: 13, fontWeight: 700, color: '#fff', fontFamily: 'inherit', transition: 'background 0.15s' }}>
                   {deleting ? 'Deleting…' : 'Delete Permanently'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════ IMEI CHANGE CONFIRMATION MODAL ══════ */}
+      {imeiEditConfirm && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => !savingImei && setImeiEditConfirm(null)}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)' }} />
+          <div style={{ position: 'relative', zIndex: 1, background: '#fff', borderRadius: 14, width: 460, maxWidth: '95vw', boxShadow: '0 24px 80px rgba(0,0,0,0.3)', fontFamily: "'Plus Jakarta Sans',sans-serif", overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
+            <div style={{ background: 'linear-gradient(135deg,#B45309,#D97706)', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(255,255,255,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Ic n="radio" size={20} color="#fff" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: '#fff' }}>Change IMEI</div>
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', marginTop: 2 }}>Rebind vehicle to a different GPS device</div>
+              </div>
+              <button onClick={() => setImeiEditConfirm(null)} disabled={savingImei} style={{ width: 30, height: 30, background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 7, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Ic n="x" size={14} color="#fff" />
+              </button>
+            </div>
+            <div style={{ padding: '20px' }}>
+              <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, padding: '12px 14px', marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#92400E', marginBottom: 6 }}>This will reassign the vehicle to a new tracking device.</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr', gap: '4px 10px', fontSize: 11, color: '#78350F' }}>
+                  <div style={{ fontWeight: 700 }}>From:</div>
+                  <div style={{ fontFamily: 'monospace', letterSpacing: '0.05em' }}>{imeiEditConfirm.oldImei || '— (none)'}</div>
+                  <div style={{ fontWeight: 700 }}>To:</div>
+                  <div style={{ fontFamily: 'monospace', letterSpacing: '0.05em', color: '#B45309', fontWeight: 700 }}>{imeiEditConfirm.newImei}</div>
+                </div>
+              </div>
+              <div style={{ fontSize: 12, color: '#374151', marginBottom: 8 }}>
+                To confirm, type <strong style={{ background: '#FEF3C7', padding: '2px 8px', borderRadius: 4, fontFamily: 'monospace', fontSize: 13, color: '#92400E', letterSpacing: '0.05em' }}>{imeiEditConfirm.phrase}</strong> below:
+              </div>
+              <input
+                autoFocus
+                style={{ width: '100%', padding: '10px 12px', border: '2px solid #E2E8F0', borderRadius: 8, fontSize: 14, fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box', letterSpacing: '0.05em', transition: 'border-color 0.15s', borderColor: imeiTyped === imeiEditConfirm.phrase ? '#22c55e' : imeiTyped.length > 0 ? '#f59e0b' : '#E2E8F0' }}
+                placeholder={imeiEditConfirm.phrase}
+                value={imeiTyped}
+                onChange={e => setImeiTyped(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && imeiTyped === imeiEditConfirm.phrase) executeImeiEdit(); }}
+              />
+              <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                <button onClick={() => setImeiEditConfirm(null)} disabled={savingImei} style={{ flex: 1, padding: '10px', border: '1px solid #E2E8F0', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#64748B', fontFamily: 'inherit' }}>Cancel</button>
+                <button onClick={executeImeiEdit} disabled={imeiTyped !== imeiEditConfirm.phrase || savingImei} style={{ flex: 1, padding: '10px', border: 'none', borderRadius: 8, background: imeiTyped === imeiEditConfirm.phrase ? '#D97706' : '#FCD34D', cursor: imeiTyped === imeiEditConfirm.phrase ? 'pointer' : 'not-allowed', fontSize: 13, fontWeight: 700, color: '#fff', fontFamily: 'inherit', transition: 'background 0.15s' }}>
+                  {savingImei ? 'Updating…' : 'Update IMEI'}
                 </button>
               </div>
             </div>
@@ -3285,7 +3371,16 @@ const SensorsTab = ({ vehicle, sensors, loadingSensors, showSensorForm, sensorFo
 // ══════════════════════════════════════════════════════════════════════════════
 // Edit Tab
 // ══════════════════════════════════════════════════════════════════════════════
-const EditTab = ({ editForm, setEditForm, saving, handleSaveEdit }) => (
+const EditTab = ({ editForm, setEditForm, saving, handleSaveEdit, currentImei = '', onRequestImeiEdit }) => {
+  const [imeiUnlocked, setImeiUnlocked] = useState(false);
+  const [imeiDraft, setImeiDraft] = useState(currentImei);
+
+  useEffect(() => {
+    setImeiDraft(currentImei);
+    setImeiUnlocked(false);
+  }, [currentImei]);
+
+  return (
   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
     <div style={{ background: C.white, borderRadius: 10, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
       <div style={{ padding: '8px 12px', background: C.surface, borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -3314,6 +3409,56 @@ const EditTab = ({ editForm, setEditForm, saving, handleSaveEdit }) => (
 
     <div style={{ background: C.white, borderRadius: 10, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
       <div style={{ padding: '8px 12px', background: C.surface, borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <Ic n="radio" size={12} color={C.primary} />
+        <span style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Device &amp; SIMs</span>
+      </div>
+      <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div>
+          <label style={{ ...lbl, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>IMEI Number</span>
+            {!imeiUnlocked ? (
+              <button type="button" onClick={() => setImeiUnlocked(true)}
+                style={{ background: '#FEF3C7', border: '1px solid #FCD34D', color: '#92400E', padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.03em' }}>
+                🔒 Unlock to edit
+              </button>
+            ) : (
+              <button type="button" onClick={() => { setImeiUnlocked(false); setImeiDraft(currentImei); }}
+                style={{ background: '#F1F5F9', border: '1px solid #CBD5E1', color: '#475569', padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.03em' }}>
+                Cancel
+              </button>
+            )}
+          </label>
+          <input
+            style={{ ...inp, fontFamily: 'monospace', letterSpacing: '0.06em', background: imeiUnlocked ? '#fff' : '#F8FAFC', color: imeiUnlocked ? '#0F172A' : '#64748B' }}
+            value={imeiDraft || ''}
+            onChange={e => setImeiDraft(e.target.value)}
+            readOnly={!imeiUnlocked}
+            maxLength={20}
+            placeholder="Device IMEI"
+          />
+          {imeiUnlocked && (
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <button type="button" onClick={() => onRequestImeiEdit?.(imeiDraft)}
+                disabled={!imeiDraft.trim() || imeiDraft.trim() === currentImei}
+                style={{ flex: 1, padding: '8px 10px', border: 'none', borderRadius: 8,
+                  background: (!imeiDraft.trim() || imeiDraft.trim() === currentImei) ? '#FCA5A5' : '#DC2626',
+                  color: '#fff', fontSize: 12, fontWeight: 700,
+                  cursor: (!imeiDraft.trim() || imeiDraft.trim() === currentImei) ? 'not-allowed' : 'pointer' }}>
+                Change IMEI…
+              </button>
+            </div>
+          )}
+          <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 6, lineHeight: 1.5 }}>
+            Changing IMEI rebinds the vehicle to a different GPS device. A confirmation phrase will be required.
+          </div>
+        </div>
+        <div><label style={lbl}>SIM 1 Number <span style={{ fontSize: 9, color: '#94a3b8' }}>(Optional)</span></label><input style={{ ...inp, fontFamily: 'monospace' }} value={editForm.sim1 || ''} onChange={e => setEditForm({ ...editForm, sim1: e.target.value })} maxLength={20} placeholder="e.g. 9876543210" /></div>
+        <div><label style={lbl}>SIM 2 Number <span style={{ fontSize: 9, color: '#94a3b8' }}>(Optional)</span></label><input style={{ ...inp, fontFamily: 'monospace' }} value={editForm.sim2 || ''} onChange={e => setEditForm({ ...editForm, sim2: e.target.value })} maxLength={20} placeholder="e.g. 9876543211" /></div>
+      </div>
+    </div>
+
+    <div style={{ background: C.white, borderRadius: 10, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
+      <div style={{ padding: '8px 12px', background: C.surface, borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 6 }}>
         <Ic n="gear" size={12} color={C.primary} />
         <span style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Thresholds</span>
       </div>
@@ -3334,6 +3479,7 @@ const EditTab = ({ editForm, setEditForm, saving, handleSaveEdit }) => (
       <Ic n="save" size={14} /> {saving ? 'Saving…' : 'Save Changes'}
     </button>
   </div>
-);
+  );
+};
 
 export default MyFleet;

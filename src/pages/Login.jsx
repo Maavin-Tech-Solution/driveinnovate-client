@@ -347,8 +347,8 @@ const Login = () => {
   });
   const [loading, setLoading] = useState(false);
   const [showPass, setShowPass] = useState(false);
-  const [theme, setTheme] = useState('night');
-  const [layout, setLayout] = useState('right');
+  const [theme] = useState('night');
+  const [layout] = useState('right'); // wide side-by-side layout; switcher hidden
   const [authMode, setAuthMode] = useState('password');
   const [forgotOtpRequested, setForgotOtpRequested] = useState(false);
   const [loginOtpSentTo, setLoginOtpSentTo] = useState('');
@@ -751,40 +751,6 @@ const Login = () => {
               Create a free account →
             </div>
           </Link>
-        </div>
-
-        {/* -- THEME + LAYOUT SWITCHER -- */}
-        <div style={{ marginTop: '12px', padding: '13px 14px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-          {/* Theme row */}
-          <div style={{ fontSize: '10px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '7px' }}>🎨 Theme</div>
-          <div style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
-            {THEMES.map(t => (
-              <button key={t.id} onClick={() => setTheme(t.id)} style={{
-                flex: 1, padding: '7px 3px', border: `2px solid ${theme === t.id ? t.accent : '#e2e8f0'}`,
-                borderRadius: '9px', background: theme === t.id ? '#f0f9ff' : '#fff',
-                cursor: 'pointer', fontSize: '10px', fontWeight: theme === t.id ? 700 : 500,
-                color: theme === t.id ? t.accent : '#64748b', transition: 'all .15s', textAlign: 'center', lineHeight: 1.4,
-              }}>
-                <div style={{ fontSize: '16px', marginBottom: '2px' }}>{t.id === 'night' ? '🌃' : t.id === 'space' ? '🚀' : '🌅'}</div>
-                <div>{t.id === 'night' ? 'Night' : t.id === 'space' ? 'Space' : 'Sunrise'}</div>
-              </button>
-            ))}
-          </div>
-          {/* Layout row */}
-          <div style={{ fontSize: '10px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '7px' }}>📐 Layout</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '6px' }}>
-            {LAYOUTS.map(l => (
-              <button key={l.id} onClick={() => setLayout(l.id)} style={{
-                padding: '7px 4px', border: `2px solid ${layout === l.id ? '#2563eb' : '#e2e8f0'}`,
-                borderRadius: '9px', background: layout === l.id ? '#eff6ff' : '#fff',
-                cursor: 'pointer', fontSize: '10px', fontWeight: layout === l.id ? 700 : 500,
-                color: layout === l.id ? '#2563eb' : '#64748b', transition: 'all .15s', textAlign: 'center', lineHeight: 1.4,
-              }}>
-                <div style={{ fontSize: '14px', marginBottom: '2px' }}>{l.icon}</div>
-                <div style={{ fontSize: '9px' }}>{l.label}</div>
-              </button>
-            ))}
-          </div>
         </div>
 
       </div>
