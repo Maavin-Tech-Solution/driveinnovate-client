@@ -9,7 +9,6 @@ import {
 } from '@heroicons/react/24/outline';
 import { addVehicle } from '../services/vehicle.service';
 import { getClientTree } from '../services/user.service';
-import { getDeviceConfigs } from '../services/master.service';
 import { useAuth } from '../context/AuthContext';
 
 const inputStyle = {
@@ -231,13 +230,12 @@ const AddVehicle = () => {
     sim1: '',
     sim2: '',
     deviceType: '',
-    serverIp: '',
+    serverIp: 'd.maavitrack.com',
     serverPort: '',
     vehicleIcon: 'car',
   });
   const [forClientId, setForClientId]   = useState('');
   const [clients, setClients]           = useState([]);
-  const [deviceConfigs, setDeviceConfigs] = useState([]);
   const [loading, setLoading]           = useState(false);
 
   useEffect(() => {
@@ -247,21 +245,15 @@ const AddVehicle = () => {
       .catch(() => {});
   }, [isAdmin]);
 
-  useEffect(() => {
-    getDeviceConfigs()
-      .then(r => setDeviceConfigs(r.data || []))
-      .catch(() => {});
-  }, []);
-
   const handleChange = (e) => {
     const { name, value } = e.target;
+    // Device type hints the port default — user can still override via the port dropdown.
     if (name === 'deviceType') {
-      const cfg = deviceConfigs.find(c => c.type === value);
+      const portByType = { GT06: '5023', GT06N: '5023', FMB125: '5024', FMB920: '5024', FMB130: '5024', AIS140: '5025' };
       setForm(prev => ({
         ...prev,
         deviceType: value,
-        serverIp:   cfg?.serverIp   || '',
-        serverPort: cfg?.serverPort ? String(cfg.serverPort) : '',
+        serverPort: portByType[value] || prev.serverPort,
       }));
     } else {
       setForm(prev => ({ ...prev, [name]: value }));
@@ -286,12 +278,10 @@ const AddVehicle = () => {
   };
 
   const handleReset = () => {
-    setForm({ vehicleNumber: '', vehicleName: '', chasisNumber: '', engineNumber: '', imei: '', sim1: '', sim2: '', deviceType: '', serverIp: '', serverPort: '', vehicleIcon: 'car' });
+    setForm({ vehicleNumber: '', vehicleName: '', chasisNumber: '', engineNumber: '', imei: '', sim1: '', sim2: '', deviceType: '', serverIp: 'd.maavitrack.com', serverPort: '', vehicleIcon: 'car' });
     setForClientId('');
   };
 
-  const selectedConfig     = deviceConfigs.find(c => c.type === form.deviceType);
-  const serverFieldsLocked = !!selectedConfig;
 
   return (
     <div style={{ minHeight: '100%' }}>
@@ -406,42 +396,34 @@ const AddVehicle = () => {
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '0 18px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 18px' }}>
                 <div style={fieldStyle}>
                   <label style={labelStyle}>
                     Server IP / Domain
-                    {serverFieldsLocked && <span style={{ marginLeft: '6px', fontSize: '10px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '1px 6px', fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}>Auto</span>}
+                    <span style={{ marginLeft: '6px', fontSize: '10px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '1px 6px', fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}>Fixed</span>
                   </label>
                   <input
                     name="serverIp"
-                    style={{ ...inputStyle, fontFamily: 'monospace', background: serverFieldsLocked ? '#f8fafc' : '#fff', color: serverFieldsLocked ? '#475569' : '#1e293b', cursor: serverFieldsLocked ? 'default' : 'text' }}
-                    placeholder="e.g. 103.21.58.192"
+                    style={{ ...inputStyle, fontFamily: 'monospace', background: '#f8fafc', color: '#475569', cursor: 'not-allowed' }}
                     value={form.serverIp}
-                    onChange={handleChange}
-                    readOnly={serverFieldsLocked}
+                    readOnly
                   />
                 </div>
                 <div style={fieldStyle}>
-                  <label style={labelStyle}>
-                    Port
-                    {serverFieldsLocked && <span style={{ marginLeft: '6px', fontSize: '10px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '1px 6px', fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}>Auto</span>}
-                  </label>
-                  <input
+                  <label style={labelStyle}>Port</label>
+                  <select
                     name="serverPort"
-                    type="number"
-                    style={{ ...inputStyle, fontFamily: 'monospace', background: serverFieldsLocked ? '#f8fafc' : '#fff', color: serverFieldsLocked ? '#475569' : '#1e293b', cursor: serverFieldsLocked ? 'default' : 'text' }}
-                    placeholder="e.g. 5023"
+                    style={{ ...inputStyle, fontFamily: 'monospace', cursor: 'pointer' }}
                     value={form.serverPort}
                     onChange={handleChange}
-                    readOnly={serverFieldsLocked}
-                  />
+                  >
+                    <option value="">Select port</option>
+                    <option value="5023">5023 (GT06)</option>
+                    <option value="5024">5024 (FMB125)</option>
+                    <option value="5025">5025 (AIS140)</option>
+                  </select>
                 </div>
               </div>
-              {serverFieldsLocked && (
-                <div style={{ fontSize: '11px', color: '#16a34a', marginTop: '-12px', marginBottom: '18px' }}>
-                  Auto-filled from device type — configure in Master Settings
-                </div>
-              )}
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 18px' }}>
                 <div style={fieldStyle}>
