@@ -1,5 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
+import { getClientTree } from '../services/user.service';
+
+// Flatten the papa→dealer→client tree into a depth-indented list for a <select>.
+const flattenClients = (nodes, depth = 0, out = []) => {
+  for (const n of (nodes || [])) {
+    out.push({ id: n.id, name: n.name, email: n.email, depth });
+    if (n.children?.length) flattenClients(n.children, depth + 1, out);
+  }
+  return out;
+};
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 const fmt = (d) => d
@@ -515,6 +526,10 @@ const FilterGroup = ({ label, children }) => (
 const GAP_THRESHOLD_MS = 5 * 60 * 1000; // 5-minute gap = highlight
 
 const PacketExplorer = () => {
+  const { user } = useAuth();
+  const isPapaOrDealer = user?.role === 'papa' || Number(user?.parentId) === 0 || user?.role === 'dealer' || user?.permissions?.canAddClient === true;
+  const [clients, setClients]       = useState([]);
+  const [clientId, setClientId]     = useState(''); // '' = own fleet
   const [vehicles, setVehicles]     = useState([]);
   const [vehicleId, setVehicleId]   = useState('');
   const [deviceType, setDeviceType] = useState('fmb125');
@@ -537,11 +552,26 @@ const PacketExplorer = () => {
   const [error,   setError]   = useState('');
   const [fetched, setFetched] = useState(false);
 
+  // Load the client tree once (papa/dealer only) so the dropdown can let them
+  // drill into any vehicle in the network, not just their own.
   useEffect(() => {
-    api.get('/vehicles')
-      .then(res => setVehicles(Array.isArray(res) ? res : (res.data ?? [])))
+    if (!isPapaOrDealer) return;
+    getClientTree()
+      .then(r => setClients(flattenClients(r.data || [])))
       .catch(() => {});
-  }, []);
+  }, [isPapaOrDealer]);
+
+  // Re-fetch vehicles whenever the chosen client changes. Empty clientId =
+  // caller's own fleet (current behavior).
+  useEffect(() => {
+    const url = clientId ? `/vehicles?clientId=${encodeURIComponent(clientId)}` : '/vehicles';
+    api.get(url)
+      .then(res => setVehicles(Array.isArray(res) ? res : (res.data ?? [])))
+      .catch(() => setVehicles([]));
+    // Reset any currently-selected vehicle — it likely doesn't belong to the
+    // newly-selected client's fleet.
+    setVehicleId('');
+  }, [clientId]);
 
   const handleVehicleChange = (e) => {
     const vid = e.target.value;
@@ -598,8 +628,22 @@ const PacketExplorer = () => {
     <div>
       {/* filter panel */}
       <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: 14, marginBottom: 14 }}>
+        {isPapaOrDealer && (
+          <div style={{ marginBottom: 10 }}>
+            <FilterGroup label={`Client  (${clients.length} in network)`}>
+              <select value={clientId} onChange={e => setClientId(e.target.value)} style={{ ...inputSt, width: '100%' }}>
+                <option value="">— My own fleet —</option>
+                {clients.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {'— '.repeat(c.depth)}{c.name}{c.email ? `  (${c.email})` : ''}
+                  </option>
+                ))}
+              </select>
+            </FilterGroup>
+          </div>
+        )}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, marginBottom: 10 }}>
-          <FilterGroup label="Vehicle">
+          <FilterGroup label={`Vehicle  (${vehicles.length})`}>
             <select value={vehicleId} onChange={handleVehicleChange} style={{ ...inputSt, width: '100%' }}>
               <option value="">— Select vehicle —</option>
               {vehicles.map(v => (

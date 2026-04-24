@@ -32,6 +32,11 @@ const VEHICLE_ICON_MAP = {
   schoolbus: '🚍', tractor: '🚜', crane: '🏗️', jcb: '🏗️',
   dumper: '🚚', earthmover: '🚜', tanker: '⛽', container: '🚛',
   fire: '🚒', police: '🚔', sweeper: '🚛', tipper: '🚚',
+  // Construction / specialty equipment — emoji coverage is thin so many
+  // share a best-fit emoji and rely on the text label for differentiation.
+  excavator: '🚜', mixer: '🛻', concretepump: '🏗️', paver: '🛣️',
+  fury: '🚚', ajax: '🛻', roadroller: '🚧', wheelloader: '🚜',
+  watertanker: '💧', garbagevan: '🗑️', mortuaryvan: '⚰️',
 };
 const REPORT_PAGE_SIZE = 20;
 const GROUP_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899'];
@@ -40,7 +45,20 @@ const VEHICLE_ICONS = [
   'car','suv','truck','bus','bike','auto','van','ambulance',
   'pickup','minibus','schoolbus','tractor','crane','jcb',
   'dumper','earthmover','tanker','container','fire','police','sweeper','tipper',
+  'excavator','mixer','concretepump','paver','fury','ajax','roadroller',
+  'wheelloader','watertanker','garbagevan','mortuaryvan',
 ];
+const VEHICLE_ICON_LABELS = {
+  car: 'Car', suv: 'SUV', truck: 'Truck', bus: 'Bus', bike: 'Bike', auto: 'Auto',
+  van: 'Van', ambulance: 'Ambulance', pickup: 'Pickup', motorcycle: 'Motorcycle',
+  minibus: 'Minibus', schoolbus: 'School Bus', tractor: 'Tractor', crane: 'Crane',
+  jcb: 'JCB', dumper: 'Dumper', earthmover: 'Earth Mover', tanker: 'Tanker',
+  container: 'Container', fire: 'Fire', police: 'Police', sweeper: 'Sweeper',
+  tipper: 'Tipper', excavator: 'Excavator', mixer: 'Transit Mixer',
+  concretepump: 'Concrete Pump', paver: 'Paver', fury: 'Fury', ajax: 'Ajax',
+  roadroller: 'Road Roller', wheelloader: 'Wheel Loader',
+  watertanker: 'Water Tanker', garbagevan: 'Garbage Van', mortuaryvan: 'Mortuary Van',
+};
 const SENSOR_TYPES = ['number', 'boolean', 'text'];
 const PANEL_W = 260;
 const DETAIL_W = 380;
@@ -310,6 +328,19 @@ const TrackingController = ({ position }) => {
   return null;
 };
 
+// ─── FocusBoundsController — fits the map to a set of pinned vehicles ────────
+// Fires once when `bounds` reference changes. Ignored when only 0–1 vehicles
+// are pinned (single-vehicle tracking is handled by TrackingController).
+const FocusBoundsController = ({ bounds }) => {
+  const map = useMap();
+  useEffect(() => {
+    if (!bounds || bounds.length < 2) return;
+    const b = L.latLngBounds(bounds);
+    map.fitBounds(b, { padding: [48, 48], maxZoom: 15, animate: true });
+  }, [bounds, map]);
+  return null;
+};
+
 // ─── SmoothMarker — animates position changes via CSS transition ──────────────
 // Leaflet positions markers with CSS transform: translate3d(x,y,0).  Adding a
 // transition to that element makes the marker glide to the new coordinates
@@ -320,12 +351,43 @@ const TrackingController = ({ position }) => {
 // happen when ignition state changes).
 const SmoothMarker = ({ position, icon, eventHandlers, children }) => {
   const markerRef = useRef(null);
+  const map = useMap();
+  const TRANSITION = 'transform 4.8s linear';
+
   useEffect(() => {
     const m = markerRef.current;
     if (!m) return;
-    if (m._icon)   m._icon.style.transition   = 'transform 4.8s linear';
-    if (m._shadow) m._shadow.style.transition = 'transform 4.8s linear';
+    if (m._icon)   m._icon.style.transition   = TRANSITION;
+    if (m._shadow) m._shadow.style.transition = TRANSITION;
   });
+
+  // Leaflet re-positions markers during zoom by writing a new CSS transform.
+  // Our 4.8 s transition on that same property makes the marker visibly glide
+  // to its new pixel coordinates instead of snapping — so it looks like the
+  // vehicle is moving every time the user zooms. Kill the transition for the
+  // duration of the zoom so markers stay anchored to their lat/lng.
+  useEffect(() => {
+    if (!map) return;
+    const clear = () => {
+      const m = markerRef.current;
+      if (!m) return;
+      if (m._icon)   m._icon.style.transition   = 'none';
+      if (m._shadow) m._shadow.style.transition = 'none';
+    };
+    const restore = () => {
+      const m = markerRef.current;
+      if (!m) return;
+      if (m._icon)   m._icon.style.transition   = TRANSITION;
+      if (m._shadow) m._shadow.style.transition = TRANSITION;
+    };
+    map.on('zoomstart', clear);
+    map.on('zoomend',   restore);
+    return () => {
+      map.off('zoomstart', clear);
+      map.off('zoomend',   restore);
+    };
+  }, [map]);
+
   return (
     <Marker ref={markerRef} position={position} icon={icon} eventHandlers={eventHandlers}>
       {children}
@@ -452,6 +514,9 @@ const MyFleet = () => {
   const [selectedVehicle, setSelectedVehicle] = useState(null);
   const [trackedVehicleId, setTrackedVehicleId] = useState(null);
   const [trackedPosition, setTrackedPosition] = useState(null);
+  // Multi-select: vehicles the user has pinned to track simultaneously on the
+  // map. When ≥2 are pinned, FocusBoundsController fits the map to all of them.
+  const [focusedIds, setFocusedIds] = useState(() => new Set());
   const [activeTab, setActiveTab] = useState('overview');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState(new Set(['Running', 'Stopped', 'Unknown']));
@@ -1026,19 +1091,20 @@ const MyFleet = () => {
     if (statusFilter.size < 3) {
       list = list.filter(v => statusFilter.has(getVState(v, deviceStatesByType).stateName));
     }
-    // Chip filter — stat card / HudChip click filtering
+    // Chip filter — stat card / HudChip click filtering. Supports:
+    //   'total'                → no filter
+    //   'no_gps' / 'overspeed' → virtual (computed from deviceStatus)
+    //   'state:<stateName>'    → matches configured state from Master Settings
     if (chipFilter) {
       const _fleetSpeedThresh = parseInt(localStorage.getItem('fleet-speed-threshold') || '80');
       list = list.filter(v => {
-        const sn = getVState(v, deviceStatesByType).stateName;
-        switch (chipFilter) {
-          case 'running':   return sn === 'Running';
-          case 'stopped':   return sn === 'Stopped';
-          case 'idle':      return sn === 'Idle';
-          case 'no_gps':    return !getVehicleCoords(v);
-          case 'overspeed': return (v.deviceStatus?.gpsData?.speed ?? 0) > _fleetSpeedThresh;
-          default:          return true; // 'total'
+        if (chipFilter === 'no_gps')    return !getVehicleCoords(v);
+        if (chipFilter === 'overspeed') return (v.deviceStatus?.gpsData?.speed ?? 0) > _fleetSpeedThresh;
+        if (chipFilter === 'total')     return true;
+        if (chipFilter.startsWith('state:')) {
+          return getVState(v, deviceStatesByType).stateName === chipFilter.slice(6);
         }
+        return true;
       });
     }
     if (sortCol) {
@@ -1072,17 +1138,88 @@ const MyFleet = () => {
   }, [vehicles, groups, selectedGroupId, search, statusFilter, chipFilter, sortCol, sortDir, deviceStatesByType, stateTick]);
 
   const mapVehicles = useMemo(() => filteredVehicles.map(v => ({ ...v, coords: getVehicleCoords(v) })).filter(v => v.coords), [filteredVehicles]);
-  const runningCount   = vehicles.filter(v => getVState(v, deviceStatesByType).stateName === 'Running').length;
-  const stoppedCount   = vehicles.filter(v => getVState(v, deviceStatesByType).stateName === 'Stopped').length;
-  const noGpsCount     = vehicles.filter(v => !getVehicleCoords(v)).length;
-  const idleCount      = vehicles.filter(v => getVState(v, deviceStatesByType).stateName === 'Idle').length;
-  const fleetSpeedThresh = parseInt(localStorage.getItem('fleet-speed-threshold') || '80');
-  const overspeedCount = vehicles.filter(v => getSpeed(v) > fleetSpeedThresh).length;
 
-  const CHIP_COUNTS = {
-    total: vehicles.length, running: runningCount, stopped: stoppedCount,
-    no_gps: noGpsCount, idle: idleCount, overspeed: overspeedCount,
+  // Lat/lng pairs for the pinned set — drives FocusBoundsController.
+  // Re-computed whenever the pinned IDs change or vehicles refresh (live poll),
+  // so the map stays fitted as each vehicle moves.
+  const focusedBounds = useMemo(() => {
+    if (focusedIds.size < 2) return null;
+    return mapVehicles
+      .filter(v => focusedIds.has(v.id))
+      .map(v => [v.coords.lat, v.coords.lng]);
+  }, [mapVehicles, focusedIds]);
+
+  const toggleFocus = (id) => {
+    setFocusedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
   };
+  // Scope the chip counts to the selected group so the top status cards follow
+  // the vehicle list as the user filters by group. Search text and the chip
+  // filter itself are intentionally NOT applied here — search is a "find one"
+  // filter (counts shouldn't collapse on keystrokes) and applying the chip
+  // filter would create a feedback loop (click Running → only Running visible
+  // → every other count drops to 0).
+  const chipScopedVehicles = (() => {
+    if (!selectedGroupId) return vehicles;
+    const grp = groups.find(g => g.id === selectedGroupId);
+    const ids = new Set((grp?.vehicles || []).map(v => v.id));
+    return vehicles.filter(v => ids.has(v.id));
+  })();
+
+  const runningCount   = chipScopedVehicles.filter(v => getVState(v, deviceStatesByType).stateName === 'Running').length;
+  const stoppedCount   = chipScopedVehicles.filter(v => getVState(v, deviceStatesByType).stateName === 'Stopped').length;
+  const noGpsCount     = chipScopedVehicles.filter(v => !getVehicleCoords(v)).length;
+  const fleetSpeedThresh = parseInt(localStorage.getItem('fleet-speed-threshold') || '80');
+  const overspeedCount = chipScopedVehicles.filter(v => getSpeed(v) > fleetSpeedThresh).length;
+
+  // Build the chip list dynamically from Master-Settings state definitions so
+  // every configured state (e.g. "No Signal", "Idle", "Parked") gets its own
+  // card — even when zero vehicles are currently in that state. Virtual chips
+  // (Total / No GPS / Overspeed) are always appended. Each chip's id is
+  // either a virtual name or `state:<stateName>` so chipFilter can route back.
+  const stateChipMeta = new Map();
+  Object.values(deviceStatesByType).forEach(states => {
+    (states || []).forEach(s => {
+      if (!s?.stateName || stateChipMeta.has(s.stateName)) return;
+      stateChipMeta.set(s.stateName, {
+        color: s.stateColor || '#64748b',
+        icon:  s.stateIcon  || '•',
+        priority: s.priority ?? 100,
+      });
+    });
+  });
+  const stateChipList = Array.from(stateChipMeta.entries())
+    .sort((a, b) => a[1].priority - b[1].priority)
+    .map(([name, meta]) => ({
+      id:       `state:${name}`,
+      label:    name,
+      dot:      meta.color,
+      gradient: `linear-gradient(135deg, ${meta.color} 0%, ${meta.color} 100%)`,
+      shadow:   '0 4px 14px rgba(15,23,42,0.18)',
+      icon:     meta.icon,
+      stateName: name,
+    }));
+  // Skip virtual No GPS / Overspeed chips if a configured state with the same
+  // name already exists — otherwise the user sees duplicates. The configured
+  // state wins because it carries the user's intended conditions.
+  const configuredLabels = new Set(stateChipList.map(c => c.label.toLowerCase().replace(/\s+/g, '')));
+  const fleetChips = [
+    { id: 'total', label: 'Total', dot: '#64748b', gradient: 'linear-gradient(135deg, #1D4ED8 0%, #3B82F6 100%)', shadow: '0 4px 14px rgba(37,99,235,0.28)', icon: '🚗' },
+    ...stateChipList,
+    ...(configuredLabels.has('nogps') ? [] : [{ id: 'no_gps',    label: 'No GPS',    dot: '#f59e0b', gradient: 'linear-gradient(135deg, #92400E 0%, #F59E0B 100%)', shadow: '0 4px 14px rgba(217,119,6,0.28)', icon: '📡' }]),
+    ...(configuredLabels.has('overspeed') ? [] : [{ id: 'overspeed', label: 'Overspeed', dot: '#dc2626', gradient: 'linear-gradient(135deg, #991B1B 0%, #DC2626 100%)', shadow: '0 4px 14px rgba(153,27,27,0.28)', icon: '🏎️' }]),
+  ];
+  const CHIP_COUNTS = {
+    total:     chipScopedVehicles.length,
+    no_gps:    noGpsCount,
+    overspeed: overspeedCount,
+  };
+  stateChipList.forEach(c => {
+    CHIP_COUNTS[c.id] = chipScopedVehicles.filter(v => getVState(v, deviceStatesByType).stateName === c.stateName).length;
+  });
 
   // panel z-index shorthand
   const panelBg = '#FFFFFF';
@@ -1096,16 +1233,16 @@ const MyFleet = () => {
       <div style={{ minHeight: '100%', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
-        {/* Stat cards */}
+        {/* Stat cards — driven by fleetChips (dynamic from Master-Settings states) */}
         <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
-          {ALL_FLEET_CHIPS.filter(c => visibleChips.includes(c.id)).map(c => (
-            <div key={c.id} onClick={() => setChipFilter(chipFilter === c.id ? null : c.id)} style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 20px', background: c.gradient, borderRadius: '10px', boxShadow: chipFilter === c.id ? `0 0 0 3px #fff, ${c.shadow}` : c.shadow, minWidth: '145px', position: 'relative', overflow: 'hidden', flex: '0 0 auto', cursor: 'pointer', opacity: chipFilter && chipFilter !== c.id ? 0.55 : 1, transition: 'all 0.15s', transform: chipFilter === c.id ? 'scale(1.03)' : 'none' }}>
+          {fleetChips.map(c => (
+            <div key={c.id} onClick={() => setChipFilter(chipFilter === c.id ? null : c.id)} style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 20px', background: c.gradient, borderRadius: 0, boxShadow: chipFilter === c.id ? `0 0 0 3px #fff, ${c.shadow}` : c.shadow, minWidth: '145px', position: 'relative', overflow: 'hidden', flex: '0 0 auto', cursor: 'pointer', opacity: chipFilter && chipFilter !== c.id ? 0.55 : 1, transition: 'all 0.15s', transform: chipFilter === c.id ? 'scale(1.03)' : 'none' }}>
               <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: '40%', background: 'linear-gradient(135deg, transparent 0%, rgba(255,255,255,0.06) 100%)', pointerEvents: 'none' }} />
               <div style={{ flex: 1, position: 'relative' }}>
                 <div style={{ fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.72)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '5px' }}>{c.label}</div>
                 <div style={{ fontSize: '34px', fontWeight: 800, color: '#fff', lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{CHIP_COUNTS[c.id]}</div>
               </div>
-              <div style={{ width: '38px', height: '38px', borderRadius: '9px', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', flexShrink: 0, backdropFilter: 'blur(4px)', position: 'relative' }}>{c.icon}</div>
+              <div style={{ width: '38px', height: '38px', borderRadius: 0, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', flexShrink: 0, backdropFilter: 'blur(4px)', position: 'relative' }}>{c.icon}</div>
             </div>
           ))}
         </div>
@@ -1269,26 +1406,59 @@ const MyFleet = () => {
             )}
           </div>
 
-          {/* Groups filter inline */}
-          <>
-            <div style={{ width: '1px', height: '20px', background: '#E2E8F0' }} />
-            <span style={{ fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Groups:</span>
-            <button onClick={() => setSelectedGroupId(null)}
-              style={{ padding: '4px 12px', border: `1px solid ${selectedGroupId === null ? '#2563EB' : '#E2E8F0'}`, background: selectedGroupId === null ? '#EFF6FF' : '#fff', color: selectedGroupId === null ? '#2563EB' : '#64748B', fontSize: '12px', fontWeight: selectedGroupId === null ? 700 : 500, cursor: 'pointer', fontFamily: 'inherit' }}>
-              All ({vehicles.length})
-            </button>
-            {groups.map(g => (
-              <button key={g.id} onClick={() => setSelectedGroupId(selectedGroupId === g.id ? null : g.id)}
-                style={{ padding: '4px 12px', border: `1px solid ${selectedGroupId === g.id ? g.color || '#3b82f6' : '#E2E8F0'}`, background: selectedGroupId === g.id ? `${g.color || '#3b82f6'}18` : '#fff', color: selectedGroupId === g.id ? g.color || '#3b82f6' : '#64748B', fontSize: '12px', fontWeight: selectedGroupId === g.id ? 700 : 500, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontFamily: 'inherit' }}>
-                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: g.color || '#3b82f6', flexShrink: 0 }} />
-                {g.name} ({g.vehicles?.length || 0})
-              </button>
-            ))}
-            <Link to="/groups"
-              style={{ padding: '4px 10px', border: '1px dashed #BFDBFE', background: '#F8FAFC', color: '#2563EB', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-              ⊞ Manage
-            </Link>
-          </>
+          {/* Groups filter — custom-styled dropdown (native chevron hidden,
+              colored dot for the active group, SVG caret on the right). */}
+          {groups.length > 0 && (() => {
+            const activeGroup = groups.find(g => g.id === selectedGroupId);
+            const accent = activeGroup?.color || '#3B82F6';
+            return (
+              <>
+                <div style={{ width: '1px', height: '20px', background: '#E2E8F0' }} />
+                <span style={{ fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Group</span>
+                <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+                  {/* Leading color dot — shows the active group's color at a glance */}
+                  <span style={{
+                    position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)',
+                    width: 8, height: 8, borderRadius: '50%',
+                    background: activeGroup ? accent : '#94A3B8',
+                    pointerEvents: 'none', flexShrink: 0,
+                  }} />
+                  <select
+                    title="Filter by vehicle group"
+                    value={selectedGroupId ?? ''}
+                    onChange={e => setSelectedGroupId(e.target.value ? Number(e.target.value) : null)}
+                    style={{
+                      appearance: 'none', WebkitAppearance: 'none', MozAppearance: 'none',
+                      padding: '6px 30px 6px 26px',
+                      height: 32,
+                      border: `1px solid ${activeGroup ? accent + '80' : '#E2E8F0'}`,
+                      borderRadius: 8,
+                      background: activeGroup ? accent + '0D' : '#FFFFFF',
+                      color: '#0F172A',
+                      fontSize: 12.5,
+                      fontWeight: 600,
+                      fontFamily: 'inherit',
+                      cursor: 'pointer',
+                      minWidth: 210,
+                      boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
+                      outline: 'none',
+                      transition: 'border-color 0.15s, background 0.15s, box-shadow 0.15s',
+                    }}
+                    onFocus={e => { e.currentTarget.style.boxShadow = `0 0 0 3px ${accent}22`; }}
+                    onBlur={e => { e.currentTarget.style.boxShadow = '0 1px 2px rgba(15,23,42,0.04)'; }}>
+                    <option value="">All groups ({vehicles.length})</option>
+                    {groups.map(g => (
+                      <option key={g.id} value={g.id}>{g.name} ({g.vehicles?.length || 0})</option>
+                    ))}
+                  </select>
+                  {/* Custom chevron */}
+                  <svg width="10" height="10" viewBox="0 0 10 10" style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} aria-hidden="true">
+                    <path d="M1 3.5 L5 7.5 L9 3.5" stroke={activeGroup ? accent : '#64748B'} strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </div>
+              </>
+            );
+          })()}
 
           <button onClick={fetchVehicles} disabled={loading} className="btn btn-outline">↺ Refresh</button>
           <div className="view-toggle">
@@ -1587,7 +1757,7 @@ const MyFleet = () => {
             dst?.gsmSignal  != null && { icon: '📶', label: 'GSM',        val: String(dst.gsmSignal),            unit: '',     accent: '#0891b2' },
           ].filter(Boolean);
           return (
-            <div style={{ position: 'fixed', inset: 0, zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setDrawerVehicle(null)}>
+            <div style={{ position: 'fixed', inset: 0, zIndex: 7000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setDrawerVehicle(null)}>
               <style>{`@keyframes modalIn { from { opacity: 0; transform: scale(0.97) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }`}</style>
               <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.5)', backdropFilter: 'blur(4px)' }} />
 
@@ -1751,7 +1921,7 @@ const MyFleet = () => {
 
       {/* Live Share Modal — table view */}
       {showShareModal && shareTarget && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 900, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        <div style={{ position: 'fixed', inset: 0, zIndex: 7100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           onClick={() => setShowShareModal(false)}>
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(4px)' }} />
           <div style={{ position: 'relative', zIndex: 1, background: '#fff', borderRadius: 16, width: 420, maxWidth: '95vw', boxShadow: '0 24px 80px rgba(0,0,0,0.24)', fontFamily: "'Plus Jakarta Sans',sans-serif", overflow: 'hidden' }}
@@ -1958,28 +2128,14 @@ const MyFleet = () => {
           </div>
         )}
 
-        {/* Stat chips — click to filter by status */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-          {ALL_FLEET_CHIPS.filter(c => visibleChips.includes(c.id)).map(c => (
+        {/* Stat chips — driven by fleetChips (dynamic from Master-Settings states) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, overflowX: 'auto', minWidth: 0 }}>
+          {fleetChips.map(c => (
             <HudChip key={c.id} value={CHIP_COUNTS[c.id]} label={c.label} dot={c.dot} active={chipFilter === c.id} onClick={() => setChipFilter(chipFilter === c.id ? null : c.id)} />
           ))}
         </div>
 
         <div style={{ flex: 1 }} />
-
-        {/* Search — filter vehicles by name, number or IMEI */}
-        <div style={{ position: 'relative', flexShrink: 0 }}>
-          <span style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
-            <Ic n="search" size={13} color="#94A3B8" />
-          </span>
-          <input
-            title="Search by vehicle name, number plate or IMEI"
-            style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 7, color: '#0F172A', fontSize: 13, padding: '6px 10px 6px 30px', outline: 'none', width: 180, fontFamily: 'inherit' }}
-            placeholder="Search vehicles…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-        </div>
 
         {/* Refresh — pull latest vehicle & GPS data */}
         <button
@@ -2027,7 +2183,7 @@ const MyFleet = () => {
         {/* Search + group filter */}
         <div style={{ padding: '10px 10px 8px', flexShrink: 0, borderBottom: '1px solid #F1F5F9', background: '#FAFBFC' }}>
           {/* Search input */}
-          <div style={{ position: 'relative', marginBottom: 8 }}>
+          <div style={{ position: 'relative', marginBottom: groups.length > 0 ? 8 : 0 }}>
             <span style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
               <Ic n="search" size={13} color="#9CA3AF" />
             </span>
@@ -2039,58 +2195,65 @@ const MyFleet = () => {
               onChange={e => setSearch(e.target.value)}
             />
           </div>
-          {/* Group filter pills — click to show only that group's vehicles */}
-          <div style={{ overflowX: 'auto', display: 'flex', gap: 4, paddingBottom: 1 }}>
-            <button
-              title="Show all vehicles"
-              onClick={() => setSelectedGroupId(null)}
-              className="fv-grp-pill"
-              style={{ flexShrink: 0, padding: '3px 9px', borderRadius: 20, border: `1px solid ${selectedGroupId === null ? '#3B82F6' : '#E2E8F0'}`, background: selectedGroupId === null ? '#2563EB' : '#FFFFFF', color: selectedGroupId === null ? '#fff' : '#374151', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s' }}>
-              All {vehicles.length}
-            </button>
-            {groups.map(g => (
-              <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+          {/* Group filter — pills when 0–1 groups exist, dropdown when multiple */}
+          {groups.length > 1 ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <select
+                title="Filter by vehicle group"
+                value={selectedGroupId ?? ''}
+                onChange={e => setSelectedGroupId(e.target.value ? Number(e.target.value) : null)}
+                style={{ flex: 1, minWidth: 0, background: '#FFFFFF', border: `1px solid ${selectedGroupId ? (groups.find(g => g.id === selectedGroupId)?.color || '#3B82F6') : '#E2E8F0'}`, borderRadius: 7, color: '#0F172A', fontSize: 12, fontWeight: 600, padding: '6px 10px', outline: 'none', fontFamily: 'inherit', cursor: 'pointer' }}>
+                <option value="">All groups ({vehicles.length})</option>
+                {groups.map(g => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+              {liveShareEnabled && selectedGroupId && (isPapaOrDealer || user?.permissions?.canShareLiveLocation) && (
                 <button
+                  title={`Share live tracking for selected group`}
+                  onClick={() => { const g = groups.find(x => x.id === selectedGroupId); if (g) openShareModal('group', g.id, g.name); }}
+                  style={{ flexShrink: 0, padding: '6px 8px', borderRadius: 7, border: '1px solid #E2E8F0', background: '#FFFFFF', color: '#64748B', cursor: 'pointer', display: 'flex', alignItems: 'center', lineHeight: 1 }}>
+                  <Ic n="share" size={11} color="#64748B" />
+                </button>
+              )}
+            </div>
+          ) : groups.length === 1 ? (
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button
+                title="Show all vehicles"
+                onClick={() => setSelectedGroupId(null)}
+                className="fv-grp-pill"
+                style={{ flexShrink: 0, padding: '3px 9px', borderRadius: 20, border: `1px solid ${selectedGroupId === null ? '#3B82F6' : '#E2E8F0'}`, background: selectedGroupId === null ? '#2563EB' : '#FFFFFF', color: selectedGroupId === null ? '#fff' : '#374151', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s' }}>
+                All {vehicles.length}
+              </button>
+              {groups.map(g => (
+                <button
+                  key={g.id}
                   title={`Filter to "${g.name}" group`}
                   onClick={() => setSelectedGroupId(selectedGroupId === g.id ? null : g.id)}
                   className="fv-grp-pill"
-                  style={{ flexShrink: 0, padding: '3px 9px', borderRadius: liveShareEnabled && (isPapaOrDealer || user?.permissions?.canShareLiveLocation) ? '20px 0 0 20px' : 20, border: `1px solid ${selectedGroupId === g.id ? (g.color || '#3B82F6') : '#E2E8F0'}`, borderRight: liveShareEnabled && (isPapaOrDealer || user?.permissions?.canShareLiveLocation) ? 'none' : undefined, background: selectedGroupId === g.id ? (g.color || '#3B82F6') + '18' : '#FFFFFF', color: selectedGroupId === g.id ? (g.color || '#2563EB') : '#374151', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4, transition: 'all 0.15s' }}>
+                  style={{ flexShrink: 0, padding: '3px 9px', borderRadius: 20, border: `1px solid ${selectedGroupId === g.id ? (g.color || '#3B82F6') : '#E2E8F0'}`, background: selectedGroupId === g.id ? (g.color || '#3B82F6') + '18' : '#FFFFFF', color: selectedGroupId === g.id ? (g.color || '#2563EB') : '#374151', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4, transition: 'all 0.15s' }}>
                   <span style={{ width: 5, height: 5, borderRadius: '50%', background: g.color || '#3B82F6', flexShrink: 0 }} />
                   {g.name}
                 </button>
-                {liveShareEnabled && (isPapaOrDealer || user?.permissions?.canShareLiveLocation) && (
-                  <button
-                    title={`Share live tracking for "${g.name}" group`}
-                    onClick={() => openShareModal('group', g.id, g.name)}
-                    style={{ padding: '3px 5px', borderRadius: '0 20px 20px 0', border: `1px solid ${selectedGroupId === g.id ? (g.color || '#3B82F6') : '#E2E8F0'}`, background: selectedGroupId === g.id ? (g.color || '#3B82F6') + '12' : '#FFFFFF', color: '#64748B', cursor: 'pointer', display: 'flex', alignItems: 'center', transition: 'all 0.15s', lineHeight: 1 }}>
-                    <Ic n="share" size={9} color="#94A3B8" />
-                  </button>
-                )}
-              </div>
-            ))}
-            <Link
-              to="/groups"
-              title="Create or manage vehicle groups"
-              style={{ flexShrink: 0, padding: '3px 9px', borderRadius: 20, border: '1px solid #E2E8F0', background: '#FFFFFF', color: '#64748B', fontSize: 11, fontWeight: 600, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 3, transition: 'all 0.15s' }}>
-              <Ic n="gear" size={9} color="#64748B" /> Manage
-            </Link>
-          </div>
+              ))}
+            </div>
+          ) : null}
         </div>
 
-        {/* Vehicle count summary row */}
+        {/* Vehicle count + multi-select controls */}
         <div style={{ padding: '6px 12px 5px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #F1F5F9' }}>
           <span style={{ fontSize: 10, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
             {filteredVehicles.length} vehicle{filteredVehicles.length !== 1 ? 's' : ''}
           </span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span title="Running" style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, color: '#16a34a', fontWeight: 700 }}>
-              <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#22c55e' }} />{runningCount}
-            </span>
-            <span style={{ color: '#CBD5E1', fontSize: 10 }}>·</span>
-            <span title="Stopped" style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, color: '#dc2626', fontWeight: 700 }}>
-              <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#ef4444' }} />{stoppedCount}
-            </span>
-          </div>
+          {focusedIds.size > 0 && (
+            <button
+              onClick={() => setFocusedIds(new Set())}
+              title="Clear multi-select"
+              style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', color: '#1D4ED8', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10, cursor: 'pointer', fontFamily: 'inherit' }}>
+              {focusedIds.size} selected · Clear
+            </button>
+          )}
         </div>
 
         {/* Vehicle cards list — click a card to open details & locate on map */}
@@ -2135,8 +2298,16 @@ const MyFleet = () => {
                   transition: 'all 0.12s',
                   boxShadow: isSel ? '0 1px 6px rgba(37,99,235,0.10)' : 'none',
                 }}>
-                {/* Row 1: icon + name + status + age */}
+                {/* Row 1: checkbox + icon + name + status + age */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <input
+                    type="checkbox"
+                    title="Track on map (multi-select)"
+                    checked={focusedIds.has(v.id)}
+                    onClick={e => e.stopPropagation()}
+                    onChange={() => toggleFocus(v.id)}
+                    style={{ flexShrink: 0, width: 13, height: 13, accentColor: '#2563EB', cursor: 'pointer', margin: 0 }}
+                  />
                   <div style={{ width: 28, height: 28, borderRadius: 7, background: stColor + '14', border: `1.5px solid ${stColor}30`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0 }}>
                     {VEHICLE_ICON_MAP[v.vehicleIcon] || '🚗'}
                   </div>
@@ -2201,8 +2372,9 @@ const MyFleet = () => {
             maxZoom={20}
           />
           <MapResizer />
-          {mapCenter && <MapController center={mapCenter} />}
-          <TrackingController position={trackedPosition} />
+          {mapCenter && focusedIds.size < 2 && <MapController center={mapCenter} />}
+          {focusedIds.size < 2 && <TrackingController position={trackedPosition} />}
+          <FocusBoundsController bounds={focusedBounds} />
           <MarkerClusterGroup chunkedLoading iconCreateFunction={createClusterCustomIcon} maxClusterRadius={60} showCoverageOnHover={false} spiderfyOnMaxZoom={true} disableClusteringAtZoom={14}>
             {mapVehicles.map(v => {
               const isSel = selectedVehicle?.id === v.id;
@@ -2458,7 +2630,7 @@ const MyFleet = () => {
 
       {/* ══════ DELETE CONFIRMATION MODAL ══════ */}
       {deleteConfirm && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => !deleting && setDeleteConfirm(null)}>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 7200, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => !deleting && setDeleteConfirm(null)}>
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)' }} />
           <div style={{ position: 'relative', zIndex: 1, background: '#fff', borderRadius: 14, width: 420, maxWidth: '95vw', boxShadow: '0 24px 80px rgba(0,0,0,0.3)', fontFamily: "'Plus Jakarta Sans',sans-serif", overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
             <div style={{ background: 'linear-gradient(135deg,#B91C1C,#DC2626)', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -2502,7 +2674,7 @@ const MyFleet = () => {
 
       {/* ══════ IMEI CHANGE CONFIRMATION MODAL ══════ */}
       {imeiEditConfirm && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => !savingImei && setImeiEditConfirm(null)}>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 7200, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => !savingImei && setImeiEditConfirm(null)}>
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)' }} />
           <div style={{ position: 'relative', zIndex: 1, background: '#fff', borderRadius: 14, width: 460, maxWidth: '95vw', boxShadow: '0 24px 80px rgba(0,0,0,0.3)', fontFamily: "'Plus Jakarta Sans',sans-serif", overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
             <div style={{ background: 'linear-gradient(135deg,#B45309,#D97706)', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -2602,7 +2774,7 @@ const MyFleet = () => {
 
       {/* ── Live Share Modal ── */}
       {showShareModal && shareTarget && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 900, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        <div style={{ position: 'fixed', inset: 0, zIndex: 7100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           onClick={() => setShowShareModal(false)}>
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(4px)' }} />
           <div style={{ position: 'relative', zIndex: 1, background: '#fff', borderRadius: 16, width: 420, maxWidth: '95vw', boxShadow: '0 24px 80px rgba(0,0,0,0.24)', fontFamily: "'Plus Jakarta Sans',sans-serif", overflow: 'hidden' }}
@@ -2755,10 +2927,20 @@ const DarkStatusPill = ({ vs }) => {
 };
 
 const HudChip = ({ value, label, dot, active, onClick }) => (
-  <div onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', background: active ? dot + '18' : '#F8FAFC', border: `1px solid ${active ? dot : '#E2E8F0'}`, borderRadius: 20, cursor: 'pointer', transition: 'all 0.15s' }}>
-    <span style={{ width: 6, height: 6, borderRadius: '50%', background: dot }} />
-    <span style={{ fontSize: 13, fontWeight: 800, color: active ? dot : '#0F172A' }}>{value}</span>
-    <span style={{ fontSize: 11, color: active ? dot : '#64748B', fontWeight: 500 }}>{label}</span>
+  <div onClick={onClick} style={{
+    display: 'flex', alignItems: 'center', gap: 6,
+    padding: '5px 12px',
+    background: dot,
+    border: 'none',
+    borderRadius: 0,
+    cursor: 'pointer',
+    opacity: active ? 1 : 0.88,
+    boxShadow: active ? '0 0 0 2px #fff, 0 2px 8px rgba(0,0,0,0.18)' : 'none',
+    transition: 'all 0.15s',
+    flexShrink: 0,
+  }}>
+    <span style={{ fontSize: 13, fontWeight: 800, color: '#fff', fontVariantNumeric: 'tabular-nums' }}>{value}</span>
+    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.92)', fontWeight: 600 }}>{label}</span>
   </div>
 );
 
@@ -2774,7 +2956,7 @@ const LegendDot = ({ color, label }) => (
 // ══════════════════════════════════════════════════════════════════════════════
 
 const Modal = ({ title, onClose, children }) => (
-  <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+  <div style={{ position: 'fixed', inset: 0, zIndex: 7000, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
     <div style={{ background: C.white, borderRadius: 14, padding: 24, width: 440, maxWidth: '95vw', boxShadow: '0 25px 60px rgba(0,0,0,0.3)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <span style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{title}</span>
@@ -3397,9 +3579,21 @@ const EditTab = ({ editForm, setEditForm, saving, handleSaveEdit, currentImei = 
           <label style={lbl}>Vehicle Icon</label>
           <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
             {VEHICLE_ICONS.map(ic => (
-              <button key={ic} onClick={() => setEditForm({ ...editForm, vehicleIcon: ic })}
-                style={{ width: 38, height: 38, borderRadius: 8, border: `2px solid ${editForm.vehicleIcon === ic ? C.primary : C.border}`, background: editForm.vehicleIcon === ic ? C.primaryBg : C.white, fontSize: 18, cursor: 'pointer' }}>
-                {VEHICLE_ICON_MAP[ic]}
+              <button key={ic}
+                type="button"
+                title={VEHICLE_ICON_LABELS[ic] || ic}
+                onClick={() => setEditForm({ ...editForm, vehicleIcon: ic })}
+                style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center',
+                  gap: 2, padding: '6px 4px', width: 68, borderRadius: 8,
+                  border: `2px solid ${editForm.vehicleIcon === ic ? C.primary : C.border}`,
+                  background: editForm.vehicleIcon === ic ? C.primaryBg : C.white,
+                  cursor: 'pointer', fontFamily: 'inherit',
+                }}>
+                <span style={{ fontSize: 18, lineHeight: 1 }}>{VEHICLE_ICON_MAP[ic]}</span>
+                <span style={{ fontSize: 9, fontWeight: 600, color: editForm.vehicleIcon === ic ? C.primary : C.textSub, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>
+                  {VEHICLE_ICON_LABELS[ic] || ic}
+                </span>
               </button>
             ))}
           </div>

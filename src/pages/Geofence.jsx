@@ -688,9 +688,12 @@ export default function Geofence() {
       const [gRes, vRes, grRes] = await Promise.allSettled([
         getGeofences(), getVehicles(), getGroups(),
       ]);
-      if (gRes.status === 'fulfilled') setGeofences(gRes.value.data.data || []);
-      if (vRes.status === 'fulfilled') setVehicles(vRes.value.data.data || []);
-      if (grRes.status === 'fulfilled') setGroups(grRes.value.data.data || []);
+      // api.jsx unwraps axios (interceptor returns response.data), so
+      // res.value is already the JSON body { success, data }. Accessing
+      // .data.data was over-nesting — dropdowns ended up empty.
+      if (gRes.status === 'fulfilled')  setGeofences(gRes.value.data || []);
+      if (vRes.status === 'fulfilled')  setVehicles(vRes.value.data || []);
+      if (grRes.status === 'fulfilled') setGroups(grRes.value.data || []);
     } catch { /* ignore */ }
     finally { setLoading(false); }
   }, []);
