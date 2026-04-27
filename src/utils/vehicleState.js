@@ -45,6 +45,11 @@ function getFieldValue(deviceStatus, field) {
       const ts = s.lastSeen ?? deviceStatus.lastUpdate ?? null;
       return ts ? Math.floor((Date.now() - new Date(ts).getTime()) / 1000) : null;
     }
+    // ── Duration / streak trackers maintained server-side and surfaced by
+    //    attachComprehensiveStatus on every vehicle.deviceStatus.status. ──
+    case 'ignitionOffSeconds': return s.ignitionOffSeconds ?? null;
+    case 'speedZeroSeconds':   return s.speedZeroSeconds ?? null;
+    case 'runningStreak':      return s.runningStreak ?? 0;
     default:
       return s[field] ?? g[field] ?? null;
   }

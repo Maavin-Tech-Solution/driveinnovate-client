@@ -10,7 +10,7 @@ import {
   getVehicles, deleteVehicle, updateVehicle, syncVehicleData,
   getVehicleSensors, createVehicleSensor, updateVehicleSensor, deleteVehicleSensor,
   getVehicleReportSummary, getVehicleReportDaily, getVehicleReportEngineHours,
-  getVehicleReportTrips, getVehicleReportFuelFillings, exportVehicleReportExcel,
+  getVehicleReportTrips, getVehicleReportFuelFillings, getVehicleReportFuel, exportVehicleReportExcel,
   downloadRawPacketsExcel, reprocessVehicleData,
   getCustomFields, createCustomField, updateCustomField, deleteCustomField,
 } from '../services/vehicle.service';
@@ -18,10 +18,15 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { getClientTree } from '../services/user.service';
 import { getVehicleState } from '../utils/vehicleState';
+import {
+  pushPosition, clearBuffers, getInterpolated, isMoving, getLatest,
+  DISPLAY_LAG_MS,
+} from '../utils/positionBuffer';
 import { getDeviceConfigs, getSystemSettings } from '../services/master.service';
 import { getGroups, createGroup, updateGroup, deleteGroup, addVehicleToGroup, removeVehicleFromGroup } from '../services/group.service';
 import { createTripShare, createLiveShare } from '../services/share.service';
 import LocationPlayer from '../components/common/LocationPlayer';
+import BottomSheet from '../components/common/BottomSheet';
 import { getISTToday, getISTDaysAgo, getISTNow, getISTDaysAgoDatetime } from '../utils/dateFormat';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -61,7 +66,6 @@ const VEHICLE_ICON_LABELS = {
 };
 const SENSOR_TYPES = ['number', 'boolean', 'text'];
 const PANEL_W = 260;
-const DETAIL_W = 380;
 const HUD_H = 52;
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
@@ -112,6 +116,27 @@ const HUD_CSS = `
   /* Metric card in detail header */
   .fv-metric:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.1) !important; }
   .fv-metric { transition: transform 0.15s, box-shadow 0.15s; }
+  /* Form field — themed, smooth focus, hover accent */
+  .fv-input {
+    width: 100%; box-sizing: border-box;
+    padding: 11px 14px; border: 1px solid #CBD5E1; border-radius: 0;
+    font-size: 14px; font-weight: 500; outline: none; font-family: inherit;
+    background: #FFFFFF; color: #0F172A;
+    transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  }
+  .fv-input::placeholder { color: #94A3B8; font-weight: 400; }
+  .fv-input:hover { border-color: #94A3B8; }
+  .fv-input:focus {
+    border-color: #2563EB;
+    box-shadow: inset 0 0 0 1px #2563EB, 0 0 0 3px rgba(37,99,235,0.15);
+  }
+  .fv-input:disabled, .fv-input[readonly] { background: #F8FAFC; color: #64748B; cursor: not-allowed; }
+  .fv-input.fv-mono { font-family: 'JetBrains Mono', monospace; letter-spacing: 0.04em; }
+  /* Field label */
+  .fv-label {
+    display: block; font-size: 11.5px; font-weight: 800; color: #475569;
+    margin-bottom: 7px; text-transform: uppercase; letter-spacing: 0.07em;
+  }
   @keyframes spin { to { transform: rotate(360deg); } }
 `;
 
@@ -304,33 +329,89 @@ const MapController = ({ center }) => {
   return null;
 };
 
-// ─── TrackingController — keeps selected vehicle in view while it moves ───────
-// Uses panTo (not flyTo) so zoom is preserved.  Only pans when the vehicle
-// drifts within 20 % of any edge — avoids unnecessary movement when the
-// vehicle is already comfortably centred.
-const TrackingController = ({ position }) => {
+// ─── SmoothMotionController — RAF-driven marker animation + edge auto-pan ────
+// Walks the registered marker refs every animation frame, computes each
+// vehicle's interpolated position from the buffer (displayTime = now - lag),
+// and calls marker.setLatLng() directly. This bypasses React re-rendering for
+// the position update — only icon/tooltip changes still go through React.
+//
+// For the currently-selected vehicle, also re-centres the map when the marker
+// drifts within 20 % of any edge — debounced to once per 600 ms so user pan
+// gestures aren't constantly fighting auto-pan.
+const SmoothMotionController = ({ markerRefs, selectedId }) => {
   const map = useMap();
+
   useEffect(() => {
-    if (!position) return;
-    const latlng = L.latLng(position[0], position[1]);
-    const b   = map.getBounds();
-    const ne  = b.getNorthEast();
-    const sw  = b.getSouthWest();
-    const pad = 0.2;
-    const inner = L.latLngBounds(
-      [sw.lat + (ne.lat - sw.lat) * pad, sw.lng + (ne.lng - sw.lng) * pad],
-      [ne.lat - (ne.lat - sw.lat) * pad, ne.lng - (ne.lng - sw.lng) * pad],
-    );
-    if (!inner.contains(latlng)) {
-      map.panTo(latlng, { animate: true, duration: 0.5 });
-    }
-  }, [position, map]);
+    let rafId;
+    let lastPanAt = 0;
+    // Below this zoom MarkerClusterGroup hides individual markers (clustering
+    // is disabled at zoom 14 in our setup), so animating positions is just CPU
+    // overhead that nobody can see — and worse, it churns cluster layout.
+    const ANIMATE_AT_ZOOM = 14;
+
+    const tick = () => {
+      // Cheap zoom check on every frame — getZoom() is a property read.
+      if (map.getZoom() < ANIMATE_AT_ZOOM) {
+        rafId = requestAnimationFrame(tick);
+        return;
+      }
+      const displayTime = Date.now() - DISPLAY_LAG_MS;
+
+      markerRefs.current.forEach((markerRef, vehicleId) => {
+        const m = markerRef?.current;
+        if (!m) return;
+
+        let pos;
+        if (isMoving(vehicleId)) {
+          pos = getInterpolated(vehicleId, displayTime);
+        } else {
+          // Stationary vehicles: snap to latest, no animation. Skip if the
+          // marker is already at the latest position (avoids redundant
+          // setLatLng → cluster-layout work for hundreds of parked cars).
+          const latest = getLatest(vehicleId);
+          if (!latest) return;
+          const cur = m.getLatLng();
+          if (Math.abs(cur.lat - latest.lat) < 1e-7 && Math.abs(cur.lng - latest.lng) < 1e-7) return;
+          pos = { lat: latest.lat, lng: latest.lng };
+        }
+        if (!pos) return;
+
+        m.setLatLng([pos.lat, pos.lng]);
+
+        // Selected-vehicle edge auto-pan
+        if (selectedId && vehicleId === selectedId) {
+          const now = performance.now();
+          if (now - lastPanAt > 600) {
+            const latlng = L.latLng(pos.lat, pos.lng);
+            const b   = map.getBounds();
+            const ne  = b.getNorthEast();
+            const sw  = b.getSouthWest();
+            const pad = 0.2;
+            const inner = L.latLngBounds(
+              [sw.lat + (ne.lat - sw.lat) * pad, sw.lng + (ne.lng - sw.lng) * pad],
+              [ne.lat - (ne.lat - sw.lat) * pad, ne.lng - (ne.lng - sw.lng) * pad],
+            );
+            if (!inner.contains(latlng)) {
+              map.panTo(latlng, { animate: true, duration: 0.5 });
+              lastPanAt = now;
+            }
+          }
+        }
+      });
+
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+
+    return () => cancelAnimationFrame(rafId);
+  }, [map, selectedId, markerRefs]);
+
   return null;
 };
 
 // ─── FocusBoundsController — fits the map to a set of pinned vehicles ────────
 // Fires once when `bounds` reference changes. Ignored when only 0–1 vehicles
-// are pinned (single-vehicle tracking is handled by TrackingController).
+// are pinned (single-vehicle tracking is handled by SmoothMotionController).
 const FocusBoundsController = ({ bounds }) => {
   const map = useMap();
   useEffect(() => {
@@ -341,55 +422,33 @@ const FocusBoundsController = ({ bounds }) => {
   return null;
 };
 
-// ─── SmoothMarker — animates position changes via CSS transition ──────────────
-// Leaflet positions markers with CSS transform: translate3d(x,y,0).  Adding a
-// transition to that element makes the marker glide to the new coordinates
-// instead of snapping.  The transition duration is set just under the 5-second
-// poll interval so each animation completes before the next position arrives.
-// The effect intentionally has no dependency array so it re-applies after every
-// render — this ensures the transition survives icon element replacements (which
-// happen when ignition state changes).
-const SmoothMarker = ({ position, icon, eventHandlers, children }) => {
+// ─── SmoothMarker — registers its Leaflet marker ref into a shared map so
+// SmoothMotionController can drive position updates via setLatLng() at 60 Hz.
+//
+// We capture the initial position into a ref (`initialPos`) and pass it
+// unchanged for the marker's lifetime. The live poll keeps updating
+// vehicles[].deviceStatus.gpsData (which the sidebar / cards read), so the
+// `position` prop changes on every poll — but if we forwarded that to the
+// underlying Leaflet Marker, React-Leaflet would call setLatLng() and snap
+// the marker to "now", undoing RAF's smoother lagged-interpolated position.
+// Passing the stable initial value keeps RAF as the sole driver of motion.
+//
+// The marker key includes selection + state, so when those flip, this
+// component unmounts and a fresh one captures a new initialPos — RAF picks
+// up from there within one frame.
+const SmoothMarker = ({ vehicleId, markerRefs, position, icon, eventHandlers, children }) => {
+  const initialPos = useRef(position);
   const markerRef = useRef(null);
-  const map = useMap();
-  const TRANSITION = 'transform 4.8s linear';
 
+  // Register / unregister this marker so the RAF controller can find it.
   useEffect(() => {
-    const m = markerRef.current;
-    if (!m) return;
-    if (m._icon)   m._icon.style.transition   = TRANSITION;
-    if (m._shadow) m._shadow.style.transition = TRANSITION;
-  });
-
-  // Leaflet re-positions markers during zoom by writing a new CSS transform.
-  // Our 4.8 s transition on that same property makes the marker visibly glide
-  // to its new pixel coordinates instead of snapping — so it looks like the
-  // vehicle is moving every time the user zooms. Kill the transition for the
-  // duration of the zoom so markers stay anchored to their lat/lng.
-  useEffect(() => {
-    if (!map) return;
-    const clear = () => {
-      const m = markerRef.current;
-      if (!m) return;
-      if (m._icon)   m._icon.style.transition   = 'none';
-      if (m._shadow) m._shadow.style.transition = 'none';
-    };
-    const restore = () => {
-      const m = markerRef.current;
-      if (!m) return;
-      if (m._icon)   m._icon.style.transition   = TRANSITION;
-      if (m._shadow) m._shadow.style.transition = TRANSITION;
-    };
-    map.on('zoomstart', clear);
-    map.on('zoomend',   restore);
-    return () => {
-      map.off('zoomstart', clear);
-      map.off('zoomend',   restore);
-    };
-  }, [map]);
+    if (!markerRefs || vehicleId == null) return;
+    markerRefs.current.set(vehicleId, markerRef);
+    return () => { markerRefs.current.delete(vehicleId); };
+  }, [vehicleId, markerRefs]);
 
   return (
-    <Marker ref={markerRef} position={position} icon={icon} eventHandlers={eventHandlers}>
+    <Marker ref={markerRef} position={initialPos.current} icon={icon} eventHandlers={eventHandlers}>
       {children}
     </Marker>
   );
@@ -517,6 +576,15 @@ const MyFleet = () => {
   // Multi-select: vehicles the user has pinned to track simultaneously on the
   // map. When ≥2 are pinned, FocusBoundsController fits the map to all of them.
   const [focusedIds, setFocusedIds] = useState(() => new Set());
+
+  // Refs to every Leaflet marker on the map, keyed by vehicleId. Populated by
+  // SmoothMarker on mount and consumed by SmoothMotionController's RAF loop
+  // to drive position updates without re-rendering React.
+  const markerRefs = useRef(new Map());
+
+  // Bottom-sheet peek state for the vehicle-detail panel on the map view.
+  // 'half' on first selection — covers half the screen, plenty of room for tabs.
+  const [detailSheetPeek, setDetailSheetPeek] = useState('half');
   const [activeTab, setActiveTab] = useState('overview');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState(new Set(['Running', 'Stopped', 'Unknown']));
@@ -652,6 +720,9 @@ const MyFleet = () => {
   // Re-runs when viewClientId changes so switching client reloads the fleet.
   useEffect(() => {
     setLoading(true);
+    // Reset the smooth-motion buffers so we don't keep interpolating with the
+    // previous client's stale samples after a fleet switch.
+    clearBuffers();
     Promise.allSettled([getVehicles(viewClientId || undefined), getDeviceConfigs(), getGroups()])
       .then(([vResult, cResult, gResult]) => {
         const m = {};
@@ -692,6 +763,19 @@ const MyFleet = () => {
           return m === null || new Date(p.lastPacketTime) > new Date(m) ? p.lastPacketTime : m;
         }, lastSince);
         if (maxTime) lastSince = maxTime;
+
+        // Push every position with valid lat/lng into the per-vehicle buffer
+        // so the smooth-animation RAF loop has packets to interpolate between.
+        positions.forEach(p => {
+          if (p.lat != null && p.lng != null) {
+            pushPosition(p.id, {
+              packetTime: p.lastPacketTime ? new Date(p.lastPacketTime).getTime() : Date.now(),
+              lat:   p.lat,
+              lng:   p.lng,
+              speed: p.speed || 0,
+            });
+          }
+        });
 
         setVehicles(prev => prev.map(v => {
           const p = positions.find(x => x.id === v.id);
@@ -746,15 +830,9 @@ const MyFleet = () => {
     });
   }, [vehicles]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Update tracked position whenever vehicles list refreshes (live poll).
-  // TrackingController reads this to keep the selected vehicle in view.
-  useEffect(() => {
-    if (!trackedVehicleId) { setTrackedPosition(null); return; }
-    const v = vehicles.find(x => x.id === trackedVehicleId);
-    if (!v) return;
-    const coords = getVehicleCoords(v);
-    if (coords) setTrackedPosition([coords.lat, coords.lng]);
-  }, [vehicles, trackedVehicleId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // SmoothMotionController reads the selected vehicle's interpolated position
+  // straight from the buffer; trackedPosition / trackedVehicleId state is kept
+  // for reference but no longer needs the per-poll mirror that lived here.
 
   useEffect(() => {
     if (!selectedVehicle) { setSensors([]); setCustomFields([]); return; }
@@ -799,6 +877,7 @@ const MyFleet = () => {
       else if (tab === 'engineHours') res = await getVehicleReportEngineHours(vehicleId, from, to, REPORT_PAGE_SIZE, off);
       else if (tab === 'trips')       res = await getVehicleReportTrips(vehicleId, from, to, REPORT_PAGE_SIZE, off);
       else if (tab === 'fuelFillings') res = await getVehicleReportFuelFillings(vehicleId, from, to);
+      else if (tab === 'fuel')         res = await getVehicleReportFuel(vehicleId, from, to);
       setReportData(res?.data?.data ?? res?.data);
     } catch { toast.error('Failed to load report'); }
     finally { setReportLoading(false); }
@@ -865,6 +944,8 @@ const MyFleet = () => {
       serverIp: v.serverIp || '', serverPort: v.serverPort || '',
       vehicleIcon: v.vehicleIcon || 'car', status: v.status || 'active',
       idleThreshold: v.idleThreshold || 5, fuelFillThreshold: v.fuelFillThreshold || 5,
+      fuelSupported: !!v.fuelSupported,
+      fuelTankCapacity: v.fuelTankCapacity || '',
     });
   };
 
@@ -905,6 +986,17 @@ const MyFleet = () => {
     try {
       // IMEI is edited via a dedicated phrase-confirmation flow — strip from generic save.
       const { imei: _ignoredImei, ...payload } = editForm;
+      // Tank capacity: "" from an empty input → null; otherwise coerce to int.
+      if (payload.fuelTankCapacity === '' || payload.fuelTankCapacity == null) {
+        payload.fuelTankCapacity = null;
+      } else {
+        payload.fuelTankCapacity = parseInt(payload.fuelTankCapacity, 10) || null;
+      }
+      if (payload.fuelSupported && !payload.fuelTankCapacity) {
+        toast.error('Tank capacity is required when fuel sensor is enabled.');
+        setSaving(false);
+        return;
+      }
       const r = await updateVehicle(selectedVehicle.id, payload);
       const u = r.data?.data || r.data;
       setVehicles(p => p.map(x => x.id === u.id ? { ...x, ...u } : x));
@@ -2373,14 +2465,26 @@ const MyFleet = () => {
           />
           <MapResizer />
           {mapCenter && focusedIds.size < 2 && <MapController center={mapCenter} />}
-          {focusedIds.size < 2 && <TrackingController position={trackedPosition} />}
+          {focusedIds.size < 2 && (
+            <SmoothMotionController
+              markerRefs={markerRefs}
+              selectedId={selectedVehicle?.id || null}
+            />
+          )}
           <FocusBoundsController bounds={focusedBounds} />
           <MarkerClusterGroup chunkedLoading iconCreateFunction={createClusterCustomIcon} maxClusterRadius={60} showCoverageOnHover={false} spiderfyOnMaxZoom={true} disableClusteringAtZoom={14}>
             {mapVehicles.map(v => {
               const isSel = selectedVehicle?.id === v.id;
               const vState = getVState(v, deviceStatesByType);
               return (
-                <SmoothMarker key={`${v.id}-${isSel}-${vState.stateName}`} position={[v.coords.lat, v.coords.lng]} icon={makeVehicleIcon(v, isSel, vState.stateColor)} eventHandlers={{ click: () => selectVehicle(v) }}>
+                <SmoothMarker
+                  key={`${v.id}-${isSel}-${vState.stateName}`}
+                  vehicleId={v.id}
+                  markerRefs={markerRefs}
+                  position={[v.coords.lat, v.coords.lng]}
+                  icon={makeVehicleIcon(v, isSel, vState.stateColor)}
+                  eventHandlers={{ click: () => selectVehicle(v) }}
+                >
                   <Tooltip direction="auto" className="fv-tooltip" interactive={true}><VehicleTooltip vehicle={v} /></Tooltip>
                 </SmoothMarker>
               );
@@ -2398,20 +2502,16 @@ const MyFleet = () => {
         </div>
       </div>{/* /map area */}
 
-      {/* ── RIGHT DETAIL PANEL — width transitions so map actually resizes ── */}
-      <div style={{
-        flexShrink: 0,
-        width: selectedVehicle ? DETAIL_W : 0,
-        overflow: 'hidden',
-        transition: 'width 0.3s cubic-bezier(0.4,0,0.2,1)',
-        borderLeft: selectedVehicle ? '1px solid #E2E8F0' : 'none',
-        background: '#FFFFFF',
-        display: 'flex',
-        flexDirection: 'column',
-        boxShadow: selectedVehicle ? '-4px 0 24px rgba(0,0,0,0.09)' : 'none',
-      }}>
-      {/* Inner fixed-width wrapper so content doesn't reflow during slide */}
-      <div style={{ width: DETAIL_W, flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* ── DETAIL BOTTOM SHEET (replaces the old right-side drawer) ─────── */}
+      {/* Peek states: collapsed (110 px strip), half (50vh), full (100vh).  */}
+      {/* Drag the handle pill to resize, or click the ⌐ ◐ ◼ buttons.       */}
+      <BottomSheet
+        open={!!selectedVehicle}
+        peek={detailSheetPeek}
+        onPeekChange={setDetailSheetPeek}
+        onClose={() => setSelectedVehicle(null)}
+        accentColor={selectedVehicle ? getVState(selectedVehicle, deviceStatesByType).stateColor : '#2563EB'}
+      >
         {selectedVehicle && (() => {
           const sv      = selectedVehicle;
           const gps     = sv.deviceStatus?.gpsData;
@@ -2436,165 +2536,174 @@ const MyFleet = () => {
 
           return (
             <>
-              {/* ── Panel Header ── */}
-              <div style={{ background: '#FFFFFF', borderBottom: `3px solid ${stColor}`, padding: '14px 14px 12px', flexShrink: 0 }}>
-                {/* Vehicle identity row */}
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 10 }}>
-                  <div style={{ width: 44, height: 44, borderRadius: 11, background: stColor + '12', border: `1.5px solid ${stColor}30`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 23, flexShrink: 0 }}>
-                    {VEHICLE_ICON_MAP[sv.vehicleIcon] || '🚗'}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14.5, fontWeight: 800, color: '#0F172A', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {vehicleDisplayName(sv)}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 3, flexWrap: 'wrap' }}>
-                      {sv.vehicleName && sv.vehicleNumber && (
-                        <span style={{ fontSize: 10.5, color: '#64748B', fontFamily: 'monospace' }}>{sv.vehicleNumber}</span>
-                      )}
-                      {sv.deviceType && (
-                        <span title="GPS device type installed in this vehicle" style={{ fontSize: 9, background: '#EFF6FF', color: '#2563EB', padding: '1px 7px', borderRadius: 20, fontWeight: 700, border: '1px solid #BFDBFE', letterSpacing: '0.03em' }}>{sv.deviceType}</span>
-                      )}
-                    </div>
-                  </div>
-                  <button
-                    title="Close vehicle details"
-                    onClick={() => setSelectedVehicle(null)}
-                    style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 7, padding: '5px 7px', cursor: 'pointer', display: 'flex', color: '#94A3B8', flexShrink: 0, transition: 'all 0.1s' }}>
-                    <Ic n="x" size={13} color="#94A3B8" />
-                  </button>
-                </div>
+              {/* ── Panel Header (horizontal, full-width) ──────────────── */}
+              <div style={{ background: '#FFFFFF', borderBottom: `4px solid ${stColor}`, padding: '16px 20px', flexShrink: 0 }}>
 
-                {/* Status + last-seen row */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10, flexWrap: 'wrap' }}>
-                  <span title={`Current vehicle state: ${stLabel}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 11px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: stColor + '14', color: stColor, border: `1.5px solid ${stColor}35` }}>
-                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: stColor, boxShadow: ign === true ? `0 0 5px ${stColor}` : 'none' }} />
-                    {stLabel}
-                  </span>
-                  {ageStr && (
-                    <span title="Time since last GPS packet was received" style={{ fontSize: 10, color: ageColor, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 3 }}>
-                      <Ic n="clock" size={9} color={ageColor} /> {ageStr}
+                {/* Top row: identity (left) | status+age (mid) | actions (right) */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
+
+                  {/* Identity */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 240, flex: '0 1 auto' }}>
+                    <div style={{ width: 56, height: 56, background: stColor, color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, flexShrink: 0 }}>
+                      {VEHICLE_ICON_MAP[sv.vehicleIcon] || '🚗'}
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 19, fontWeight: 800, color: '#0F172A', lineHeight: 1.15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', letterSpacing: '-0.01em' }}>
+                        {vehicleDisplayName(sv)}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 5, flexWrap: 'wrap' }}>
+                        {sv.vehicleName && sv.vehicleNumber && (
+                          <span style={{ fontSize: 12, color: '#475569', fontFamily: 'monospace', fontWeight: 600 }}>{sv.vehicleNumber}</span>
+                        )}
+                        {sv.deviceType && (
+                          <span title="GPS device type installed in this vehicle" style={{ fontSize: 10, background: '#1D4ED8', color: '#FFFFFF', padding: '2px 8px', fontWeight: 700, letterSpacing: '0.04em' }}>{sv.deviceType}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Status + age */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '0 0 auto' }}>
+                    <span title={`Current vehicle state: ${stLabel}`}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '7px 14px',
+                                   fontSize: 13, fontWeight: 700, background: stColor, color: '#FFFFFF',
+                                   border: 'none', borderRadius: 0, letterSpacing: '0.02em' }}>
+                      <span style={{ width: 8, height: 8, background: '#FFFFFF', boxShadow: ign === true ? `0 0 6px #FFFFFF` : 'none' }} />
+                      {stLabel.toUpperCase()}
                     </span>
-                  )}
+                    {ageStr && (
+                      <span title="Time since last GPS packet was received"
+                            style={{ fontSize: 12, color: '#FFFFFF', background: ageColor, padding: '7px 12px',
+                                     fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, letterSpacing: '0.02em' }}>
+                        <Ic n="clock" size={12} color="#FFFFFF" /> {ageStr.toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Spacer pushes actions to the right */}
+                  <div style={{ flex: 1 }} />
+
+                  {/* Action buttons (pillars on the right) */}
+                  <div style={{ display: 'flex', gap: 0 }}>
+                    <button
+                      title="Sync — pull the latest GPS position and sensor data from the server right now"
+                      onClick={() => handleSync(sv)}
+                      disabled={syncing && syncingId === sv.id}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                               padding: '11px 18px', background: '#0D9488', border: 'none', color: '#FFFFFF',
+                               borderRadius: 0, cursor: 'pointer', fontSize: 13, fontWeight: 700, fontFamily: 'inherit' }}>
+                      <Ic n="refresh" size={14} color="#FFFFFF" /> SYNC
+                    </button>
+                    <button
+                      title="Route Playback — replay this vehicle's historical path on the map"
+                      onClick={() => openPlayer(sv)}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                               padding: '11px 18px', background: '#7C3AED', border: 'none', color: '#FFFFFF',
+                               borderRadius: 0, cursor: 'pointer', fontSize: 13, fontWeight: 700, fontFamily: 'inherit' }}>
+                      <Ic n="play" size={14} color="#FFFFFF" /> PLAYBACK
+                    </button>
+                    {liveShareEnabled && (isPapaOrDealer || user?.permissions?.canShareLiveLocation) && (
+                      <button
+                        title="Share live tracking — generate a public URL for real-time position"
+                        onClick={() => openShareModal('vehicle', sv.id, vehicleDisplayName(sv), sv.vehicleIcon)}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                                 padding: '11px 18px', background: '#2563EB', border: 'none', color: '#FFFFFF',
+                                 borderRadius: 0, cursor: 'pointer', fontSize: 13, fontWeight: 700, fontFamily: 'inherit' }}>
+                        <Ic n="share" size={14} color="#FFFFFF" /> SHARE
+                      </button>
+                    )}
+                    <button
+                      title="Delete this vehicle and all its tracking data"
+                      onClick={() => handleDelete(sv.id)}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '11px 14px',
+                               background: '#DC2626', border: 'none', color: '#FFFFFF', borderRadius: 0, cursor: 'pointer' }}>
+                      <Ic n="trash" size={15} color="#FFFFFF" />
+                    </button>
+                  </div>
                 </div>
 
-                {/* Live stats grid — real-time sensor readings from the device */}
+                {/* Live stats — color-filled cards, large numerals, white text */}
                 {liveStats.length > 0 && (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 5, marginBottom: 10 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 0, marginTop: 16 }}>
                     {liveStats.map((s, i) => (
-                      <div key={i} className="fv-metric" title={`Live ${s.label.toLowerCase()} reading from device`}
-                        style={{ background: '#FAFBFC', border: '1px solid #E2E8F0', borderRadius: 8, padding: '7px 8px', borderTop: `2.5px solid ${s.accent}`, boxShadow: '0 1px 3px rgba(0,0,0,0.04)', cursor: 'default' }}>
-                        <div style={{ fontSize: 8.5, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>{s.label}</div>
-                        <div style={{ fontSize: 15, fontWeight: 800, color: s.accent, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
-                          {s.val}<span style={{ fontSize: 8.5, fontWeight: 500, color: '#9CA3AF', marginLeft: 1 }}>{s.unit}</span>
+                      <div key={i}
+                           title={`Live ${s.label.toLowerCase()} reading from device`}
+                           style={{ background: s.accent, color: '#FFFFFF', padding: '14px 16px', borderRadius: 0, display: 'flex', flexDirection: 'column', gap: 4, position: 'relative', overflow: 'hidden', cursor: 'default' }}>
+                        <div style={{ position: 'absolute', right: -10, top: -10, width: 60, height: 60, background: 'rgba(255,255,255,0.10)', pointerEvents: 'none' }} />
+                        <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase', letterSpacing: '0.08em', position: 'relative', zIndex: 1 }}>{s.label}</div>
+                        <div style={{ fontSize: 28, fontWeight: 800, color: '#FFFFFF', fontVariantNumeric: 'tabular-nums', lineHeight: 1.05, letterSpacing: '-0.02em', position: 'relative', zIndex: 1 }}>
+                          {s.val}
+                          {s.unit && <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.85)', marginLeft: 4 }}>{s.unit}</span>}
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
 
-                {/* Action buttons */}
-                <div style={{ display: 'flex', gap: 5 }}>
-                  <button
-                    title="Sync — pull the latest GPS position and sensor data from the server right now"
-                    onClick={() => handleSync(sv)}
-                    disabled={syncing && syncingId === sv.id}
-                    className="fv-action-btn"
-                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '7px 6px', background: '#F0FDFA', border: '1px solid #99F6E4', color: '#0D9488', borderRadius: 7, cursor: 'pointer', fontSize: 11.5, fontWeight: 700, fontFamily: 'inherit' }}>
-                    <Ic n="refresh" size={12} color="#0D9488" /> Sync
-                  </button>
-                  <button
-                    title="Route Playback — replay this vehicle's historical path on the map"
-                    onClick={() => openPlayer(sv)}
-                    className="fv-action-btn"
-                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '7px 6px', background: '#F5F3FF', border: '1px solid #DDD6FE', color: '#7C3AED', borderRadius: 7, cursor: 'pointer', fontSize: 11.5, fontWeight: 700, fontFamily: 'inherit' }}>
-                    <Ic n="play" size={12} color="#7C3AED" /> Playback
-                  </button>
-                  {liveShareEnabled && (isPapaOrDealer || user?.permissions?.canShareLiveLocation) && (
-                    <button
-                      title="Share live tracking — generate a public URL for real-time position"
-                      onClick={() => openShareModal('vehicle', sv.id, vehicleDisplayName(sv), sv.vehicleIcon)}
-                      className="fv-action-btn"
-                      style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '7px 6px', background: '#EFF6FF', border: '1px solid #BFDBFE', color: '#2563EB', borderRadius: 7, cursor: 'pointer', fontSize: 11.5, fontWeight: 700, fontFamily: 'inherit' }}>
-                      <Ic n="share" size={12} color="#2563EB" /> Share
-                    </button>
-                  )}
-                  <button
-                    title="Delete this vehicle and all its tracking data"
-                    onClick={() => handleDelete(sv.id)}
-                    className="fv-action-btn"
-                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '7px 10px', background: '#FFF1F2', border: '1px solid #FECDD3', color: '#E11D48', borderRadius: 7, cursor: 'pointer' }}>
-                    <Ic n="trash" size={13} color="#E11D48" />
-                  </button>
-                </div>
-
                 {/* Custom fields — user-defined name:value pairs */}
                 {(customFields.length > 0 || showCfForm) && (
-                  <div style={{ marginTop: 8, borderTop: '1px solid #F1F5F9', paddingTop: 8 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
-                      <span style={{ fontSize: 9, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Custom Fields</span>
-                      <button onClick={() => openCfForm(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex', color: '#2563EB', fontSize: 10, fontWeight: 700, gap: 2, alignItems: 'center' }}><Ic n="plus" size={9} color="#2563EB" /> Add</button>
+                  <div style={{ marginTop: 14, borderTop: '1px solid #E2E8F0', paddingTop: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Custom Fields</span>
+                      <button onClick={() => openCfForm(null)} style={{ background: '#2563EB', border: 'none', borderRadius: 0, cursor: 'pointer', padding: '5px 10px', display: 'flex', color: '#FFFFFF', fontSize: 11, fontWeight: 700, gap: 4, alignItems: 'center' }}><Ic n="plus" size={11} color="#FFFFFF" /> ADD</button>
                     </div>
                     {showCfForm && (
-                      <div style={{ display: 'flex', gap: 5, marginBottom: 6, alignItems: 'flex-end' }}>
-                        <div style={{ flex: 1 }}>
-                          <input style={{ ...inp, fontSize: 11, padding: '5px 8px' }} value={cfForm.fieldName} onChange={e => setCfForm({ ...cfForm, fieldName: e.target.value })} placeholder="Field name" />
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <input style={{ ...inp, fontSize: 11, padding: '5px 8px' }} value={cfForm.fieldValue} onChange={e => setCfForm({ ...cfForm, fieldValue: e.target.value })} placeholder="Value" />
-                        </div>
-                        <button onClick={handleSaveCf} disabled={savingCf || !cfForm.fieldName.trim()} style={{ padding: '5px 8px', background: '#2563EB', color: '#fff', border: 'none', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer', flexShrink: 0, opacity: savingCf || !cfForm.fieldName.trim() ? 0.5 : 1 }}>{savingCf ? '…' : editingCf ? 'Save' : 'Add'}</button>
-                        <button onClick={() => setShowCfForm(false)} style={{ padding: '5px 6px', background: '#F1F5F9', border: 'none', borderRadius: 5, cursor: 'pointer', display: 'flex' }}><Ic n="x" size={10} color="#94A3B8" /></button>
+                      <div style={{ display: 'flex', gap: 6, marginBottom: 8, alignItems: 'stretch' }}>
+                        <input style={{ width: 220, padding: '8px 12px', border: '1px solid #CBD5E1', borderRadius: 0, fontSize: 13, outline: 'none', fontFamily: 'inherit' }} value={cfForm.fieldName} onChange={e => setCfForm({ ...cfForm, fieldName: e.target.value })} placeholder="Field name" />
+                        <input style={{ width: 220, padding: '8px 12px', border: '1px solid #CBD5E1', borderRadius: 0, fontSize: 13, outline: 'none', fontFamily: 'inherit' }} value={cfForm.fieldValue} onChange={e => setCfForm({ ...cfForm, fieldValue: e.target.value })} placeholder="Value" />
+                        <button onClick={handleSaveCf} disabled={savingCf || !cfForm.fieldName.trim()} style={{ padding: '8px 16px', background: '#2563EB', color: '#fff', border: 'none', borderRadius: 0, fontSize: 12, fontWeight: 700, cursor: 'pointer', flexShrink: 0, opacity: savingCf || !cfForm.fieldName.trim() ? 0.5 : 1 }}>{savingCf ? '…' : editingCf ? 'SAVE' : 'ADD'}</button>
+                        <button onClick={() => setShowCfForm(false)} style={{ padding: '8px 12px', background: '#F1F5F9', border: 'none', borderRadius: 0, cursor: 'pointer', display: 'flex', alignItems: 'center' }}><Ic n="x" size={13} color="#475569" /></button>
                       </div>
                     )}
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                       {customFields.map(cf => (
-                        <div key={cf.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 5, fontSize: 10 }}>
-                          <span style={{ fontWeight: 700, color: '#64748B' }}>{cf.fieldName}:</span>
+                        <div key={cf.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 10px', background: '#F1F5F9', border: 'none', borderRadius: 0, fontSize: 12 }}>
+                          <span style={{ fontWeight: 700, color: '#475569' }}>{cf.fieldName}:</span>
                           <span style={{ color: '#0F172A', fontWeight: 600 }}>{cf.fieldValue || '—'}</span>
-                          <button onClick={() => openCfForm(cf)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 1, display: 'flex' }}><Ic n="edit" size={8} color="#94A3B8" /></button>
-                          <button onClick={() => handleDeleteCf(cf.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 1, display: 'flex' }}><Ic n="x" size={8} color="#DC2626" /></button>
+                          <button onClick={() => openCfForm(cf)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 1, display: 'flex' }}><Ic n="edit" size={10} color="#475569" /></button>
+                          <button onClick={() => handleDeleteCf(cf.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 1, display: 'flex' }}><Ic n="x" size={10} color="#DC2626" /></button>
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
                 {customFields.length === 0 && !showCfForm && (
-                  <button onClick={() => openCfForm(null)} style={{ marginTop: 6, background: 'none', border: '1px dashed #CBD5E1', borderRadius: 6, padding: '5px 10px', cursor: 'pointer', fontSize: 10, color: '#94A3B8', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4, width: '100%', justifyContent: 'center' }}>
-                    <Ic n="plus" size={10} color="#94A3B8" /> Add Custom Field
+                  <button onClick={() => openCfForm(null)} style={{ marginTop: 12, background: '#FFFFFF', border: '1px dashed #94A3B8', borderRadius: 0, padding: '8px 14px', cursor: 'pointer', fontSize: 12, color: '#475569', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <Ic n="plus" size={12} color="#475569" /> ADD CUSTOM FIELD
                   </button>
                 )}
               </div>
 
               {/* ── Tab Bar ── */}
-              <div style={{ display: 'flex', borderBottom: '1px solid #E2E8F0', flexShrink: 0, overflowX: 'auto', background: '#FAFBFC' }}>
+              <div style={{ display: 'flex', borderBottom: '1px solid #E2E8F0', flexShrink: 0, overflowX: 'auto', background: '#F8FAFC' }}>
                 {[
-                  { id: 'overview', label: 'Overview', icon: 'activity', hint: 'Live GPS position, engine status and device telemetry' },
-                  { id: 'trips',    label: 'Trips',    icon: 'route',    hint: 'View individual trip history with distance and duration' },
-                  { id: 'reports',  label: 'Reports',  icon: 'chart',    hint: 'Daily, engine-hours and fuel reports with export' },
-                  { id: 'sensors',  label: 'Sensors',  icon: 'radio',    hint: 'Custom sensor channels configured for this vehicle' },
-                  { id: 'edit',     label: 'Edit',     icon: 'edit',     hint: 'Edit vehicle name, icon and thresholds' },
+                  { id: 'overview', label: 'OVERVIEW', icon: 'activity', hint: 'Live GPS position, engine status and device telemetry' },
+                  { id: 'trips',    label: 'TRIPS',    icon: 'route',    hint: 'View individual trip history with distance and duration' },
+                  { id: 'reports',  label: 'REPORTS',  icon: 'chart',    hint: 'Daily, engine-hours and fuel reports with export' },
+                  { id: 'sensors',  label: 'SENSORS',  icon: 'radio',    hint: 'Custom sensor channels configured for this vehicle' },
+                  { id: 'edit',     label: 'EDIT',     icon: 'edit',     hint: 'Edit vehicle name, icon and thresholds' },
                 ].map(tab => (
                   <button key={tab.id} onClick={() => setActiveTab(tab.id)}
                     title={tab.hint}
                     className="fv-tab-btn"
                     style={{
-                      display: 'flex', alignItems: 'center', gap: 4, padding: '9px 11px',
-                      border: 'none', background: activeTab === tab.id ? '#FFFFFF' : 'transparent',
-                      borderBottom: `2px solid ${activeTab === tab.id ? stColor : 'transparent'}`,
-                      cursor: 'pointer', whiteSpace: 'nowrap', fontSize: 11.5,
-                      fontWeight: activeTab === tab.id ? 700 : 500,
-                      color: activeTab === tab.id ? stColor : '#64748B',
-                      marginBottom: -1, fontFamily: 'inherit', flexShrink: 0,
+                      display: 'flex', alignItems: 'center', gap: 7, padding: '14px 22px',
+                      border: 'none', borderRadius: 0,
+                      background: activeTab === tab.id ? stColor : 'transparent',
+                      cursor: 'pointer', whiteSpace: 'nowrap', fontSize: 13,
+                      fontWeight: 700, letterSpacing: '0.05em',
+                      color: activeTab === tab.id ? '#FFFFFF' : '#64748B',
+                      fontFamily: 'inherit', flexShrink: 0, transition: 'background 0.15s, color 0.15s',
                     }}>
-                    <Ic n={tab.icon} size={11} color={activeTab === tab.id ? stColor : '#9CA3AF'} />
+                    <Ic n={tab.icon} size={13} color={activeTab === tab.id ? '#FFFFFF' : '#9CA3AF'} />
                     {tab.label}
                   </button>
                 ))}
               </div>
 
-              {/* ── Tab Content ── */}
+              {/* ── Tab Content — full width, no center cap ── */}
               <div style={{ flex: 1, overflow: 'auto', background: C.surface }}>
-                <div style={{ padding: 14 }}>
+                <div style={{ padding: 22 }}>
                   {activeTab === 'overview' && <OverviewTab vehicle={sv} />}
                   {activeTab === 'trips' && (
                     <TripsTab vehicle={sv} reportFrom={reportFrom} reportTo={reportTo}
@@ -2623,8 +2732,7 @@ const MyFleet = () => {
             </>
           );
         })()}
-      </div>{/* /inner fixed-width wrapper */}
-      </div>{/* /outer right panel */}
+      </BottomSheet>
 
       </div>{/* /content row */}
 
@@ -2968,38 +3076,45 @@ const Modal = ({ title, onClose, children }) => (
 );
 
 const InfoRow = ({ label, value, accent, mono }) => (
-  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: `1px solid ${C.borderLight}` }}>
-    <span style={{ fontSize: 12, color: C.textMuted }}>{label}</span>
-    <span style={{ fontSize: 13, fontWeight: 600, color: accent || C.text, fontFamily: mono ? 'monospace' : 'inherit' }}>{value ?? '—'}</span>
+  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 0', borderBottom: `1px solid ${C.borderLight}`, gap: 12 }}>
+    <span style={{ fontSize: 13, color: C.textSub, fontWeight: 600 }}>{label}</span>
+    <span style={{ fontSize: 14, fontWeight: 700, color: accent || C.text, fontFamily: mono ? 'monospace' : 'inherit', textAlign: 'right' }}>{value ?? '—'}</span>
   </div>
 );
 
+// "No-box" section — content flows in the page, with just a colored heading
+// row separating sections. No card background, no surrounding border.
 const SectionCard = ({ icon, title, children, style }) => (
-  <div style={{ background: C.white, borderRadius: 10, border: `1px solid ${C.border}`, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', ...style }}>
+  <div style={{ ...style }}>
     {title && (
-      <div style={{ padding: '9px 14px', background: C.surface, borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 7 }}>
-        {icon && <Ic n={icon} size={13} color={C.primary} />}
-        <span style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{title}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '0 0 9px 0', borderBottom: `2px solid ${C.primary}`, marginBottom: 14 }}>
+        {icon && <Ic n={icon} size={15} color={C.primary} />}
+        <span style={{ fontSize: 13, fontWeight: 800, color: C.primary, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{title}</span>
       </div>
     )}
-    <div style={{ padding: '10px 14px' }}>{children}</div>
+    <div>{children}</div>
   </div>
 );
 
+// Color-filled stat card (matches the dashboard / live-stats look). The whole
+// box is the brand color so the value stands out at a glance.
 const StatCard = ({ label, value, color = C.primary, icon }) => (
-  <div style={{ background: C.white, borderRadius: 10, border: `1px solid ${C.border}`, padding: '14px 16px', borderLeft: `4px solid ${color}`, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-      <div>
-        <div style={{ fontSize: 10, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700, marginBottom: 6 }}>{label}</div>
-        <div style={{ fontSize: 18, fontWeight: 800, color: C.text }}>{value}</div>
-      </div>
-      {icon && <Ic n={icon} size={18} color={color} sw={1.5} />}
+  <div style={{ background: color, borderRadius: 0, padding: '18px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', overflow: 'hidden', minHeight: 92 }}>
+    <div style={{ position: 'absolute', right: -18, top: -18, width: 90, height: 90, background: 'rgba(255,255,255,0.10)', pointerEvents: 'none' }} />
+    <div style={{ position: 'relative', zIndex: 1 }}>
+      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700, marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: 26, fontWeight: 800, color: '#FFFFFF', lineHeight: 1.05, letterSpacing: '-0.01em', fontVariantNumeric: 'tabular-nums' }}>{value}</div>
     </div>
+    {icon && (
+      <div style={{ width: 38, height: 38, background: 'rgba(255,255,255,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', zIndex: 1, flexShrink: 0 }}>
+        <Ic n={icon} size={20} color="#FFFFFF" sw={1.6} />
+      </div>
+    )}
   </div>
 );
 
 const Empty = ({ msg }) => (
-  <div style={{ textAlign: 'center', padding: '28px 20px', color: C.textLight, background: C.white, borderRadius: 10, border: `1px solid ${C.border}`, fontSize: 13 }}>{msg}</div>
+  <div style={{ textAlign: 'center', padding: '36px 20px', color: C.textLight, background: C.white, borderRadius: 0, border: '1px dashed #CBD5E1', fontSize: 14, fontWeight: 600 }}>{msg}</div>
 );
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -3016,7 +3131,10 @@ const OverviewTab = ({ vehicle }) => {
   const alerts = ds?.alerts;
   const cellInfo = ds?.cellInfo;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+    // Multi-column grid: cards lay out 2/3/4 across at wider widths so the
+    // panel stops looking like a single very-tall column. minmax(280px, 1fr)
+    // keeps each card readable at narrower peeks.
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12, alignItems: 'start' }}>
       <SectionCard icon="pin" title="GPS & Location">
         <InfoRow label="Latitude"    value={gps?.latitude?.toFixed(6)} mono />
         <InfoRow label="Longitude"   value={gps?.longitude?.toFixed(6)} mono />
@@ -3154,72 +3272,82 @@ const TripsTab = ({ vehicle, reportFrom, reportTo, reportData, reportLoading, re
     } catch { toast.error('Failed to create share link'); }
     finally { setSharingIdx(null); }
   };
+  const inpSq = { ...inp, borderRadius: 0, fontSize: 14, padding: '8px 12px' };
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: '9px 12px', flexWrap: 'wrap' }}>
-        <Ic n="calendar" size={14} color={C.textMuted} />
-        <input type="date" value={reportFrom} onChange={e => setReportFrom(e.target.value)} style={{ ...inp, width: 'auto', padding: '5px 8px' }} />
-        <span style={{ color: C.textLight }}>to</span>
-        <input type="date" value={reportTo} onChange={e => setReportTo(e.target.value)} style={{ ...inp, width: 'auto', padding: '5px 8px' }} />
-        <button onClick={handleLoad} style={btn(C.primary)}>Load</button>
-        {trips.length > 0 && <span style={{ fontSize: 12, color: C.textMuted }}>{total} trip{total !== 1 ? 's' : ''}</span>}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* Toolbar — flat row, no card box */}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '0 0 12px 0', borderBottom: `2px solid ${C.primary}` }}>
+        <Ic n="calendar" size={16} color={C.primary} />
+        <input type="date" value={reportFrom} onChange={e => setReportFrom(e.target.value)} style={{ ...inpSq, width: 'auto' }} />
+        <span style={{ color: C.textLight, fontSize: 13, fontWeight: 600 }}>to</span>
+        <input type="date" value={reportTo} onChange={e => setReportTo(e.target.value)} style={{ ...inpSq, width: 'auto' }} />
+        <button onClick={handleLoad} style={{ ...btn(C.primary), borderRadius: 0, padding: '9px 18px', fontSize: 13, letterSpacing: '0.04em' }}>LOAD</button>
+        {trips.length > 0 && <span style={{ fontSize: 13, color: C.textSub, fontWeight: 700 }}>{total} TRIP{total !== 1 ? 'S' : ''}</span>}
         {user?.role === 'papa' && (
           <>
             <div style={{ flex: 1 }} />
-            <button onClick={handleReprocess} disabled={reprocessing} style={btn('#dc2626', reprocessing)}>
-              <Ic n="refresh" size={12} /> {reprocessing ? 'Reprocessing…' : 'Reprocess'}
+            <button onClick={handleReprocess} disabled={reprocessing} style={{ ...btn('#dc2626', reprocessing), borderRadius: 0, padding: '9px 16px', fontSize: 13, letterSpacing: '0.04em' }}>
+              <Ic n="refresh" size={13} /> {reprocessing ? 'REPROCESSING…' : 'REPROCESS'}
             </button>
           </>
         )}
       </div>
-      {reportLoading && <div style={{ textAlign: 'center', padding: 28, color: C.textMuted }}>Loading trips…</div>}
-      {!reportLoading && !reportData && <Empty msg='Select a date range and click "Load".' />}
+
+      {reportLoading && <div style={{ textAlign: 'center', padding: 32, color: C.textMuted, fontSize: 14, fontWeight: 600 }}>Loading trips…</div>}
+      {!reportLoading && !reportData && <Empty msg='Select a date range and click "LOAD".' />}
       {!reportLoading && reportData && trips.length === 0 && <Empty msg="No trips found for this period." />}
-      {trips.map((trip, idx) => {
-        const start = trip.beginning;
-        const end = trip.end;
-        return (
-          <div key={idx} style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: '11px 13px', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-            <div style={{ width: 28, height: 28, borderRadius: 7, background: C.primaryBg, color: C.primaryDark, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>
-              {trip.no || reportPage * REPORT_PAGE_SIZE + idx + 1}
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: C.text }}>
-                  {start ? new Date(start).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
-                  {end && trip.status !== 'in_progress' && <span style={{ color: C.textMuted, fontWeight: 400 }}> → {new Date(end).toLocaleString('en-IN', { timeStyle: 'short' })}</span>}
-                </span>
-                {trip.status === 'in_progress' && (
-                  <span style={{ fontSize: 9.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: '#DCFCE7', color: '#166534', border: '1px solid #BBF7D0' }}>
-                    LIVE
-                  </span>
-                )}
+
+      {/* Trip rows — bottom-divider only, no surrounding box */}
+      {trips.length > 0 && (
+        <div>
+          {trips.map((trip, idx) => {
+            const start = trip.beginning;
+            const end   = trip.end;
+            return (
+              <div key={idx} style={{ display: 'flex', gap: 14, alignItems: 'center', padding: '14px 0', borderBottom: `1px solid ${C.borderLight}` }}>
+                <div style={{ width: 40, height: 40, background: C.primary, color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, flexShrink: 0, borderRadius: 0 }}>
+                  {trip.no || reportPage * REPORT_PAGE_SIZE + idx + 1}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: C.text }}>
+                      {start ? new Date(start).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
+                      {end && trip.status !== 'in_progress' && <span style={{ color: C.textMuted, fontWeight: 500 }}> → {new Date(end).toLocaleString('en-IN', { timeStyle: 'short' })}</span>}
+                    </span>
+                    {trip.status === 'in_progress' && (
+                      <span style={{ fontSize: 10.5, fontWeight: 800, padding: '3px 10px', borderRadius: 0, background: '#16A34A', color: '#FFFFFF', letterSpacing: '0.05em' }}>
+                        LIVE
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 13, color: C.textSub, fontWeight: 600 }}>
+                    {trip.mileage !== undefined && <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><Ic n="route" size={13} color={C.primary} /> <strong style={{ color: C.text }}>{Number(trip.mileage || 0).toFixed(2)}</strong> km</span>}
+                    {trip.duration && <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><Ic n="clock" size={13} color={C.primary} /> {trip.duration}</span>}
+                    {trip.avgSpeed !== undefined && <span>Avg <strong style={{ color: C.text }}>{parseFloat(trip.avgSpeed || 0).toFixed(1)}</strong> km/h</span>}
+                    {trip.consFls !== undefined && <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><Ic n="droplet" size={13} color={C.primary} /> <strong style={{ color: C.text }}>{Number(trip.consFls || 0).toFixed(2)}</strong> L</span>}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 0, flexShrink: 0 }}>
+                  <button onClick={() => openPlayer(vehicle, start, end)} disabled={!start} style={{ ...btn(C.purple, !start), borderRadius: 0, padding: '8px 14px', fontSize: 12, letterSpacing: '0.04em' }}>
+                    <Ic n="play" size={12} /> PLAY
+                  </button>
+                  <button onClick={() => handleShareTrip(trip, idx)} disabled={!start || sharingIdx === idx} style={{ ...btn('#059669', !start || sharingIdx === idx), borderRadius: 0, padding: '8px 14px', fontSize: 12, letterSpacing: '0.04em' }}>
+                    🔗 {sharingIdx === idx ? '…' : 'SHARE'}
+                  </button>
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 11, color: C.textSub }}>
-                {trip.mileage !== undefined && <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}><Ic n="route" size={10} color={C.textLight} /> {Number(trip.mileage || 0).toFixed(2)} km</span>}
-                {trip.duration && <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}><Ic n="clock" size={10} color={C.textLight} /> {trip.duration}</span>}
-                {trip.avgSpeed !== undefined && <span>Avg {parseFloat(trip.avgSpeed || 0).toFixed(1)} km/h</span>}
-                {trip.consFls !== undefined && <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}><Ic n="droplet" size={10} color={C.textLight} /> {Number(trip.consFls || 0).toFixed(2)} L</span>}
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
-              <button onClick={() => openPlayer(vehicle, start, end)} disabled={!start} style={{ ...btn(C.purple, !start), padding: '5px 10px', fontSize: 11 }}>
-                <Ic n="play" size={11} /> Play
-              </button>
-              <button onClick={() => handleShareTrip(trip, idx)} disabled={!start || sharingIdx === idx} style={{ ...btn('#059669', !start || sharingIdx === idx), padding: '5px 10px', fontSize: 11 }}>
-                🔗 {sharingIdx === idx ? '…' : 'Share'}
-              </button>
-            </div>
-          </div>
-        );
-      })}
+            );
+          })}
+        </div>
+      )}
+
       {total > REPORT_PAGE_SIZE && (
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+        <div style={{ display: 'flex', gap: 0, justifyContent: 'center', alignItems: 'center', marginTop: 8 }}>
           <button disabled={reportPage === 0} onClick={() => { setReportPage(reportPage - 1); fetchReport(vehicle.id, 'trips', reportFrom, reportTo, reportPage - 1); }}
-            style={{ padding: '5px 12px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, cursor: reportPage === 0 ? 'not-allowed' : 'pointer', fontSize: 12, color: C.textSub }}>← Prev</button>
-          <span style={{ padding: '5px 10px', fontSize: 12, color: C.textMuted }}>Page {reportPage + 1} of {Math.ceil(total / REPORT_PAGE_SIZE)}</span>
+            style={{ padding: '8px 16px', border: `1px solid ${C.border}`, borderRadius: 0, background: C.white, cursor: reportPage === 0 ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 700, color: C.textSub }}>← PREV</button>
+          <span style={{ padding: '8px 14px', fontSize: 13, fontWeight: 700, color: C.textSub }}>Page {reportPage + 1} of {Math.ceil(total / REPORT_PAGE_SIZE)}</span>
           <button disabled={(reportPage + 1) * REPORT_PAGE_SIZE >= total} onClick={() => { setReportPage(reportPage + 1); fetchReport(vehicle.id, 'trips', reportFrom, reportTo, reportPage + 1); }}
-            style={{ padding: '5px 12px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, cursor: 'pointer', fontSize: 12, color: C.textSub }}>Next →</button>
+            style={{ padding: '8px 16px', border: `1px solid ${C.border}`, borderRadius: 0, background: C.white, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: C.textSub }}>NEXT →</button>
         </div>
       )}
     </div>
@@ -3235,33 +3363,38 @@ const ReportsTab = ({ vehicle, reportTab, setReportTab, reportFrom, reportTo, se
     { id: 'daily',        label: 'Daily',       icon: 'calendar' },
     { id: 'engineHours',  label: 'Engine Hrs',  icon: 'clock' },
     { id: 'fuelFillings', label: 'Fuel Fills',  icon: 'droplet' },
+    { id: 'fuel',         label: 'Fuel',        icon: 'droplet' },
   ];
   const handleLoad = () => { setReportPage(0); fetchReport(vehicle.id, reportTab, reportFrom, reportTo, 0); };
+  const inpSq = { ...inp, borderRadius: 0, fontSize: 14, padding: '8px 12px' };
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: '9px 12px', display: 'flex', flexWrap: 'wrap', gap: 7, alignItems: 'center' }}>
-        <input type="datetime-local" value={reportFrom} onChange={e => setReportFrom(e.target.value)} style={{ ...inp, width: 'auto', padding: '5px 8px' }} />
-        <span style={{ color: C.textLight, fontSize: 12 }}>to</span>
-        <input type="datetime-local" value={reportTo} onChange={e => setReportTo(e.target.value)} style={{ ...inp, width: 'auto', padding: '5px 8px' }} />
-        <button onClick={handleLoad} style={btn(C.primary)}>Load</button>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* Toolbar — flat, no card box */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', padding: '0 0 12px 0', borderBottom: `2px solid ${C.primary}` }}>
+        <input type="datetime-local" value={reportFrom} onChange={e => setReportFrom(e.target.value)} style={{ ...inpSq, width: 'auto' }} />
+        <span style={{ color: C.textLight, fontSize: 13, fontWeight: 600 }}>to</span>
+        <input type="datetime-local" value={reportTo} onChange={e => setReportTo(e.target.value)} style={{ ...inpSq, width: 'auto' }} />
+        <button onClick={handleLoad} style={{ ...btn(C.primary), borderRadius: 0, padding: '9px 18px', fontSize: 13, letterSpacing: '0.04em' }}>LOAD</button>
         <div style={{ flex: 1 }} />
-        <button onClick={handleExport} disabled={reportExporting} style={btn('#059669', reportExporting)}>
-          <Ic n="download" size={12} /> {reportExporting ? 'Exporting…' : 'Excel'}
+        <button onClick={handleExport} disabled={reportExporting} style={{ ...btn('#059669', reportExporting), borderRadius: 0, padding: '9px 16px', fontSize: 13, letterSpacing: '0.04em' }}>
+          <Ic n="download" size={13} /> {reportExporting ? 'EXPORTING…' : 'EXCEL'}
         </button>
-        <button onClick={handleDownloadPackets} disabled={packetsDownloading} style={btn('#6366f1', packetsDownloading)}>
-          <Ic n="download" size={12} /> {packetsDownloading ? '…' : 'Packets'}
+        <button onClick={handleDownloadPackets} disabled={packetsDownloading} style={{ ...btn('#6366f1', packetsDownloading), borderRadius: 0, padding: '9px 16px', fontSize: 13, letterSpacing: '0.04em' }}>
+          <Ic n="download" size={13} /> {packetsDownloading ? '…' : 'PACKETS'}
         </button>
       </div>
-      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+
+      {/* Sub-tab strip — square buttons, color-fill on active */}
+      <div style={{ display: 'flex', gap: 0, flexWrap: 'wrap' }}>
         {TABS.map(t => (
           <button key={t.id} onClick={() => setReportTab(t.id)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 11px', borderRadius: 20, cursor: 'pointer', fontSize: 11, fontWeight: reportTab === t.id ? 700 : 500, border: `1px solid ${reportTab === t.id ? C.primary : C.border}`, background: reportTab === t.id ? C.primaryBg : C.white, color: reportTab === t.id ? C.primaryDark : C.textSub }}>
-            <Ic n={t.icon} size={11} color={reportTab === t.id ? C.primary : '#9ca3af'} /> {t.label}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 18px', borderRadius: 0, cursor: 'pointer', fontSize: 13, fontWeight: 700, letterSpacing: '0.04em', border: 'none', background: reportTab === t.id ? C.primary : '#F1F5F9', color: reportTab === t.id ? '#FFFFFF' : C.textSub }}>
+            <Ic n={t.icon} size={13} color={reportTab === t.id ? '#FFFFFF' : '#9ca3af'} /> {t.label.toUpperCase()}
           </button>
         ))}
       </div>
-      {reportLoading && <div style={{ textAlign: 'center', padding: 24, color: C.textMuted }}>Loading report…</div>}
-      {!reportLoading && !reportData && <Empty msg="Select a date range and click Load." />}
+      {reportLoading && <div style={{ textAlign: 'center', padding: 32, color: C.textMuted, fontSize: 14, fontWeight: 600 }}>Loading report…</div>}
+      {!reportLoading && !reportData && <Empty msg="Select a date range and click LOAD." />}
       {!reportLoading && reportData && <ReportData type={reportTab} data={reportData} vehicle={vehicle} reportPage={reportPage} setReportPage={setReportPage} reportFrom={reportFrom} reportTo={reportTo} fetchReport={fetchReport} />}
     </div>
   );
@@ -3274,7 +3407,7 @@ const ReportData = ({ type, data, vehicle, reportPage, setReportPage, reportFrom
   if (type === 'summary') {
     const s = data;
     return (
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 0 }}>
         <StatCard label="Total Distance"  value={`${Number(s.mileage || 0).toFixed(1)} km`}               color={C.primary}  icon="route" />
         <StatCard label="Engine Hours"    value={s.engineHours || '—'}                                     color={C.teal}     icon="clock" />
         <StatCard label="Fuel Consumed"   value={`${Number(s.consumedByFls || 0).toFixed(1)} L`}           color={C.warning}  icon="droplet" />
@@ -3291,7 +3424,7 @@ const ReportData = ({ type, data, vehicle, reportPage, setReportPage, reportFrom
   if (type === 'daily') {
     const rows = Array.isArray(data?.rows) ? data.rows : [];
     return (
-      <div style={{ background: C.white, borderRadius: 10, border: `1px solid ${C.border}`, overflow: 'auto' }}>
+      <div style={{ borderRadius: 0, border: `1px solid ${C.border}`, overflow: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--theme-table-body-font-size, 11px)', minWidth: 500 }}>
           <thead>
             <tr style={{ background: 'var(--theme-table-header-bg, #f8fafc)' }}>
@@ -3331,31 +3464,31 @@ const ReportData = ({ type, data, vehicle, reportPage, setReportPage, reportFrom
     const sessions = Array.isArray(data?.rows) ? data.rows : [];
     const total = data?.total ?? sessions.length;
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
         {sessions.map((s, i) => (
-          <div key={i} style={{ background: C.white, borderRadius: 9, border: `1px solid ${C.border}`, padding: '10px 12px', display: 'flex', gap: 10, alignItems: 'center' }}>
-            <div style={{ width: 28, height: 28, borderRadius: 7, background: C.tealBg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: C.teal, flexShrink: 0 }}>
+          <div key={i} style={{ display: 'flex', gap: 14, alignItems: 'center', padding: '14px 0', borderBottom: `1px solid ${C.borderLight}` }}>
+            <div style={{ width: 40, height: 40, borderRadius: 0, background: C.teal, color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, flexShrink: 0 }}>
               {s.no || reportPage * REPORT_PAGE_SIZE + i + 1}
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>
                 {s.beginning ? new Date(s.beginning).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
-                {s.end && <span style={{ color: C.textMuted, fontWeight: 400 }}> → {new Date(s.end).toLocaleString('en-IN', { timeStyle: 'short' })}</span>}
+                {s.end && <span style={{ color: C.textMuted, fontWeight: 500 }}> → {new Date(s.end).toLocaleString('en-IN', { timeStyle: 'short' })}</span>}
               </div>
-              <div style={{ fontSize: 11, color: C.textSub, display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 3 }}>
-                <span><Ic n="clock" size={10} color={C.textLight} /> {s.engineHours || '—'}</span>
-                <span><Ic n="route" size={10} color={C.textLight} /> {Number(s.mileage || 0).toFixed(1)} km</span>
-                <span><Ic n="droplet" size={10} color={C.textLight} /> {Number(s.consFls || 0).toFixed(2)} L</span>
+              <div style={{ fontSize: 13, color: C.textSub, display: 'flex', gap: 18, flexWrap: 'wrap', marginTop: 5, fontWeight: 600 }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><Ic n="clock" size={13} color={C.teal} /> {s.engineHours || '—'}</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><Ic n="route" size={13} color={C.primary} /> <strong style={{ color: C.text }}>{Number(s.mileage || 0).toFixed(1)}</strong> km</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><Ic n="droplet" size={13} color={C.warning} /> <strong style={{ color: C.text }}>{Number(s.consFls || 0).toFixed(2)}</strong> L</span>
               </div>
             </div>
           </div>
         ))}
         {sessions.length === 0 && <Empty msg="No engine sessions found." />}
         {total > REPORT_PAGE_SIZE && (
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-            <button disabled={reportPage === 0} onClick={() => { setReportPage(reportPage - 1); fetchReport(vehicle.id, 'engineHours', reportFrom, reportTo, reportPage - 1); }} style={{ padding: '5px 12px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, cursor: 'pointer', fontSize: 12, color: C.textSub }}>← Prev</button>
-            <span style={{ padding: '5px 10px', fontSize: 12, color: C.textMuted }}>Page {reportPage + 1}</span>
-            <button disabled={(reportPage + 1) * REPORT_PAGE_SIZE >= total} onClick={() => { setReportPage(reportPage + 1); fetchReport(vehicle.id, 'engineHours', reportFrom, reportTo, reportPage + 1); }} style={{ padding: '5px 12px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, cursor: 'pointer', fontSize: 12, color: C.textSub }}>Next →</button>
+          <div style={{ display: 'flex', gap: 0, justifyContent: 'center', marginTop: 14 }}>
+            <button disabled={reportPage === 0} onClick={() => { setReportPage(reportPage - 1); fetchReport(vehicle.id, 'engineHours', reportFrom, reportTo, reportPage - 1); }} style={{ padding: '8px 16px', border: `1px solid ${C.border}`, borderRadius: 0, background: C.white, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: C.textSub }}>← PREV</button>
+            <span style={{ padding: '8px 14px', fontSize: 13, fontWeight: 700, color: C.textSub }}>Page {reportPage + 1}</span>
+            <button disabled={(reportPage + 1) * REPORT_PAGE_SIZE >= total} onClick={() => { setReportPage(reportPage + 1); fetchReport(vehicle.id, 'engineHours', reportFrom, reportTo, reportPage + 1); }} style={{ padding: '8px 16px', border: `1px solid ${C.border}`, borderRadius: 0, background: C.white, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: C.textSub }}>NEXT →</button>
           </div>
         )}
       </div>
@@ -3364,7 +3497,7 @@ const ReportData = ({ type, data, vehicle, reportPage, setReportPage, reportFrom
   if (type === 'trips') {
     const trips = Array.isArray(data?.rows) ? data.rows : [];
     return (
-      <div style={{ background: C.white, borderRadius: 10, border: `1px solid ${C.border}`, overflow: 'auto' }}>
+      <div style={{ borderRadius: 0, border: `1px solid ${C.border}`, overflow: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--theme-table-body-font-size, 11px)', minWidth: 480 }}>
           <thead>
             <tr style={{ background: 'var(--theme-table-header-bg, #f8fafc)' }}>
@@ -3393,19 +3526,19 @@ const ReportData = ({ type, data, vehicle, reportPage, setReportPage, reportFrom
   if (type === 'fuelFillings') {
     const events = Array.isArray(data?.rows) ? data.rows : [];
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+      <div>
         {events.map((ev, i) => (
-          <div key={i} style={{ background: C.white, borderRadius: 9, border: `1px solid ${C.border}`, padding: '10px 12px', display: 'flex', gap: 10, alignItems: 'center' }}>
-            <div style={{ width: 32, height: 32, borderRadius: '50%', background: C.successBg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <Ic n="droplet" size={14} color={C.success} />
+          <div key={i} style={{ display: 'flex', gap: 14, alignItems: 'center', padding: '14px 0', borderBottom: `1px solid ${C.borderLike || C.borderLight}` }}>
+            <div style={{ width: 40, height: 40, borderRadius: 0, background: C.success, color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <Ic n="droplet" size={18} color="#FFFFFF" />
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{ev.time ? new Date(ev.time).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}</div>
-              <div style={{ fontSize: 11, color: C.textSub, marginTop: 3, display: 'flex', gap: 10 }}>
-                <span>{ev.fuelBefore}% → {ev.fuelAfter}%</span>
-                <span style={{ color: C.success, fontWeight: 700 }}>+{ev.filled}% added</span>
+              <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{ev.time ? new Date(ev.time).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}</div>
+              <div style={{ fontSize: 13, color: C.textSub, marginTop: 5, display: 'flex', gap: 14, fontWeight: 600 }}>
+                <span><strong style={{ color: C.text }}>{ev.fuelBefore}%</strong> → <strong style={{ color: C.text }}>{ev.fuelAfter}%</strong></span>
+                <span style={{ color: C.success, fontWeight: 800 }}>+{ev.filled}% ADDED</span>
               </div>
-              {ev.location && ev.location !== '—' && <div style={{ fontSize: 10, color: C.textLight, marginTop: 2 }}>{ev.location}</div>}
+              {ev.location && ev.location !== '—' && <div style={{ fontSize: 12, color: C.textLight, marginTop: 3 }}>{ev.location}</div>}
             </div>
           </div>
         ))}
@@ -3413,7 +3546,200 @@ const ReportData = ({ type, data, vehicle, reportPage, setReportPage, reportFrom
       </div>
     );
   }
+  if (type === 'fuel') {
+    return <FuelReportView data={data} />;
+  }
   return null;
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Fuel report — summary row + SVG line chart + readings table
+// ══════════════════════════════════════════════════════════════════════════════
+const FuelReportView = ({ data }) => {
+  if (!data) return null;
+  if (data.supported === false) {
+    return (
+      <div style={{ background: '#FEF3C7', borderLeft: '4px solid #F59E0B', borderRadius: 0, padding: '16px 20px', color: '#92400E' }}>
+        <div style={{ fontWeight: 800, marginBottom: 4, fontSize: 14, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Fuel sensor not configured</div>
+        <div style={{ fontSize: 13, fontWeight: 500 }}>{data.message || 'Enable "Fuel sensor wired" in Edit Vehicle and set the tank capacity to use this report.'}</div>
+      </div>
+    );
+  }
+
+  const readings = Array.isArray(data.readings) ? data.readings : [];
+  const s = data.summary || {};
+  const tank = data.tankCapacity;
+
+  // Color-filled stat boxes — match the dashboard / live-stats pattern.
+  const stat = (label, val, unit = '', color = C.primary) => (
+    <div style={{ flex: 1, minWidth: 140, background: color, color: '#FFFFFF', borderRadius: 0, padding: '14px 16px', position: 'relative', overflow: 'hidden' }}>
+      <div style={{ position: 'absolute', right: -10, top: -10, width: 60, height: 60, background: 'rgba(255,255,255,0.10)', pointerEvents: 'none' }} />
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase', letterSpacing: '0.07em', position: 'relative', zIndex: 1 }}>{label}</div>
+      <div style={{ fontSize: 24, fontWeight: 800, color: '#FFFFFF', marginTop: 4, fontVariantNumeric: 'tabular-nums', lineHeight: 1.05, letterSpacing: '-0.01em', position: 'relative', zIndex: 1 }}>
+        {val == null ? '—' : typeof val === 'number' ? val.toFixed(val < 10 ? 2 : 1) : val}
+        {val != null && unit && <span style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.85)', marginLeft: 4 }}>{unit}</span>}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Summary cards — color filled */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 0 }}>
+        {stat('Readings', s.count, '', '#475569')}
+        {stat('Start', s.startL ?? s.startPct, s.startL != null ? 'L' : '%', C.primary)}
+        {stat('End',   s.endL   ?? s.endPct,   s.endL   != null ? 'L' : '%', C.primary)}
+        {stat('Min',   tank ? (s.minPct * tank / 100) : s.minPct, tank ? 'L' : '%', '#DC2626')}
+        {stat('Max',   tank ? (s.maxPct * tank / 100) : s.maxPct, tank ? 'L' : '%', '#16A34A')}
+        {stat('Filled',  s.totalFillL ?? s.totalFill, s.totalFillL != null ? 'L' : '%', '#059669')}
+        {stat('Drained', s.totalDropL ?? s.totalDrop, s.totalDropL != null ? 'L' : '%', '#D97706')}
+      </div>
+
+      {/* Chart */}
+      <FuelLineChart readings={readings} tankCapacity={tank} />
+
+      {/* Table */}
+      {readings.length > 0 ? (
+        <div style={{ border: `1px solid ${C.border}`, borderRadius: 0, overflow: 'hidden' }}>
+          <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead style={{ position: 'sticky', top: 0, background: C.surface, zIndex: 1 }}>
+                <tr>
+                  <th style={thSt}>#</th>
+                  <th style={thSt}>Time</th>
+                  <th style={thSt}>Level %</th>
+                  {tank ? <th style={thSt}>Level (L)</th> : null}
+                  <th style={thSt}>Ignition</th>
+                  <th style={thSt}>Speed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {readings.map((r, i) => (
+                  <tr key={i} style={{ borderTop: `1px solid ${C.border}` }}>
+                    <td style={tdSt}>{i + 1}</td>
+                    <td style={tdSt}>{new Date(r.timestamp).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'medium' })}</td>
+                    <td style={tdSt}>{Number(r.levelPct).toFixed(1)}%</td>
+                    {tank ? <td style={tdSt}>{r.levelL != null ? Number(r.levelL).toFixed(1) : '—'}</td> : null}
+                    <td style={tdSt}>{r.ignition === true ? 'ON' : r.ignition === false ? 'OFF' : '—'}</td>
+                    <td style={tdSt}>{r.speed != null ? `${r.speed} km/h` : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        <Empty msg="No fuel readings in the selected range." />
+      )}
+    </div>
+  );
+};
+
+const thSt = { textAlign: 'left', padding: '8px 10px', fontWeight: 700, fontSize: 11, color: C.textSub, textTransform: 'uppercase', letterSpacing: '0.04em' };
+const tdSt = { padding: '8px 10px', color: C.text, fontVariantNumeric: 'tabular-nums' };
+
+// Inline SVG line chart — no external chart dep. X axis is time, Y axis is
+// fuel %. Hover on the chart body to read the nearest sample.
+const FuelLineChart = ({ readings, tankCapacity }) => {
+  const [hoverIdx, setHoverIdx] = useState(null);
+  if (!readings || readings.length < 2) {
+    return (
+      <div style={{ background: C.surface, border: `1px dashed #CBD5E1`, borderRadius: 0, padding: 28, textAlign: 'center', color: C.textLight, fontSize: 13, fontWeight: 600 }}>
+        Need at least 2 readings to plot a chart.
+      </div>
+    );
+  }
+
+  const W = 760, H = 220;
+  const PAD = { top: 14, right: 14, bottom: 26, left: 42 };
+  const innerW = W - PAD.left - PAD.right;
+  const innerH = H - PAD.top  - PAD.bottom;
+
+  const t0 = new Date(readings[0].timestamp).getTime();
+  const t1 = new Date(readings[readings.length - 1].timestamp).getTime();
+  const tSpan = Math.max(1, t1 - t0);
+
+  const xOf = (ts) => PAD.left + ((new Date(ts).getTime() - t0) / tSpan) * innerW;
+  const yOf = (pct) => PAD.top  + (1 - Math.max(0, Math.min(100, pct)) / 100) * innerH;
+
+  const pts = readings.map(r => `${xOf(r.timestamp).toFixed(1)},${yOf(r.levelPct).toFixed(1)}`).join(' ');
+  const areaPath = `M ${xOf(readings[0].timestamp).toFixed(1)},${(PAD.top + innerH).toFixed(1)} L ${pts.replace(/ /g, ' L ')} L ${xOf(readings[readings.length-1].timestamp).toFixed(1)},${(PAD.top + innerH).toFixed(1)} Z`;
+
+  // Y ticks at 0, 25, 50, 75, 100 %
+  const yTicks = [0, 25, 50, 75, 100];
+  // X ticks — 4 evenly spaced samples
+  const xTickCount = 4;
+  const xTicks = Array.from({ length: xTickCount + 1 }, (_, i) =>
+    new Date(t0 + (tSpan * i) / xTickCount)
+  );
+
+  const fmtTick = (d) => d.toLocaleString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+  const handleMove = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const xPx = e.clientX - rect.left;
+    // Find nearest reading
+    let best = 0, bestDist = Infinity;
+    for (let i = 0; i < readings.length; i++) {
+      const d = Math.abs(xOf(readings[i].timestamp) * rect.width / W - xPx);
+      if (d < bestDist) { bestDist = d; best = i; }
+    }
+    setHoverIdx(best);
+  };
+
+  const hovered = hoverIdx != null ? readings[hoverIdx] : null;
+
+  return (
+    <div style={{ borderRadius: 0, padding: '0 0 6px 0' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: C.textSub, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Fuel Level vs Time</div>
+        {hovered && (
+          <div style={{ fontSize: 11, color: C.text, fontVariantNumeric: 'tabular-nums' }}>
+            {new Date(hovered.timestamp).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}
+            {' · '}
+            <strong>{hovered.levelPct.toFixed(1)}%</strong>
+            {tankCapacity ? ` (${(hovered.levelPct * tankCapacity / 100).toFixed(1)} L)` : ''}
+            {hovered.ignition != null && ` · IGN ${hovered.ignition ? 'ON' : 'OFF'}`}
+          </div>
+        )}
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" preserveAspectRatio="none"
+           onMouseMove={handleMove}
+           onMouseLeave={() => setHoverIdx(null)}
+           style={{ display: 'block', cursor: 'crosshair' }}>
+        {/* Y grid + ticks */}
+        {yTicks.map(t => {
+          const y = yOf(t);
+          return (
+            <g key={t}>
+              <line x1={PAD.left} x2={W - PAD.right} y1={y} y2={y} stroke="#e5e7eb" strokeWidth="1" />
+              <text x={PAD.left - 6} y={y + 3} textAnchor="end" fontSize="10" fill="#94a3b8">{t}%</text>
+            </g>
+          );
+        })}
+        {/* X ticks */}
+        {xTicks.map((d, i) => {
+          const x = xOf(d);
+          return (
+            <text key={i} x={x} y={H - 8} textAnchor="middle" fontSize="10" fill="#94a3b8">
+              {fmtTick(d)}
+            </text>
+          );
+        })}
+        {/* Filled area */}
+        <path d={areaPath} fill="#3b82f620" />
+        {/* Line */}
+        <polyline points={pts} fill="none" stroke="#2563eb" strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" />
+        {/* Hover crosshair + dot */}
+        {hovered && (
+          <>
+            <line x1={xOf(hovered.timestamp)} x2={xOf(hovered.timestamp)} y1={PAD.top} y2={PAD.top + innerH} stroke="#94a3b8" strokeDasharray="3,3" strokeWidth="1" />
+            <circle cx={xOf(hovered.timestamp)} cy={yOf(hovered.levelPct)} r="4" fill="#2563eb" stroke="#fff" strokeWidth="2" />
+          </>
+        )}
+      </svg>
+    </div>
+  );
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -3453,20 +3779,28 @@ const SensorsTab = ({ vehicle, sensors, loadingSensors, showSensorForm, sensorFo
     return raw !== undefined ? (typeof raw === 'object' && raw !== null ? raw.value : raw) : undefined;
   };
 
+  const inpSq = { ...inp, borderRadius: 0, fontSize: 14, padding: '10px 14px' };
+  const lblBig = { ...lbl, fontSize: 12, marginBottom: 6 };
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {/* Configured sensors — show as friendly-name: live-value cards */}
-      <div style={{ background: C.white, borderRadius: 10, border: `1px solid ${C.border}` }}>
-        <div style={{ padding: '9px 12px', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Sensors ({sensors.length})</span>
-          <button onClick={() => openSensorForm(null)} style={btn(C.primary)}><Ic n="plus" size={12} /> Add Sensor</button>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+      {/* ── Configured sensors ─────────────────────────────────────── */}
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, justifyContent: 'space-between', padding: '0 0 9px 0', borderBottom: `2px solid ${C.primary}`, marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+            <Ic n="radio" size={15} color={C.primary} />
+            <span style={{ fontSize: 13, fontWeight: 800, color: C.primary, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Sensors ({sensors.length})</span>
+          </div>
+          <button onClick={() => openSensorForm(null)} style={{ ...btn(C.primary), borderRadius: 0, padding: '8px 16px', fontSize: 13, letterSpacing: '0.04em' }}>
+            <Ic n="plus" size={13} /> ADD SENSOR
+          </button>
         </div>
+
         {showSensorForm && (
-          <div style={{ padding: 12, background: C.surface, borderBottom: `1px solid ${C.border}` }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 9, marginBottom: 9 }}>
-              <div>
-                <label style={lbl}>Device Attribute *</label>
-                <select style={inp} value={sensorForm.mappedParameter || ''} onChange={e => {
+          <div style={{ marginBottom: 16, padding: '14px 16px', background: C.surface, borderLeft: `4px solid ${C.primary}` }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginBottom: 12 }}>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={lblBig}>Device Attribute *</label>
+                <select style={inpSq} value={sensorForm.mappedParameter || ''} onChange={e => {
                   const attr = availableAttrs.find(a => a.key === e.target.value);
                   setSensorForm({ ...sensorForm, mappedParameter: e.target.value, name: sensorForm.name || (attr ? attr.label : '') });
                 }}>
@@ -3484,43 +3818,51 @@ const SensorsTab = ({ vehicle, sensors, loadingSensors, showSensorForm, sensorFo
                 </select>
               </div>
               <div>
-                <label style={lbl}>Friendly Name *</label>
-                <input style={inp} value={sensorForm.name} onChange={e => setSensorForm({ ...sensorForm, name: e.target.value })} placeholder="e.g. Ignition, Temperature" />
+                <label style={lblBig}>Friendly Name *</label>
+                <input style={inpSq} value={sensorForm.name} onChange={e => setSensorForm({ ...sensorForm, name: e.target.value })} placeholder="e.g. Ignition, Temperature" />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9 }}>
-                <div><label style={lbl}>Unit</label><input style={inp} value={sensorForm.unit} onChange={e => setSensorForm({ ...sensorForm, unit: e.target.value })} placeholder="e.g. °C, km/h" /></div>
-                <div><label style={lbl}>Type</label><select style={inp} value={sensorForm.type} onChange={e => setSensorForm({ ...sensorForm, type: e.target.value })}>{SENSOR_TYPES.map(t => <option key={t}>{t}</option>)}</select></div>
+              <div>
+                <label style={lblBig}>Unit</label>
+                <input style={inpSq} value={sensorForm.unit} onChange={e => setSensorForm({ ...sensorForm, unit: e.target.value })} placeholder="e.g. °C, km/h" />
+              </div>
+              <div>
+                <label style={lblBig}>Type</label>
+                <select style={inpSq} value={sensorForm.type} onChange={e => setSensorForm({ ...sensorForm, type: e.target.value })}>{SENSOR_TYPES.map(t => <option key={t}>{t}</option>)}</select>
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <div style={{ flex: 1 }} />
-              <button onClick={() => setShowSensorForm(false)} style={{ padding: '5px 11px', border: `1px solid ${C.border}`, borderRadius: 7, background: C.white, cursor: 'pointer', fontSize: 12, color: C.textSub }}>Cancel</button>
-              <button onClick={handleSaveSensor} disabled={savingSensor || !sensorForm.name || !sensorForm.mappedParameter} style={btn(C.primary, savingSensor || !sensorForm.name || !sensorForm.mappedParameter)}>{savingSensor ? 'Saving…' : editingSensor ? 'Update' : 'Add'}</button>
+            <div style={{ display: 'flex', gap: 0, alignItems: 'center', justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowSensorForm(false)} style={{ padding: '9px 16px', border: `1px solid ${C.border}`, borderRadius: 0, background: C.white, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: C.textSub, letterSpacing: '0.04em' }}>CANCEL</button>
+              <button onClick={handleSaveSensor} disabled={savingSensor || !sensorForm.name || !sensorForm.mappedParameter} style={{ ...btn(C.primary, savingSensor || !sensorForm.name || !sensorForm.mappedParameter), borderRadius: 0, padding: '9px 18px', fontSize: 13, letterSpacing: '0.04em' }}>{savingSensor ? 'SAVING…' : editingSensor ? 'UPDATE' : 'ADD'}</button>
             </div>
           </div>
         )}
-        {loadingSensors && <div style={{ padding: 18, textAlign: 'center', color: C.textLight }}>Loading…</div>}
+
+        {loadingSensors && <div style={{ padding: 24, textAlign: 'center', color: C.textLight, fontSize: 14, fontWeight: 600 }}>Loading…</div>}
         {!loadingSensors && sensors.length === 0 && !showSensorForm && (
-          <div style={{ padding: 24, textAlign: 'center' }}>
-            <div style={{ fontSize: 12, color: C.textLight, marginBottom: 4 }}>No sensors configured yet.</div>
-            <div style={{ fontSize: 11, color: C.textMuted }}>Click "Add Sensor" to map a device attribute to a friendly name.</div>
+          <div style={{ padding: '32px 20px', textAlign: 'center', border: '1px dashed #CBD5E1' }}>
+            <div style={{ fontSize: 14, color: C.textSub, marginBottom: 4, fontWeight: 700 }}>No sensors configured yet.</div>
+            <div style={{ fontSize: 12, color: C.textMuted }}>Click "ADD SENSOR" to map a device attribute to a friendly name.</div>
           </div>
         )}
+
         {sensors.length > 0 && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 6, padding: 10 }}>
+          // Color-filled tiles for each sensor (matches the live-stats row aesthetic).
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 0 }}>
             {sensors.map(s => {
               const live = resolveLive(s.mappedParameter);
+              const fill = live !== undefined ? C.primary : '#94A3B8';
               return (
-                <div key={s.id} style={{ background: C.surface, borderRadius: 8, padding: '8px 10px', border: `1px solid ${C.borderLight}`, position: 'relative' }}>
-                  <div style={{ fontSize: 9, color: C.textLight, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: 30 }}>{s.name}</div>
-                  <div style={{ fontSize: 15, fontWeight: 800, color: live !== undefined ? C.primary : C.textMuted, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
+                <div key={s.id} style={{ background: fill, color: '#FFFFFF', padding: '14px 16px', position: 'relative', minHeight: 88 }}>
+                  <div style={{ position: 'absolute', right: -10, top: -10, width: 60, height: 60, background: 'rgba(255,255,255,0.10)', pointerEvents: 'none' }} />
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 700, marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: 38, position: 'relative', zIndex: 1 }}>{s.name}</div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: '#FFFFFF', fontVariantNumeric: 'tabular-nums', lineHeight: 1.05, letterSpacing: '-0.01em', position: 'relative', zIndex: 1 }}>
                     {live !== undefined ? String(live) : '—'}
-                    {s.unit && <span style={{ fontSize: 9, fontWeight: 500, color: C.textLight, marginLeft: 2 }}>{s.unit}</span>}
+                    {s.unit && <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.85)', marginLeft: 4 }}>{s.unit}</span>}
                   </div>
-                  <div style={{ fontSize: 8.5, color: C.textMuted, marginTop: 2, fontFamily: 'monospace' }}>{s.mappedParameter}</div>
-                  <div style={{ position: 'absolute', top: 5, right: 5, display: 'flex', gap: 2 }}>
-                    <button onClick={() => openSensorForm(s)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex' }}><Ic n="edit" size={10} color={C.textMuted} /></button>
-                    <button onClick={() => handleDeleteSensor(s.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex' }}><Ic n="trash" size={10} color={C.danger} /></button>
+                  <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.70)', marginTop: 4, fontFamily: 'monospace', position: 'relative', zIndex: 1 }}>{s.mappedParameter}</div>
+                  <div style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 2, zIndex: 2 }}>
+                    <button onClick={() => openSensorForm(s)} style={{ background: 'rgba(255,255,255,0.18)', border: 'none', cursor: 'pointer', padding: 4, display: 'flex' }}><Ic n="edit" size={12} color="#FFFFFF" /></button>
+                    <button onClick={() => handleDeleteSensor(s.id)} style={{ background: 'rgba(255,255,255,0.18)', border: 'none', cursor: 'pointer', padding: 4, display: 'flex' }}><Ic n="trash" size={12} color="#FFFFFF" /></button>
                   </div>
                 </div>
               );
@@ -3529,17 +3871,17 @@ const SensorsTab = ({ vehicle, sensors, loadingSensors, showSensorForm, sensorFo
         )}
       </div>
 
-      {/* Raw device data — show all available io attributes */}
+      {/* ── Raw device data ─────────────────────────────────────────── */}
       {Object.keys(io).length > 0 && (
         <SectionCard icon="radio" title="Raw Device Data">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 6 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 0 }}>
             {Object.entries(io).slice(0, 30).map(([k, v]) => {
               const label = typeof v === 'object' && v !== null ? (v.name || k) : k;
               const val   = typeof v === 'object' && v !== null ? v.value : v;
               return (
-                <div key={k} style={{ background: C.surface, borderRadius: 7, padding: '6px 8px', border: `1px solid ${C.borderLight}` }}>
-                  <div style={{ fontSize: 8.5, color: C.textLight, fontFamily: 'monospace', marginBottom: 2 }}>{label}</div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{String(val ?? '—')}</div>
+                <div key={k} style={{ background: C.surface, borderRadius: 0, padding: '10px 12px', borderRight: `1px solid ${C.borderLight}`, borderBottom: `1px solid ${C.borderLight}` }}>
+                  <div style={{ fontSize: 10.5, color: C.textLight, fontFamily: 'monospace', marginBottom: 4, fontWeight: 600 }}>{label}</div>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: C.text, fontVariantNumeric: 'tabular-nums' }}>{String(val ?? '—')}</div>
                 </div>
               );
             })}
@@ -3562,22 +3904,34 @@ const EditTab = ({ editForm, setEditForm, saving, handleSaveEdit, currentImei = 
     setImeiUnlocked(false);
   }, [currentImei]);
 
+  // Flat (no-box) section pattern matching SectionCard above. Heading row
+  // with a colored underline; body flows directly below in a field grid.
+  const cardSq    = { padding: '0 0 6px 0' };
+  const cardHdr   = { display: 'flex', alignItems: 'center', gap: 9, padding: '0 0 9px 0', borderBottom: `2px solid ${C.primary}`, marginBottom: 14 };
+  const cardTitle = { fontSize: 13, fontWeight: 800, color: C.primary, textTransform: 'uppercase', letterSpacing: '0.08em' };
+  const cardBody  = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 };
+  const inpSq     = { ...inp, borderRadius: 0, fontSize: 14, padding: '10px 14px' };
+  const lblBig    = { ...lbl, fontSize: 12, marginBottom: 7 };
+  const fullRow   = { gridColumn: '1 / -1' };
+
   return (
-  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-    <div style={{ background: C.white, borderRadius: 10, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
-      <div style={{ padding: '8px 12px', background: C.surface, borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 6 }}>
-        <Ic n="info" size={12} color={C.primary} />
-        <span style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Vehicle Identity</span>
+  // Outer 2-column grid so the four cards sit side-by-side at wide widths
+  // and stack on narrow ones. Save button anchors the bottom full-width.
+  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: 14 }}>
+    <div style={cardSq}>
+      <div style={cardHdr}>
+        <Ic n="info" size={13} color={C.primary} />
+        <span style={cardTitle}>Vehicle Identity</span>
       </div>
-      <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <div><label style={lbl}>Vehicle Name</label><input style={inp} value={editForm.vehicleName || ''} onChange={e => setEditForm({ ...editForm, vehicleName: e.target.value })} /></div>
-        <div><label style={lbl}>Registration Number</label><input style={{ ...inp, textTransform: 'uppercase', fontFamily: 'monospace' }} value={editForm.vehicleNumber || ''} onChange={e => setEditForm({ ...editForm, vehicleNumber: e.target.value })} /></div>
-        <div><label style={lbl}>Chassis Number</label><input style={inp} value={editForm.chasisNumber || ''} onChange={e => setEditForm({ ...editForm, chasisNumber: e.target.value })} /></div>
-        <div><label style={lbl}>Engine Number</label><input style={inp} value={editForm.engineNumber || ''} onChange={e => setEditForm({ ...editForm, engineNumber: e.target.value })} /></div>
-        <div><label style={lbl}>Status</label><select style={inp} value={editForm.status || 'active'} onChange={e => setEditForm({ ...editForm, status: e.target.value })}><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
-        <div>
-          <label style={lbl}>Vehicle Icon</label>
-          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+      <div style={cardBody}>
+        <div><label style={lblBig}>Vehicle Name</label><input style={inpSq} value={editForm.vehicleName || ''} onChange={e => setEditForm({ ...editForm, vehicleName: e.target.value })} /></div>
+        <div><label style={lblBig}>Registration Number</label><input style={{ ...inpSq, textTransform: 'uppercase', fontFamily: 'monospace' }} value={editForm.vehicleNumber || ''} onChange={e => setEditForm({ ...editForm, vehicleNumber: e.target.value })} /></div>
+        <div><label style={lblBig}>Chassis Number</label><input style={inpSq} value={editForm.chasisNumber || ''} onChange={e => setEditForm({ ...editForm, chasisNumber: e.target.value })} /></div>
+        <div><label style={lblBig}>Engine Number</label><input style={inpSq} value={editForm.engineNumber || ''} onChange={e => setEditForm({ ...editForm, engineNumber: e.target.value })} /></div>
+        <div><label style={lblBig}>Status</label><select style={inpSq} value={editForm.status || 'active'} onChange={e => setEditForm({ ...editForm, status: e.target.value })}><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
+        <div style={fullRow}>
+          <label style={lblBig}>Vehicle Icon</label>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {VEHICLE_ICONS.map(ic => (
               <button key={ic}
                 type="button"
@@ -3585,13 +3939,13 @@ const EditTab = ({ editForm, setEditForm, saving, handleSaveEdit, currentImei = 
                 onClick={() => setEditForm({ ...editForm, vehicleIcon: ic })}
                 style={{
                   display: 'flex', flexDirection: 'column', alignItems: 'center',
-                  gap: 2, padding: '6px 4px', width: 68, borderRadius: 8,
+                  gap: 3, padding: '7px 5px', width: 78, borderRadius: 0,
                   border: `2px solid ${editForm.vehicleIcon === ic ? C.primary : C.border}`,
-                  background: editForm.vehicleIcon === ic ? C.primaryBg : C.white,
+                  background: editForm.vehicleIcon === ic ? C.primary : C.white,
                   cursor: 'pointer', fontFamily: 'inherit',
                 }}>
-                <span style={{ fontSize: 18, lineHeight: 1 }}>{VEHICLE_ICON_MAP[ic]}</span>
-                <span style={{ fontSize: 9, fontWeight: 600, color: editForm.vehicleIcon === ic ? C.primary : C.textSub, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>
+                <span style={{ fontSize: 20, lineHeight: 1 }}>{VEHICLE_ICON_MAP[ic]}</span>
+                <span style={{ fontSize: 10, fontWeight: 700, color: editForm.vehicleIcon === ic ? '#FFFFFF' : C.textSub, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>
                   {VEHICLE_ICON_LABELS[ic] || ic}
                 </span>
               </button>
@@ -3601,29 +3955,29 @@ const EditTab = ({ editForm, setEditForm, saving, handleSaveEdit, currentImei = 
       </div>
     </div>
 
-    <div style={{ background: C.white, borderRadius: 10, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
-      <div style={{ padding: '8px 12px', background: C.surface, borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 6 }}>
-        <Ic n="radio" size={12} color={C.primary} />
-        <span style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Device &amp; SIMs</span>
+    <div style={cardSq}>
+      <div style={cardHdr}>
+        <Ic n="radio" size={13} color={C.primary} />
+        <span style={cardTitle}>Device &amp; SIMs</span>
       </div>
-      <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <div>
-          <label style={{ ...lbl, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={cardBody}>
+        <div style={fullRow}>
+          <label style={{ ...lblBig, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span>IMEI Number</span>
             {!imeiUnlocked ? (
               <button type="button" onClick={() => setImeiUnlocked(true)}
-                style={{ background: '#FEF3C7', border: '1px solid #FCD34D', color: '#92400E', padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.03em' }}>
-                🔒 Unlock to edit
+                style={{ background: '#FEF3C7', border: '1px solid #FCD34D', color: '#92400E', padding: '3px 10px', borderRadius: 0, fontSize: 11, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.03em' }}>
+                🔒 UNLOCK TO EDIT
               </button>
             ) : (
               <button type="button" onClick={() => { setImeiUnlocked(false); setImeiDraft(currentImei); }}
-                style={{ background: '#F1F5F9', border: '1px solid #CBD5E1', color: '#475569', padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.03em' }}>
-                Cancel
+                style={{ background: '#F1F5F9', border: '1px solid #CBD5E1', color: '#475569', padding: '3px 10px', borderRadius: 0, fontSize: 11, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.03em' }}>
+                CANCEL
               </button>
             )}
           </label>
           <input
-            style={{ ...inp, fontFamily: 'monospace', letterSpacing: '0.06em', background: imeiUnlocked ? '#fff' : '#F8FAFC', color: imeiUnlocked ? '#0F172A' : '#64748B' }}
+            style={{ ...inpSq, fontFamily: 'monospace', letterSpacing: '0.06em', background: imeiUnlocked ? '#fff' : '#F8FAFC', color: imeiUnlocked ? '#0F172A' : '#64748B' }}
             value={imeiDraft || ''}
             onChange={e => setImeiDraft(e.target.value)}
             readOnly={!imeiUnlocked}
@@ -3634,44 +3988,88 @@ const EditTab = ({ editForm, setEditForm, saving, handleSaveEdit, currentImei = 
             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
               <button type="button" onClick={() => onRequestImeiEdit?.(imeiDraft)}
                 disabled={!imeiDraft.trim() || imeiDraft.trim() === currentImei}
-                style={{ flex: 1, padding: '8px 10px', border: 'none', borderRadius: 8,
+                style={{ padding: '9px 16px', border: 'none', borderRadius: 0,
                   background: (!imeiDraft.trim() || imeiDraft.trim() === currentImei) ? '#FCA5A5' : '#DC2626',
-                  color: '#fff', fontSize: 12, fontWeight: 700,
+                  color: '#fff', fontSize: 12, fontWeight: 700, letterSpacing: '0.04em',
                   cursor: (!imeiDraft.trim() || imeiDraft.trim() === currentImei) ? 'not-allowed' : 'pointer' }}>
-                Change IMEI…
+                CHANGE IMEI…
               </button>
             </div>
           )}
-          <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 6, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8, lineHeight: 1.5 }}>
             Changing IMEI rebinds the vehicle to a different GPS device. A confirmation phrase will be required.
           </div>
         </div>
-        <div><label style={lbl}>SIM 1 Number <span style={{ fontSize: 9, color: '#94a3b8' }}>(Optional)</span></label><input style={{ ...inp, fontFamily: 'monospace' }} value={editForm.sim1 || ''} onChange={e => setEditForm({ ...editForm, sim1: e.target.value })} maxLength={20} placeholder="e.g. 9876543210" /></div>
-        <div><label style={lbl}>SIM 2 Number <span style={{ fontSize: 9, color: '#94a3b8' }}>(Optional)</span></label><input style={{ ...inp, fontFamily: 'monospace' }} value={editForm.sim2 || ''} onChange={e => setEditForm({ ...editForm, sim2: e.target.value })} maxLength={20} placeholder="e.g. 9876543211" /></div>
+        <div><label style={lblBig}>SIM 1 Number <span style={{ fontSize: 10, color: '#94a3b8', textTransform: 'none' }}>(Optional)</span></label><input style={{ ...inpSq, fontFamily: 'monospace' }} value={editForm.sim1 || ''} onChange={e => setEditForm({ ...editForm, sim1: e.target.value })} maxLength={20} placeholder="e.g. 9876543210" /></div>
+        <div><label style={lblBig}>SIM 2 Number <span style={{ fontSize: 10, color: '#94a3b8', textTransform: 'none' }}>(Optional)</span></label><input style={{ ...inpSq, fontFamily: 'monospace' }} value={editForm.sim2 || ''} onChange={e => setEditForm({ ...editForm, sim2: e.target.value })} maxLength={20} placeholder="e.g. 9876543211" /></div>
       </div>
     </div>
 
-    <div style={{ background: C.white, borderRadius: 10, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
-      <div style={{ padding: '8px 12px', background: C.surface, borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 6 }}>
-        <Ic n="gear" size={12} color={C.primary} />
-        <span style={{ fontSize: 11, fontWeight: 700, color: C.textSub, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Thresholds</span>
+    {/* Fuel sensor — FMB only. Capacity is required so % can be resolved to L. */}
+    <div style={cardSq}>
+      <div style={cardHdr}>
+        <Ic n="gear" size={13} color={C.primary} />
+        <span style={cardTitle}>Fuel Sensor</span>
       </div>
-      <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={cardBody}>
+        <div style={fullRow}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 14, fontWeight: 600, color: C.text }}>
+            <input
+              type="checkbox"
+              checked={!!editForm.fuelSupported}
+              onChange={e => setEditForm({ ...editForm, fuelSupported: e.target.checked, fuelTankCapacity: e.target.checked ? editForm.fuelTankCapacity : '' })}
+              style={{ width: 18, height: 18, accentColor: C.primary, cursor: 'pointer' }}
+            />
+            Fuel sensor wired
+          </label>
+          <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.5, marginTop: 6 }}>
+            Enable only for FMB devices with an LLS or CAN fuel sensor. AIS140 and GT06 devices do not support fuel sensors.
+          </div>
+        </div>
+        {editForm.fuelSupported && (
+          <div style={fullRow}>
+            <label style={lblBig}>Tank Capacity (litres) <span style={{ color: '#dc2626' }}>*</span></label>
+            <input
+              style={inpSq}
+              type="number"
+              min={1}
+              max={10000}
+              value={editForm.fuelTankCapacity || ''}
+              onChange={e => setEditForm({ ...editForm, fuelTankCapacity: e.target.value })}
+              placeholder="e.g. 60"
+            />
+            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 5 }}>
+              Used to convert fuel % → litres for reports and theft alerts.
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+
+    <div style={cardSq}>
+      <div style={cardHdr}>
+        <Ic n="gear" size={13} color={C.primary} />
+        <span style={cardTitle}>Thresholds</span>
+      </div>
+      <div style={cardBody}>
         <div>
-          <label style={lbl}>Idle Threshold (minutes)</label>
-          <input style={inp} type="number" min={1} max={60} value={editForm.idleThreshold || 5} onChange={e => setEditForm({ ...editForm, idleThreshold: Number(e.target.value) })} />
+          <label style={lblBig}>Idle Threshold (minutes)</label>
+          <input style={inpSq} type="number" min={1} max={60} value={editForm.idleThreshold || 5} onChange={e => setEditForm({ ...editForm, idleThreshold: Number(e.target.value) })} />
         </div>
         <div>
-          <label style={lbl}>Fuel Fill Threshold (%)</label>
-          <input style={inp} type="number" min={1} max={50} value={editForm.fuelFillThreshold || 5} onChange={e => setEditForm({ ...editForm, fuelFillThreshold: Number(e.target.value) })} />
+          <label style={lblBig}>Fuel Fill Threshold (%)</label>
+          <input style={inpSq} type="number" min={1} max={50} value={editForm.fuelFillThreshold || 5} onChange={e => setEditForm({ ...editForm, fuelFillThreshold: Number(e.target.value) })} />
         </div>
       </div>
     </div>
 
-    <button onClick={handleSaveEdit} disabled={saving}
-      style={{ ...btn(C.primary, saving), justifyContent: 'center', padding: '11px', width: '100%', borderRadius: 10, fontSize: 14 }}>
-      <Ic n="save" size={14} /> {saving ? 'Saving…' : 'Save Changes'}
-    </button>
+    {/* Save button — full row, centered, capped width so it doesn't stretch */}
+    <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'center', marginTop: 6 }}>
+      <button onClick={handleSaveEdit} disabled={saving}
+        style={{ ...btn(C.primary, saving), justifyContent: 'center', padding: '13px 36px', borderRadius: 0, fontSize: 14, letterSpacing: '0.05em', minWidth: 240 }}>
+        <Ic n="save" size={15} /> {saving ? 'SAVING…' : 'SAVE CHANGES'}
+      </button>
+    </div>
   </div>
   );
 };

@@ -3,6 +3,9 @@ import { Link } from 'react-router-dom';
 import { getDashboardUserStats, getOverspeedVehicles, getNetworkStats } from '../services/dashboard.service';
 import { getActivities } from '../services/activity.service';
 import { getSettings } from '../services/settings.service';
+import { getVehicles } from '../services/vehicle.service';
+import { getDeviceConfigs } from '../services/master.service';
+import { getVehicleState } from '../utils/vehicleState';
 import { useAuth } from '../context/AuthContext';
 import {
   TruckIcon,
@@ -23,6 +26,19 @@ import {
 } from '@heroicons/react/24/outline';
 
 // ── Utility ─────────────────────────────────────────────────────────────
+// Default ids — must match VehicleSettings.jsx DEFAULT_DASH_CARDS.
+const DEFAULT_DASH_CARDS = ['registered','active','overspeed','inactive','gps_active','challans','renewals'];
+const STATE_CARD_PREFIX  = 'state_';
+
+const readVisibleCards = () => {
+  try {
+    const raw = JSON.parse(localStorage.getItem('dashboard-visible-cards'));
+    return Array.isArray(raw) ? raw : DEFAULT_DASH_CARDS;
+  } catch {
+    return DEFAULT_DASH_CARDS;
+  }
+};
+
 const fmtInt = (n) => (n == null ? '—' : Number(n).toLocaleString('en-IN'));
 const fmtDateShort = (d) => new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
 const fmtDay = (d) => new Date(d).toLocaleDateString('en-IN', { weekday: 'short' });
@@ -41,35 +57,35 @@ const StatCard = ({ label, value, Icon, gradient, to, subtitle, trend }) => {
     <div style={{
       background: gradient,
       border: 'none',
-      borderRadius: 14,
-      padding: '20px 22px',
+      borderRadius: 16,
+      padding: '26px 28px',
       display: 'flex',
       flexDirection: 'column',
-      gap: 6,
+      gap: 8,
       color: '#fff',
       position: 'relative',
       overflow: 'hidden',
-      boxShadow: '0 6px 18px rgba(15, 23, 42, 0.10)',
+      boxShadow: '0 8px 22px rgba(15, 23, 42, 0.12)',
       transition: 'transform 0.18s, box-shadow 0.18s',
       cursor: to ? 'pointer' : 'default',
-      minHeight: 128,
+      minHeight: 168,
     }}
-      onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.boxShadow = '0 12px 28px rgba(15,23,42,0.18)'; }}
-      onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = '0 6px 18px rgba(15,23,42,0.10)'; }}
+      onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.boxShadow = '0 14px 32px rgba(15,23,42,0.2)'; }}
+      onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = '0 8px 22px rgba(15,23,42,0.12)'; }}
     >
       {/* decorative icon bubble */}
-      <div style={{ position: 'absolute', right: -18, top: -18, width: 110, height: 110, borderRadius: '50%', background: 'rgba(255,255,255,0.12)', pointerEvents: 'none' }} />
-      <div style={{ position: 'absolute', right: 18, top: 18, width: 40, height: 40, borderRadius: 10, background: 'rgba(255,255,255,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(6px)' }}>
-        <Icon style={{ width: 20, height: 20, color: '#fff' }} />
+      <div style={{ position: 'absolute', right: -22, top: -22, width: 130, height: 130, borderRadius: '50%', background: 'rgba(255,255,255,0.12)', pointerEvents: 'none' }} />
+      <div style={{ position: 'absolute', right: 20, top: 20, width: 48, height: 48, borderRadius: 12, background: 'rgba(255,255,255,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(6px)' }}>
+        <Icon style={{ width: 24, height: 24, color: '#fff' }} />
       </div>
 
-      <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.88)', textTransform: 'uppercase', letterSpacing: '0.08em', position: 'relative', zIndex: 1 }}>{label}</div>
-      <div style={{ fontSize: 34, fontWeight: 800, color: '#fff', lineHeight: 1.05, fontVariantNumeric: 'tabular-nums', position: 'relative', zIndex: 1 }}>{value}</div>
+      <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.88)', textTransform: 'uppercase', letterSpacing: '0.08em', position: 'relative', zIndex: 1 }}>{label}</div>
+      <div style={{ fontSize: 44, fontWeight: 800, color: '#fff', lineHeight: 1.05, fontVariantNumeric: 'tabular-nums', position: 'relative', zIndex: 1, letterSpacing: '-0.02em' }}>{value}</div>
       {(subtitle || trend != null) && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'rgba(255,255,255,0.9)', fontWeight: 600, position: 'relative', zIndex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'rgba(255,255,255,0.92)', fontWeight: 600, position: 'relative', zIndex: 1, marginTop: 2 }}>
           {trend != null && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: 'rgba(255,255,255,0.18)', padding: '2px 7px', borderRadius: 10 }}>
-              <ArrowTrendingUpIcon style={{ width: 12, height: 12, transform: trend < 0 ? 'rotate(180deg)' : 'none' }} />
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: 'rgba(255,255,255,0.2)', padding: '2px 8px', borderRadius: 10 }}>
+              <ArrowTrendingUpIcon style={{ width: 13, height: 13, transform: trend < 0 ? 'rotate(180deg)' : 'none' }} />
               {Math.abs(trend)}%
             </span>
           )}
@@ -165,6 +181,53 @@ const Dashboard = () => {
   const [overspeedVehicles, setOverspeedVehicles] = useState([]);
   const [activities, setActivities] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // ── Visible cards selection (from VehicleSettings) ──────────────────────
+  const [visibleCards, setVisibleCards] = useState(readVisibleCards);
+  useEffect(() => {
+    const refresh = () => setVisibleCards(readVisibleCards());
+    window.addEventListener('dashboard-cards-updated', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      window.removeEventListener('dashboard-cards-updated', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, []);
+
+  // ── Live vehicle list — fetched only when at least one state_* card is on ─
+  const needsStateCounts = useMemo(
+    () => visibleCards.some(id => id.startsWith(STATE_CARD_PREFIX)),
+    [visibleCards]
+  );
+  const [vehicles, setVehicles] = useState([]);
+  const [deviceStatesByType, setDeviceStatesByType] = useState({});
+  useEffect(() => {
+    if (!needsStateCounts) return;
+    Promise.allSettled([getVehicles(), getDeviceConfigs()]).then(([vRes, cRes]) => {
+      if (vRes.status === 'fulfilled') {
+        const data = vRes.value?.data;
+        setVehicles(Array.isArray(data) ? data : []);
+      }
+      if (cRes.status === 'fulfilled') {
+        const m = {};
+        (cRes.value?.data || []).forEach(d => { if (d.states?.length) m[d.type] = d.states; });
+        setDeviceStatesByType(m);
+      }
+    });
+  }, [needsStateCounts]);
+
+  // ── Computed state counts (lower-cased state names from evaluator) ──────
+  const stateCounts = useMemo(() => {
+    const counts = {};
+    if (!vehicles.length) return counts;
+    vehicles.forEach(v => {
+      const states = deviceStatesByType[v.deviceType] || [];
+      const result = getVehicleState(v.deviceStatus, states);
+      const key = (result?.stateName || 'online').toLowerCase().replace(/\s+/g, '_');
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    return counts;
+  }, [vehicles, deviceStatesByType]);
 
   useEffect(() => {
     const tasks = [
@@ -263,80 +326,133 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* ══ Hero stats grid ══ */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 16, marginBottom: 18 }}>
-        {isNetworkUser && (
-          <StatCard
-            label="Total Clients"
-            value={fmtInt(networkStats?.totalClients)}
-            Icon={UsersIcon}
-            gradient="linear-gradient(135deg, #2563EB 0%, #1E40AF 100%)"
-            to="/my-clients"
-            subtitle="in your network"
-          />
-        )}
-        <StatCard
-          label="Registered Vehicles"
-          value={fmtInt(isNetworkUser ? networkStats?.totalVehicles : totalReg)}
-          Icon={TruckIcon}
-          gradient="linear-gradient(135deg, #7C3AED 0%, #5B21B6 100%)"
-          to="/my-fleet"
-          subtitle={isNetworkUser ? 'across network' : 'your fleet'}
-        />
-        <StatCard
-          label="Active"
-          value={fmtInt(isNetworkUser ? networkStats?.activeVehicles : active)}
-          Icon={CheckCircleIcon}
-          gradient="linear-gradient(135deg, #10B981 0%, #047857 100%)"
-          to="/my-fleet"
-          subtitle="currently tracked"
-        />
-        <StatCard
-          label="Inactive"
-          value={fmtInt(isNetworkUser ? networkStats?.inactiveVehicles : inactive)}
-          Icon={XCircleIcon}
-          gradient="linear-gradient(135deg, #F43F5E 0%, #BE123C 100%)"
-          to="/my-fleet"
-          subtitle="not reporting"
-        />
-      </div>
+      {/* ══ Stat grid — driven by visibleCards from VehicleSettings ══ */}
+      {(() => {
+        // Card registry — id ↔ render config. Order in CARD_DEFS_ORDER is the
+        // display order; selection in visibleCards controls which actually render.
+        const CARD_DEFS = {
+          clients: {
+            label: 'Total Clients', value: fmtInt(networkStats?.totalClients),
+            Icon: UsersIcon, to: '/my-clients', subtitle: 'in your network',
+            gradient: 'linear-gradient(135deg, #2563EB 0%, #1E40AF 100%)',
+            requiresNetwork: true,
+          },
+          registered: {
+            label: 'Registered Vehicles',
+            value: fmtInt(isNetworkUser ? networkStats?.totalVehicles : totalReg),
+            Icon: TruckIcon, to: '/my-fleet',
+            subtitle: isNetworkUser ? 'across network' : 'your fleet',
+            gradient: 'linear-gradient(135deg, #7C3AED 0%, #5B21B6 100%)',
+          },
+          active: {
+            label: 'Active',
+            value: fmtInt(isNetworkUser ? networkStats?.activeVehicles : active),
+            Icon: CheckCircleIcon, to: '/my-fleet', subtitle: 'currently tracked',
+            gradient: 'linear-gradient(135deg, #10B981 0%, #047857 100%)',
+          },
+          inactive: {
+            label: 'Inactive',
+            value: fmtInt(isNetworkUser ? networkStats?.inactiveVehicles : inactive),
+            Icon: XCircleIcon, to: '/my-fleet', subtitle: 'not reporting',
+            gradient: 'linear-gradient(135deg, #F43F5E 0%, #BE123C 100%)',
+          },
+          deleted: {
+            label: 'Deleted', value: fmtInt(deleted),
+            Icon: XCircleIcon, to: '/my-fleet', subtitle: 'soft-deleted',
+            gradient: 'linear-gradient(135deg, #94A3B8 0%, #475569 100%)',
+          },
+          gps_active: {
+            label: 'GPS Active', value: fmtInt(stats?.gpsActive),
+            Icon: ShieldCheckIcon, to: '/my-fleet', subtitle: 'reporting GPS',
+            gradient: 'linear-gradient(135deg, #0EA5E9 0%, #0369A1 100%)',
+          },
+          challans: {
+            label: 'Pending Challans', value: fmtInt(stats?.pendingChallans),
+            Icon: DocumentTextIcon, to: '/challans', subtitle: 'awaiting resolution',
+            gradient: 'linear-gradient(135deg, #F59E0B 0%, #B45309 100%)',
+          },
+          renewals: {
+            label: 'Upcoming Renewals', value: fmtInt(stats?.upcomingRenewals),
+            Icon: ClockIcon, to: '/rto-details', subtitle: 'within 30 days',
+            gradient: 'linear-gradient(135deg, #A855F7 0%, #6B21A8 100%)',
+          },
+          overspeed: {
+            label: 'Overspeed (24h)', value: fmtInt(overspeedVehicles.length),
+            Icon: BoltIcon, to: '/reports',
+            subtitle: overspeedVehicles.length ? 'alerts flagged' : 'all clear',
+            gradient: 'linear-gradient(135deg, #EF4444 0%, #991B1B 100%)',
+          },
+          activity: {
+            label: 'Activity (7d)', value: fmtInt(weekTotal),
+            Icon: ArrowTrendingUpIcon, to: '/user-activity', subtitle: 'events logged',
+            gradient: 'linear-gradient(135deg, #06B6D4 0%, #0E7490 100%)',
+            trend: weekTrend,
+          },
+          // ── Live state cards (require vehicle list fetched above) ─────────
+          state_offline: {
+            label: 'Offline', value: fmtInt(stateCounts.offline || 0),
+            Icon: ExclamationTriangleIcon, to: '/my-fleet', subtitle: 'silent ≥ 2 min',
+            gradient: 'linear-gradient(135deg, #64748B 0%, #334155 100%)',
+          },
+          state_speeding: {
+            label: 'Speeding', value: fmtInt(stateCounts.speeding || 0),
+            Icon: BoltIcon, to: '/my-fleet', subtitle: 'over threshold',
+            gradient: 'linear-gradient(135deg, #DC2626 0%, #991B1B 100%)',
+          },
+          state_running: {
+            label: 'Running', value: fmtInt(stateCounts.running || 0),
+            Icon: CheckCircleIcon, to: '/my-fleet', subtitle: 'in motion',
+            gradient: 'linear-gradient(135deg, #16A34A 0%, #047857 100%)',
+          },
+          state_idle: {
+            label: 'Idle', value: fmtInt(stateCounts.idle || 0),
+            Icon: ClockIcon, to: '/my-fleet', subtitle: 'engine on, parked',
+            gradient: 'linear-gradient(135deg, #D97706 0%, #92400E 100%)',
+          },
+          state_stopped: {
+            label: 'Stopped', value: fmtInt(stateCounts.stopped || 0),
+            Icon: XCircleIcon, to: '/my-fleet', subtitle: 'engine off',
+            gradient: 'linear-gradient(135deg, #EF4444 0%, #B91C1C 100%)',
+          },
+          state_online: {
+            label: 'Online', value: fmtInt(stateCounts.online || 0),
+            Icon: ShieldCheckIcon, to: '/my-fleet', subtitle: 'reachable',
+            gradient: 'linear-gradient(135deg, #0EA5E9 0%, #0369A1 100%)',
+          },
+        };
 
-      {/* ══ Secondary stats ══ */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 16, marginBottom: 18 }}>
-        <StatCard
-          label="Pending Challans"
-          value={fmtInt(stats?.pendingChallans)}
-          Icon={DocumentTextIcon}
-          gradient="linear-gradient(135deg, #F59E0B 0%, #B45309 100%)"
-          to="/challans"
-          subtitle="awaiting resolution"
-        />
-        <StatCard
-          label="Upcoming Renewals"
-          value={fmtInt(stats?.upcomingRenewals)}
-          Icon={ClockIcon}
-          gradient="linear-gradient(135deg, #A855F7 0%, #6B21A8 100%)"
-          to="/rto-details"
-          subtitle="within 30 days"
-        />
-        <StatCard
-          label="Overspeed (24h)"
-          value={fmtInt(overspeedVehicles.length)}
-          Icon={BoltIcon}
-          gradient="linear-gradient(135deg, #EF4444 0%, #991B1B 100%)"
-          to="/reports"
-          subtitle={overspeedVehicles.length ? 'alerts flagged' : 'all clear'}
-        />
-        <StatCard
-          label="Activity (7d)"
-          value={fmtInt(weekTotal)}
-          Icon={ArrowTrendingUpIcon}
-          gradient="linear-gradient(135deg, #06B6D4 0%, #0E7490 100%)"
-          to="/user-activity"
-          subtitle="events logged"
-          trend={weekTrend}
-        />
-      </div>
+        // Render in the order the user saved (visibleCards), skipping
+        // unknown ids and skipping clients-card for non-network users.
+        const cards = visibleCards
+          .map(id => CARD_DEFS[id] && { id, ...CARD_DEFS[id] })
+          .filter(Boolean)
+          .filter(c => !c.requiresNetwork || isNetworkUser);
+
+        if (cards.length === 0) {
+          return (
+            <div style={{ padding: '20px 24px', background: '#fff', border: '1px dashed #CBD5E1', borderRadius: 12, color: '#64748B', fontSize: 13, marginBottom: 18, textAlign: 'center' }}>
+              No dashboard cards selected. Open <strong>Settings → Vehicle Settings</strong> to enable them.
+            </div>
+          );
+        }
+
+        // Force at least 4 columns at desktop width. The clamp lets the grid
+        // collapse to 2 / 1 columns on narrower viewports so cards stay legible
+        // on tablets and phones.
+        const gridCols = `repeat(auto-fit, minmax(clamp(180px, 24%, 260px), 1fr))`;
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 18, marginBottom: 22 }}>
+            {cards.map(c => (
+              <StatCard
+                key={c.id}
+                label={c.label} value={c.value} Icon={c.Icon}
+                gradient={c.gradient} to={c.to} subtitle={c.subtitle}
+                trend={c.trend}
+              />
+            ))}
+          </div>
+        );
+      })()}
 
       {/* ══ Middle row: fleet status donut + weekly chart ══ */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14, marginBottom: 18 }}>

@@ -4,15 +4,27 @@ import { getSettings, updateSettings, resetSettings } from '../services/settings
 import { applyTheme } from '../utils/theme';
 
 // ─── Widget definitions (must match Dashboard.jsx + MyFleet.jsx) ─────────────
+// Card ids prefixed with "state_" are computed from live vehicle state and
+// require the dashboard to fetch the vehicles list. See Dashboard.jsx.
 const ALL_DASH_CARDS_DEF = [
+  // Registry / status counts (server-aggregated)
+  { id: 'clients',     title: 'Total Clients',       icon: '👥' },
   { id: 'registered',  title: 'Registered Vehicles', icon: '🚗' },
   { id: 'active',      title: 'Active Vehicles',     icon: '✅' },
-  { id: 'overspeed',   title: 'Overspeed Alerts',    icon: '⚠️' },
   { id: 'inactive',    title: 'Inactive Vehicles',   icon: '⏸️' },
+  { id: 'deleted',     title: 'Deleted Vehicles',    icon: '🗑️' },
   { id: 'gps_active',  title: 'GPS Active',          icon: '📡' },
+  { id: 'overspeed',   title: 'Overspeed Alerts',    icon: '⚠️' },
   { id: 'challans',    title: 'Pending Challans',    icon: '📋' },
   { id: 'renewals',    title: 'Upcoming Renewals',   icon: '📅' },
-  { id: 'deleted',     title: 'Deleted Vehicles',    icon: '🗑️' },
+  { id: 'activity',    title: 'Activity (7d)',       icon: '📈' },
+  // Fleet-state cards — counts derived live from vehicle state evaluator
+  { id: 'state_offline',  title: 'Offline (state)',   icon: '📵' },
+  { id: 'state_speeding', title: 'Speeding (state)',  icon: '🏎️' },
+  { id: 'state_running',  title: 'Running (state)',   icon: '🟢' },
+  { id: 'state_idle',     title: 'Idle (state)',      icon: '⏸️' },
+  { id: 'state_stopped',  title: 'Stopped (state)',   icon: '🔴' },
+  { id: 'state_online',   title: 'Online (state)',    icon: '🌐' },
 ];
 const DEFAULT_DASH_CARDS   = ['registered','active','overspeed','inactive','gps_active','challans','renewals'];
 

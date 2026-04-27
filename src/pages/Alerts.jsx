@@ -9,6 +9,7 @@ const ALERT_TYPES = [
   { value: 'SPEED_EXCEEDED', label: 'Speed Exceeded',      icon: '🏎️', color: '#dc2626', desc: 'Triggers when vehicle speed exceeds the threshold (km/h)' },
   { value: 'NOT_MOVING',     label: 'Vehicle Not Moving',  icon: '🅿️', color: '#d97706', desc: 'Triggers when vehicle speed stays at 0 for longer than the threshold (minutes)' },
   { value: 'IDLE_ENGINE',    label: 'Engine Idle',         icon: '⏸️', color: '#7c3aed', desc: 'Triggers when engine is ON but vehicle speed is 0 for longer than threshold (minutes)' },
+  { value: 'FUEL_THEFT',     label: 'Fuel Theft',          icon: '🛢️', color: '#059669', desc: 'Triggers when fuel drops by at least the threshold (litres) within the window (minutes). FMB devices only; vehicle must have fuel sensor enabled and a tank capacity configured.' },
 ];
 
 const SCOPES = [
@@ -23,12 +24,14 @@ const thresholdLabel = (type) => ({
   SPEED_EXCEEDED: 'Speed Limit (km/h)',
   NOT_MOVING:     'Duration (minutes)',
   IDLE_ENGINE:    'Duration (minutes)',
+  FUEL_THEFT:     'Minimum Drop (litres)',
 }[type] || 'Threshold');
 
 const thresholdPlaceholder = (type) => ({
   SPEED_EXCEEDED: 'e.g. 80',
   NOT_MOVING:     'e.g. 10',
   IDLE_ENGINE:    'e.g. 30',
+  FUEL_THEFT:     'e.g. 10',
 }[type] || '');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -67,7 +70,7 @@ const StatCard = ({ icon, label, value, sub, accent }) => (
 const AlertForm = ({ initial, vehicles, groups, onSave, onClose }) => {
   const [form, setForm] = useState({
     name: '', description: '', type: 'SPEED_EXCEEDED', scope: 'ALL',
-    vehicleId: '', groupId: '', threshold: '', cooldownMinutes: '30',
+    vehicleId: '', groupId: '', threshold: '', windowMinutes: '', cooldownMinutes: '30',
     notifyEmails: '', isActive: true,
     ...initial,
   });
@@ -79,6 +82,9 @@ const AlertForm = ({ initial, vehicles, groups, onSave, onClose }) => {
   const handleSubmit = async () => {
     if (!form.name.trim()) return toast.error('Alert name is required');
     if (!form.threshold || isNaN(form.threshold)) return toast.error('Valid threshold is required');
+    if (form.type === 'FUEL_THEFT' && (!form.windowMinutes || isNaN(form.windowMinutes))) {
+      return toast.error('Drop window (minutes) is required for fuel-theft alerts');
+    }
     setSaving(true);
     try { await onSave(form); }
     finally { setSaving(false); }
@@ -136,12 +142,19 @@ const AlertForm = ({ initial, vehicles, groups, onSave, onClose }) => {
           </div>
 
           {/* Threshold + Cooldown row */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: form.type === 'FUEL_THEFT' ? '1fr 1fr 1fr' : '1fr 1fr', gap: 14 }}>
             <div>
               <label style={lbl}>{thresholdLabel(form.type)} *</label>
               <input type="number" min="0" value={form.threshold} onChange={e => set('threshold', e.target.value)}
                 placeholder={thresholdPlaceholder(form.type)} style={inp} />
             </div>
+            {form.type === 'FUEL_THEFT' && (
+              <div>
+                <label style={lbl}>Within (minutes) *</label>
+                <input type="number" min="1" value={form.windowMinutes || ''} onChange={e => set('windowMinutes', e.target.value)}
+                  placeholder="e.g. 5" style={inp} />
+              </div>
+            )}
             <div>
               <label style={lbl}>Cooldown (minutes)</label>
               <input type="number" min="1" value={form.cooldownMinutes} onChange={e => set('cooldownMinutes', e.target.value)} placeholder="30" style={inp} />
@@ -251,7 +264,11 @@ const AlertCard = ({ alert, onEdit, onToggle, onDelete }) => {
       {/* Details row */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '10px 12px', background: '#f8fafc', borderRadius: 8 }}>
         <span style={{ fontSize: 12, color: '#374151' }}>
-          <strong>Threshold:</strong> {alert.type === 'SPEED_EXCEEDED' ? `${alert.threshold} km/h` : `${alert.threshold} min`}
+          <strong>Threshold:</strong> {
+            alert.type === 'SPEED_EXCEEDED' ? `${alert.threshold} km/h` :
+            alert.type === 'FUEL_THEFT'     ? `${alert.threshold} L in ${alert.windowMinutes || '?'} min` :
+            `${alert.threshold} min`
+          }
         </span>
         <span style={{ color: '#cbd5e1' }}>|</span>
         <span style={{ fontSize: 12, color: '#374151' }}>

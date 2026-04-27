@@ -41,6 +41,7 @@ export const getVehicleReportDaily        = (id, from, to) => api.get(`/vehicles
 export const getVehicleReportEngineHours  = (id, from, to, limit, offset) => api.get(`/vehicles/${id}/reports/engine-hours`,  { params: { from, to, limit, offset } });
 export const getVehicleReportTrips        = (id, from, to, limit, offset) => api.get(`/vehicles/${id}/reports/trips`,         { params: { from, to, limit, offset } });
 export const getVehicleReportFuelFillings = (id, from, to) => api.get(`/vehicles/${id}/reports/fuel-fillings`, { params: { from, to } });
+export const getVehicleReportFuel         = (id, from, to) => api.get(`/vehicles/${id}/reports/fuel`,          { params: { from, to } });
 export const exportVehicleReport          = (id, type, from, to) => api.get(`/vehicles/${id}/reports/export`,       { params: { type, from, to }, responseType: 'blob' });
 export const exportVehicleReportExcel     = (id, from, to)       => api.get(`/vehicles/${id}/reports/export-xlsx`,  { params: { from, to },       responseType: 'blob' });
 export const downloadRawPacketsExcel      = (id, from, to) => api.get(`/vehicles/${id}/reports/raw-packets`, { params: { from, to, fmt: 'xlsx' }, responseType: 'blob' });
