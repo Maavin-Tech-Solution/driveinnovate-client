@@ -45,9 +45,11 @@ export const AuthProvider = ({ children }) => {
       });
       logout();
       
-      // Small delay before redirect to show toast
+      // Small delay before redirect to show toast.
+      // Login page is mounted at the root URL (no /login route exists), so
+      // redirect to '/' — sending users to /login here gave them a 404.
       setTimeout(() => {
-        window.location.href = '/login';
+        window.location.href = '/';
       }, 500);
     }, INACTIVITY_TIMEOUT);
   }, [token, INACTIVITY_TIMEOUT, logout]);

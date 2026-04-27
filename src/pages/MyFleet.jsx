@@ -65,7 +65,9 @@ const VEHICLE_ICON_LABELS = {
   watertanker: 'Water Tanker', garbagevan: 'Garbage Van', mortuaryvan: 'Mortuary Van',
 };
 const SENSOR_TYPES = ['number', 'boolean', 'text'];
-const PANEL_W = 260;
+// Map-view sidebar width. Was 260; doubled to give the vehicle list room
+// to display name + reg + status + metrics legibly without truncation.
+const PANEL_W = 540;
 const HUD_H = 52;
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
@@ -2273,16 +2275,16 @@ const MyFleet = () => {
       <div style={{ width: PANEL_W, flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
         {/* Search + group filter */}
-        <div style={{ padding: '10px 10px 8px', flexShrink: 0, borderBottom: '1px solid #F1F5F9', background: '#FAFBFC' }}>
+        <div style={{ padding: '14px 14px 12px', flexShrink: 0, borderBottom: '1px solid #E2E8F0', background: '#FAFBFC' }}>
           {/* Search input */}
-          <div style={{ position: 'relative', marginBottom: groups.length > 0 ? 8 : 0 }}>
-            <span style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
-              <Ic n="search" size={13} color="#9CA3AF" />
+          <div style={{ position: 'relative', marginBottom: groups.length > 0 ? 10 : 0 }}>
+            <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
+              <Ic n="search" size={16} color="#94A3B8" />
             </span>
             <input
               title="Filter vehicles by name, number plate or IMEI"
-              style={{ width: '100%', background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 7, color: '#0F172A', fontSize: 12.5, padding: '7px 10px 7px 30px', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', transition: 'border-color 0.15s' }}
-              placeholder="Search vehicles…"
+              style={{ width: '100%', background: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: 0, color: '#0F172A', fontSize: 14, fontWeight: 500, padding: '11px 12px 11px 38px', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', transition: 'border-color 0.15s, box-shadow 0.15s' }}
+              placeholder="Search by name, number or IMEI…"
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
@@ -2334,16 +2336,16 @@ const MyFleet = () => {
         </div>
 
         {/* Vehicle count + multi-select controls */}
-        <div style={{ padding: '6px 12px 5px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #F1F5F9' }}>
-          <span style={{ fontSize: 10, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+        <div style={{ padding: '10px 16px 9px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #E2E8F0' }}>
+          <span style={{ fontSize: 12, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
             {filteredVehicles.length} vehicle{filteredVehicles.length !== 1 ? 's' : ''}
           </span>
           {focusedIds.size > 0 && (
             <button
               onClick={() => setFocusedIds(new Set())}
               title="Clear multi-select"
-              style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', color: '#1D4ED8', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10, cursor: 'pointer', fontFamily: 'inherit' }}>
-              {focusedIds.size} selected · Clear
+              style={{ background: '#2563EB', border: 'none', color: '#FFFFFF', fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 0, cursor: 'pointer', fontFamily: 'inherit', letterSpacing: '0.04em' }}>
+              {focusedIds.size} SELECTED · CLEAR
             </button>
           )}
         </div>
@@ -2383,68 +2385,87 @@ const MyFleet = () => {
                 title={`${vehicleDisplayName(v)} — click to view details and locate on map`}
                 className="fv-card"
                 style={{
-                  padding: '8px 10px 7px', cursor: 'pointer', borderRadius: 8, marginBottom: 2,
+                  padding: '14px 16px 13px', cursor: 'pointer', borderRadius: 0, marginBottom: 6,
                   background: isSel ? '#EFF6FF' : '#FFFFFF',
-                  border: `1px solid ${isSel ? '#93C5FD' : '#F1F5F9'}`,
-                  borderLeft: `3px solid ${isSel ? '#2563EB' : stColor}`,
+                  border: `1px solid ${isSel ? '#93C5FD' : '#E2E8F0'}`,
+                  borderLeft: `5px solid ${isSel ? '#2563EB' : stColor}`,
                   transition: 'all 0.12s',
-                  boxShadow: isSel ? '0 1px 6px rgba(37,99,235,0.10)' : 'none',
+                  boxShadow: isSel ? '0 2px 10px rgba(37,99,235,0.14)' : 'none',
                 }}>
-                {/* Row 1: checkbox + icon + name + status + age */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                {/* Row 1: checkbox + icon + name + reg + status pill */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <input
                     type="checkbox"
                     title="Track on map (multi-select)"
                     checked={focusedIds.has(v.id)}
                     onClick={e => e.stopPropagation()}
                     onChange={() => toggleFocus(v.id)}
-                    style={{ flexShrink: 0, width: 13, height: 13, accentColor: '#2563EB', cursor: 'pointer', margin: 0 }}
+                    style={{ flexShrink: 0, width: 18, height: 18, accentColor: '#2563EB', cursor: 'pointer', margin: 0 }}
                   />
-                  <div style={{ width: 28, height: 28, borderRadius: 7, background: stColor + '14', border: `1.5px solid ${stColor}30`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0 }}>
+                  <div style={{ width: 48, height: 48, borderRadius: 0, background: stColor, color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>
                     {VEHICLE_ICON_MAP[v.vehicleIcon] || '🚗'}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <span style={{ fontSize: 11.5, fontWeight: 700, color: '#0F172A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.2 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 16, fontWeight: 800, color: '#0F172A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.2, letterSpacing: '-0.01em' }}>
                         {vehicleDisplayName(v)}
                       </span>
                       {ageLabel && (
-                        <span style={{ fontSize: 8, color: ageColor, fontWeight: 700, flexShrink: 0, background: ageColor + '12', padding: '1px 4px', borderRadius: 3 }}>{ageLabel}</span>
+                        <span style={{ fontSize: 10, color: '#FFFFFF', fontWeight: 800, flexShrink: 0, background: ageColor, padding: '2px 8px', borderRadius: 0, letterSpacing: '0.04em' }}>{ageLabel.toUpperCase()}</span>
                       )}
                     </div>
                     {v.vehicleNumber && v.vehicleName && (
-                      <div style={{ fontSize: 9, color: '#94A3B8', fontFamily: 'monospace', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.vehicleNumber}</div>
+                      <div style={{ fontSize: 13, color: '#475569', fontFamily: 'monospace', fontWeight: 600, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.vehicleNumber}</div>
                     )}
                   </div>
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 3, flexShrink: 0, padding: '2px 6px', borderRadius: 20, background: stColor + '14', border: `1px solid ${stColor}28` }}>
-                    <span style={{ width: 4, height: 4, borderRadius: '50%', background: stColor, flexShrink: 0 }} />
-                    <span style={{ fontSize: 8.5, fontWeight: 700, color: stColor }}>{stLabel}</span>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0, padding: '5px 11px', borderRadius: 0, background: stColor, border: 'none' }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#FFFFFF', flexShrink: 0, boxShadow: ign === true ? '0 0 4px #FFFFFF' : 'none' }} />
+                    <span style={{ fontSize: 11, fontWeight: 800, color: '#FFFFFF', letterSpacing: '0.05em' }}>{stLabel.toUpperCase()}</span>
                   </div>
                 </div>
 
-                {/* Row 2: speed + ignition + battery + fuel — compact metrics strip */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, paddingLeft: 35 }}>
-                  {speed != null ? (
-                    <span title="Current speed" style={{ fontSize: 10, fontWeight: 800, color: speed > 80 ? '#ef4444' : speed > 5 ? '#2563EB' : '#64748B', fontVariantNumeric: 'tabular-nums' }}>
-                      {speed}<span style={{ fontSize: 8, fontWeight: 500, marginLeft: 1 }}>km/h</span>
-                    </span>
-                  ) : !hasCoords ? (
-                    <span title="No GPS signal received" style={{ fontSize: 8.5, color: '#F59E0B', fontWeight: 600 }}>No GPS</span>
-                  ) : null}
-                  {ign !== null && (
-                    <span title={`Ignition ${ign ? 'ON' : 'OFF'}`} style={{ fontSize: 8, fontWeight: 700, color: ign ? '#16a34a' : '#94A3B8', background: ign ? '#16a34a14' : '#F1F5F9', padding: '1px 4px', borderRadius: 3 }}>IGN</span>
-                  )}
-                  <span style={{ flex: 1 }} />
-                  {battery != null && (
-                    <span title={`Battery: ${Math.round(battery)}%`} style={{ fontSize: 8.5, color: battery < 20 ? '#ef4444' : '#64748B', fontWeight: 600 }}>{Math.round(battery)}%</span>
-                  )}
-                  {fuel != null && (
-                    <span title={`Fuel: ${Math.round(fuel)}%`} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 8.5, color: fuel < 20 ? '#ef4444' : '#64748B', fontWeight: 600 }}>
-                      <span style={{ width: 20, height: 3, background: '#F1F5F9', borderRadius: 2, overflow: 'hidden', display: 'inline-block', verticalAlign: 'middle' }}>
-                        <span style={{ width: `${Math.max(0, Math.min(100, fuel))}%`, height: '100%', display: 'block', borderRadius: 2, background: fuel > 30 ? '#22c55e' : fuel > 15 ? '#f59e0b' : '#ef4444' }} />
+                {/* Row 2: speed | ignition | battery | fuel — full-width metrics strip */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))', gap: 0, marginTop: 12, marginLeft: 30 }}>
+                  {/* Speed */}
+                  <div style={{ display: 'flex', flexDirection: 'column', padding: '6px 10px', borderLeft: `3px solid ${speed != null && speed > 80 ? '#ef4444' : speed != null && speed > 5 ? '#2563EB' : '#CBD5E1'}` }}>
+                    <span style={{ fontSize: 9.5, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Speed</span>
+                    {speed != null ? (
+                      <span style={{ fontSize: 17, fontWeight: 800, color: speed > 80 ? '#ef4444' : speed > 5 ? '#2563EB' : '#0F172A', fontVariantNumeric: 'tabular-nums', lineHeight: 1.05, marginTop: 2 }}>
+                        {speed}<span style={{ fontSize: 10, fontWeight: 600, color: '#94A3B8', marginLeft: 2 }}>km/h</span>
                       </span>
-                      {Math.round(fuel)}%
-                    </span>
+                    ) : !hasCoords ? (
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#F59E0B', marginTop: 2 }}>NO GPS</span>
+                    ) : <span style={{ fontSize: 17, fontWeight: 800, color: '#94A3B8', marginTop: 2 }}>—</span>}
+                  </div>
+                  {/* Ignition */}
+                  {ign !== null && (
+                    <div style={{ display: 'flex', flexDirection: 'column', padding: '6px 10px', borderLeft: `3px solid ${ign ? '#16a34a' : '#94A3B8'}` }}>
+                      <span style={{ fontSize: 9.5, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Ignition</span>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: ign ? '#16a34a' : '#475569', marginTop: 4 }}>{ign ? 'ON' : 'OFF'}</span>
+                    </div>
+                  )}
+                  {/* Battery */}
+                  {battery != null && (
+                    <div style={{ display: 'flex', flexDirection: 'column', padding: '6px 10px', borderLeft: `3px solid ${battery < 20 ? '#ef4444' : '#7C3AED'}` }}>
+                      <span style={{ fontSize: 9.5, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Battery</span>
+                      <span style={{ fontSize: 17, fontWeight: 800, color: battery < 20 ? '#ef4444' : '#0F172A', fontVariantNumeric: 'tabular-nums', lineHeight: 1.05, marginTop: 2 }}>
+                        {Math.round(battery)}<span style={{ fontSize: 10, fontWeight: 600, color: '#94A3B8' }}>%</span>
+                      </span>
+                    </div>
+                  )}
+                  {/* Fuel */}
+                  {fuel != null && (
+                    <div style={{ display: 'flex', flexDirection: 'column', padding: '6px 10px', borderLeft: `3px solid ${fuel < 20 ? '#ef4444' : fuel < 40 ? '#f59e0b' : '#16a34a'}` }}>
+                      <span style={{ fontSize: 9.5, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Fuel</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                        <span style={{ fontSize: 17, fontWeight: 800, color: fuel < 20 ? '#ef4444' : '#0F172A', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
+                          {Math.round(fuel)}<span style={{ fontSize: 10, fontWeight: 600, color: '#94A3B8' }}>%</span>
+                        </span>
+                        <span style={{ flex: 1, minWidth: 24, height: 4, background: '#F1F5F9', overflow: 'hidden', display: 'inline-block' }}>
+                          <span style={{ width: `${Math.max(0, Math.min(100, fuel))}%`, height: '100%', display: 'block', background: fuel > 30 ? '#22c55e' : fuel > 15 ? '#f59e0b' : '#ef4444' }} />
+                        </span>
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>
@@ -3904,173 +3925,179 @@ const EditTab = ({ editForm, setEditForm, saving, handleSaveEdit, currentImei = 
     setImeiUnlocked(false);
   }, [currentImei]);
 
-  // Flat (no-box) section pattern matching SectionCard above. Heading row
-  // with a colored underline; body flows directly below in a field grid.
-  const cardSq    = { padding: '0 0 6px 0' };
-  const cardHdr   = { display: 'flex', alignItems: 'center', gap: 9, padding: '0 0 9px 0', borderBottom: `2px solid ${C.primary}`, marginBottom: 14 };
-  const cardTitle = { fontSize: 13, fontWeight: 800, color: C.primary, textTransform: 'uppercase', letterSpacing: '0.08em' };
-  const cardBody  = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 };
-  const inpSq     = { ...inp, borderRadius: 0, fontSize: 14, padding: '10px 14px' };
-  const lblBig    = { ...lbl, fontSize: 12, marginBottom: 7 };
+  // ── Single unified grid ────────────────────────────────────────────────
+  // All sections share one CSS grid that spans the full width of the bottom
+  // sheet. Section headings are full-row separators (gridColumn: 1 / -1) so
+  // fields from different sections still line up to the same column count.
+  // No outer cards, no boxes — fields read as a single dense form.
   const fullRow   = { gridColumn: '1 / -1' };
+  const sectionHd = (icon, title) => (
+    <div style={{ ...fullRow, display: 'flex', alignItems: 'center', gap: 10, padding: '4px 0 9px 0', borderBottom: `2px solid ${C.primary}`, marginTop: 6 }}>
+      <Ic n={icon} size={15} color={C.primary} />
+      <span style={{ fontSize: 13, fontWeight: 800, color: C.primary, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{title}</span>
+    </div>
+  );
 
   return (
-  // Outer 2-column grid so the four cards sit side-by-side at wide widths
-  // and stack on narrow ones. Save button anchors the bottom full-width.
-  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: 14 }}>
-    <div style={cardSq}>
-      <div style={cardHdr}>
-        <Ic n="info" size={13} color={C.primary} />
-        <span style={cardTitle}>Vehicle Identity</span>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', columnGap: 18, rowGap: 16, alignItems: 'start' }}>
+
+      {/* ── Vehicle Identity ────────────────────────────────────────────── */}
+      {sectionHd('info', 'Vehicle Identity')}
+
+      <div>
+        <label className="fv-label">Vehicle Name</label>
+        <input className="fv-input" value={editForm.vehicleName || ''} onChange={e => setEditForm({ ...editForm, vehicleName: e.target.value })} placeholder="My Vehicle" />
       </div>
-      <div style={cardBody}>
-        <div><label style={lblBig}>Vehicle Name</label><input style={inpSq} value={editForm.vehicleName || ''} onChange={e => setEditForm({ ...editForm, vehicleName: e.target.value })} /></div>
-        <div><label style={lblBig}>Registration Number</label><input style={{ ...inpSq, textTransform: 'uppercase', fontFamily: 'monospace' }} value={editForm.vehicleNumber || ''} onChange={e => setEditForm({ ...editForm, vehicleNumber: e.target.value })} /></div>
-        <div><label style={lblBig}>Chassis Number</label><input style={inpSq} value={editForm.chasisNumber || ''} onChange={e => setEditForm({ ...editForm, chasisNumber: e.target.value })} /></div>
-        <div><label style={lblBig}>Engine Number</label><input style={inpSq} value={editForm.engineNumber || ''} onChange={e => setEditForm({ ...editForm, engineNumber: e.target.value })} /></div>
-        <div><label style={lblBig}>Status</label><select style={inpSq} value={editForm.status || 'active'} onChange={e => setEditForm({ ...editForm, status: e.target.value })}><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
-        <div style={fullRow}>
-          <label style={lblBig}>Vehicle Icon</label>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {VEHICLE_ICONS.map(ic => (
-              <button key={ic}
-                type="button"
-                title={VEHICLE_ICON_LABELS[ic] || ic}
-                onClick={() => setEditForm({ ...editForm, vehicleIcon: ic })}
-                style={{
-                  display: 'flex', flexDirection: 'column', alignItems: 'center',
-                  gap: 3, padding: '7px 5px', width: 78, borderRadius: 0,
-                  border: `2px solid ${editForm.vehicleIcon === ic ? C.primary : C.border}`,
-                  background: editForm.vehicleIcon === ic ? C.primary : C.white,
-                  cursor: 'pointer', fontFamily: 'inherit',
-                }}>
-                <span style={{ fontSize: 20, lineHeight: 1 }}>{VEHICLE_ICON_MAP[ic]}</span>
-                <span style={{ fontSize: 10, fontWeight: 700, color: editForm.vehicleIcon === ic ? '#FFFFFF' : C.textSub, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>
-                  {VEHICLE_ICON_LABELS[ic] || ic}
-                </span>
-              </button>
-            ))}
-          </div>
+      <div>
+        <label className="fv-label">Registration Number</label>
+        <input className="fv-input fv-mono" style={{ textTransform: 'uppercase' }} value={editForm.vehicleNumber || ''} onChange={e => setEditForm({ ...editForm, vehicleNumber: e.target.value })} placeholder="DL01AB1234" />
+      </div>
+      <div>
+        <label className="fv-label">Chassis Number</label>
+        <input className="fv-input" value={editForm.chasisNumber || ''} onChange={e => setEditForm({ ...editForm, chasisNumber: e.target.value })} />
+      </div>
+      <div>
+        <label className="fv-label">Engine Number</label>
+        <input className="fv-input" value={editForm.engineNumber || ''} onChange={e => setEditForm({ ...editForm, engineNumber: e.target.value })} />
+      </div>
+      <div>
+        <label className="fv-label">Status</label>
+        <select className="fv-input" value={editForm.status || 'active'} onChange={e => setEditForm({ ...editForm, status: e.target.value })}>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+        </select>
+      </div>
+
+      {/* Icon picker fills the row */}
+      <div style={fullRow}>
+        <label className="fv-label">Vehicle Icon</label>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {VEHICLE_ICONS.map(ic => (
+            <button key={ic} type="button" title={VEHICLE_ICON_LABELS[ic] || ic}
+              onClick={() => setEditForm({ ...editForm, vehicleIcon: ic })}
+              style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+                padding: '8px 5px', width: 84, borderRadius: 0,
+                border: `2px solid ${editForm.vehicleIcon === ic ? C.primary : '#CBD5E1'}`,
+                background: editForm.vehicleIcon === ic ? C.primary : '#FFFFFF',
+                cursor: 'pointer', fontFamily: 'inherit',
+                transition: 'border-color 0.15s, background 0.15s',
+              }}>
+              <span style={{ fontSize: 22, lineHeight: 1 }}>{VEHICLE_ICON_MAP[ic]}</span>
+              <span style={{ fontSize: 10, fontWeight: 700, color: editForm.vehicleIcon === ic ? '#FFFFFF' : '#475569', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>
+                {VEHICLE_ICON_LABELS[ic] || ic}
+              </span>
+            </button>
+          ))}
         </div>
       </div>
-    </div>
 
-    <div style={cardSq}>
-      <div style={cardHdr}>
-        <Ic n="radio" size={13} color={C.primary} />
-        <span style={cardTitle}>Device &amp; SIMs</span>
-      </div>
-      <div style={cardBody}>
-        <div style={fullRow}>
-          <label style={{ ...lblBig, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span>IMEI Number</span>
-            {!imeiUnlocked ? (
-              <button type="button" onClick={() => setImeiUnlocked(true)}
-                style={{ background: '#FEF3C7', border: '1px solid #FCD34D', color: '#92400E', padding: '3px 10px', borderRadius: 0, fontSize: 11, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.03em' }}>
-                🔒 UNLOCK TO EDIT
-              </button>
-            ) : (
-              <button type="button" onClick={() => { setImeiUnlocked(false); setImeiDraft(currentImei); }}
-                style={{ background: '#F1F5F9', border: '1px solid #CBD5E1', color: '#475569', padding: '3px 10px', borderRadius: 0, fontSize: 11, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.03em' }}>
-                CANCEL
-              </button>
-            )}
-          </label>
-          <input
-            style={{ ...inpSq, fontFamily: 'monospace', letterSpacing: '0.06em', background: imeiUnlocked ? '#fff' : '#F8FAFC', color: imeiUnlocked ? '#0F172A' : '#64748B' }}
-            value={imeiDraft || ''}
-            onChange={e => setImeiDraft(e.target.value)}
-            readOnly={!imeiUnlocked}
-            maxLength={20}
-            placeholder="Device IMEI"
-          />
-          {imeiUnlocked && (
-            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-              <button type="button" onClick={() => onRequestImeiEdit?.(imeiDraft)}
-                disabled={!imeiDraft.trim() || imeiDraft.trim() === currentImei}
-                style={{ padding: '9px 16px', border: 'none', borderRadius: 0,
-                  background: (!imeiDraft.trim() || imeiDraft.trim() === currentImei) ? '#FCA5A5' : '#DC2626',
-                  color: '#fff', fontSize: 12, fontWeight: 700, letterSpacing: '0.04em',
-                  cursor: (!imeiDraft.trim() || imeiDraft.trim() === currentImei) ? 'not-allowed' : 'pointer' }}>
-                CHANGE IMEI…
-              </button>
-            </div>
+      {/* ── Device & SIMs ───────────────────────────────────────────────── */}
+      {sectionHd('radio', 'Device & SIMs')}
+
+      <div style={fullRow}>
+        <label className="fv-label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>IMEI Number</span>
+          {!imeiUnlocked ? (
+            <button type="button" onClick={() => setImeiUnlocked(true)}
+              style={{ background: '#FEF3C7', border: '1px solid #FCD34D', color: '#92400E', padding: '3px 10px', borderRadius: 0, fontSize: 11, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.04em' }}>
+              🔒 UNLOCK TO EDIT
+            </button>
+          ) : (
+            <button type="button" onClick={() => { setImeiUnlocked(false); setImeiDraft(currentImei); }}
+              style={{ background: '#F1F5F9', border: '1px solid #CBD5E1', color: '#475569', padding: '3px 10px', borderRadius: 0, fontSize: 11, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.04em' }}>
+              CANCEL
+            </button>
           )}
-          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8, lineHeight: 1.5 }}>
-            Changing IMEI rebinds the vehicle to a different GPS device. A confirmation phrase will be required.
-          </div>
-        </div>
-        <div><label style={lblBig}>SIM 1 Number <span style={{ fontSize: 10, color: '#94a3b8', textTransform: 'none' }}>(Optional)</span></label><input style={{ ...inpSq, fontFamily: 'monospace' }} value={editForm.sim1 || ''} onChange={e => setEditForm({ ...editForm, sim1: e.target.value })} maxLength={20} placeholder="e.g. 9876543210" /></div>
-        <div><label style={lblBig}>SIM 2 Number <span style={{ fontSize: 10, color: '#94a3b8', textTransform: 'none' }}>(Optional)</span></label><input style={{ ...inpSq, fontFamily: 'monospace' }} value={editForm.sim2 || ''} onChange={e => setEditForm({ ...editForm, sim2: e.target.value })} maxLength={20} placeholder="e.g. 9876543211" /></div>
-      </div>
-    </div>
-
-    {/* Fuel sensor — FMB only. Capacity is required so % can be resolved to L. */}
-    <div style={cardSq}>
-      <div style={cardHdr}>
-        <Ic n="gear" size={13} color={C.primary} />
-        <span style={cardTitle}>Fuel Sensor</span>
-      </div>
-      <div style={cardBody}>
-        <div style={fullRow}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 14, fontWeight: 600, color: C.text }}>
-            <input
-              type="checkbox"
-              checked={!!editForm.fuelSupported}
-              onChange={e => setEditForm({ ...editForm, fuelSupported: e.target.checked, fuelTankCapacity: e.target.checked ? editForm.fuelTankCapacity : '' })}
-              style={{ width: 18, height: 18, accentColor: C.primary, cursor: 'pointer' }}
-            />
-            Fuel sensor wired
-          </label>
-          <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.5, marginTop: 6 }}>
-            Enable only for FMB devices with an LLS or CAN fuel sensor. AIS140 and GT06 devices do not support fuel sensors.
-          </div>
-        </div>
-        {editForm.fuelSupported && (
-          <div style={fullRow}>
-            <label style={lblBig}>Tank Capacity (litres) <span style={{ color: '#dc2626' }}>*</span></label>
-            <input
-              style={inpSq}
-              type="number"
-              min={1}
-              max={10000}
-              value={editForm.fuelTankCapacity || ''}
-              onChange={e => setEditForm({ ...editForm, fuelTankCapacity: e.target.value })}
-              placeholder="e.g. 60"
-            />
-            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 5 }}>
-              Used to convert fuel % → litres for reports and theft alerts.
-            </div>
+        </label>
+        <input
+          className="fv-input fv-mono"
+          value={imeiDraft || ''}
+          onChange={e => setImeiDraft(e.target.value)}
+          readOnly={!imeiUnlocked}
+          maxLength={20}
+          placeholder="Device IMEI"
+        />
+        {imeiUnlocked && (
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <button type="button" onClick={() => onRequestImeiEdit?.(imeiDraft)}
+              disabled={!imeiDraft.trim() || imeiDraft.trim() === currentImei}
+              style={{ padding: '10px 18px', border: 'none', borderRadius: 0,
+                background: (!imeiDraft.trim() || imeiDraft.trim() === currentImei) ? '#FCA5A5' : '#DC2626',
+                color: '#fff', fontSize: 12, fontWeight: 700, letterSpacing: '0.04em',
+                cursor: (!imeiDraft.trim() || imeiDraft.trim() === currentImei) ? 'not-allowed' : 'pointer' }}>
+              CHANGE IMEI…
+            </button>
           </div>
         )}
-      </div>
-    </div>
-
-    <div style={cardSq}>
-      <div style={cardHdr}>
-        <Ic n="gear" size={13} color={C.primary} />
-        <span style={cardTitle}>Thresholds</span>
-      </div>
-      <div style={cardBody}>
-        <div>
-          <label style={lblBig}>Idle Threshold (minutes)</label>
-          <input style={inpSq} type="number" min={1} max={60} value={editForm.idleThreshold || 5} onChange={e => setEditForm({ ...editForm, idleThreshold: Number(e.target.value) })} />
-        </div>
-        <div>
-          <label style={lblBig}>Fuel Fill Threshold (%)</label>
-          <input style={inpSq} type="number" min={1} max={50} value={editForm.fuelFillThreshold || 5} onChange={e => setEditForm({ ...editForm, fuelFillThreshold: Number(e.target.value) })} />
+        <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 8, lineHeight: 1.5 }}>
+          Changing IMEI rebinds the vehicle to a different GPS device. A confirmation phrase will be required.
         </div>
       </div>
-    </div>
 
-    {/* Save button — full row, centered, capped width so it doesn't stretch */}
-    <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'center', marginTop: 6 }}>
-      <button onClick={handleSaveEdit} disabled={saving}
-        style={{ ...btn(C.primary, saving), justifyContent: 'center', padding: '13px 36px', borderRadius: 0, fontSize: 14, letterSpacing: '0.05em', minWidth: 240 }}>
-        <Ic n="save" size={15} /> {saving ? 'SAVING…' : 'SAVE CHANGES'}
-      </button>
+      <div>
+        <label className="fv-label">SIM 1 <span style={{ color: '#94a3b8', fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}>(Optional)</span></label>
+        <input className="fv-input fv-mono" value={editForm.sim1 || ''} onChange={e => setEditForm({ ...editForm, sim1: e.target.value })} maxLength={20} placeholder="e.g. 9876543210" />
+      </div>
+      <div>
+        <label className="fv-label">SIM 2 <span style={{ color: '#94a3b8', fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}>(Optional)</span></label>
+        <input className="fv-input fv-mono" value={editForm.sim2 || ''} onChange={e => setEditForm({ ...editForm, sim2: e.target.value })} maxLength={20} placeholder="e.g. 9876543211" />
+      </div>
+
+      {/* ── Fuel Sensor ────────────────────────────────────────────────── */}
+      {sectionHd('gear', 'Fuel Sensor')}
+
+      <div style={fullRow}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 14, fontWeight: 700, color: C.text }}>
+          <input
+            type="checkbox"
+            checked={!!editForm.fuelSupported}
+            onChange={e => setEditForm({ ...editForm, fuelSupported: e.target.checked, fuelTankCapacity: e.target.checked ? editForm.fuelTankCapacity : '' })}
+            style={{ width: 18, height: 18, accentColor: C.primary, cursor: 'pointer' }}
+          />
+          Fuel sensor wired
+        </label>
+        <div style={{ fontSize: 11.5, color: '#94a3b8', lineHeight: 1.5, marginTop: 6 }}>
+          Enable only for FMB devices with an LLS or CAN fuel sensor. AIS140 and GT06 devices do not support fuel sensors.
+        </div>
+      </div>
+      {editForm.fuelSupported && (
+        <div>
+          <label className="fv-label">Tank Capacity (litres) <span style={{ color: '#dc2626', textTransform: 'none', letterSpacing: 0 }}>*</span></label>
+          <input className="fv-input" type="number" min={1} max={10000}
+            value={editForm.fuelTankCapacity || ''}
+            onChange={e => setEditForm({ ...editForm, fuelTankCapacity: e.target.value })}
+            placeholder="e.g. 60" />
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 5 }}>
+            Used to convert fuel % → litres for reports and theft alerts.
+          </div>
+        </div>
+      )}
+
+      {/* ── Thresholds ─────────────────────────────────────────────────── */}
+      {sectionHd('gear', 'Thresholds')}
+
+      <div>
+        <label className="fv-label">Idle Threshold (minutes)</label>
+        <input className="fv-input" type="number" min={1} max={60}
+          value={editForm.idleThreshold || 5}
+          onChange={e => setEditForm({ ...editForm, idleThreshold: Number(e.target.value) })} />
+      </div>
+      <div>
+        <label className="fv-label">Fuel Fill Threshold (%)</label>
+        <input className="fv-input" type="number" min={1} max={50}
+          value={editForm.fuelFillThreshold || 5}
+          onChange={e => setEditForm({ ...editForm, fuelFillThreshold: Number(e.target.value) })} />
+      </div>
+
+      {/* ── Save (full row, large) ─────────────────────────────────────── */}
+      <div style={{ ...fullRow, display: 'flex', justifyContent: 'flex-end', marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
+        <button onClick={handleSaveEdit} disabled={saving}
+          style={{ ...btn(C.primary, saving), justifyContent: 'center', padding: '13px 36px', borderRadius: 0, fontSize: 14, letterSpacing: '0.05em', minWidth: 240 }}>
+          <Ic n="save" size={15} /> {saving ? 'SAVING…' : 'SAVE CHANGES'}
+        </button>
+      </div>
     </div>
-  </div>
   );
 };
 

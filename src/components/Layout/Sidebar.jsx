@@ -310,7 +310,7 @@ const Sidebar = ({ collapsed }) => {
       {/* Logout */}
       <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', flexShrink: 0, position: 'relative', zIndex: 1 }}>
         <button
-          onClick={() => { logout(); navigate('/login'); }}
+          onClick={() => { logout(); navigate('/'); }}
           title={collapsed ? 'Logout' : undefined}
           onMouseEnter={() => setLogoutHover(true)}
           onMouseLeave={() => setLogoutHover(false)}
