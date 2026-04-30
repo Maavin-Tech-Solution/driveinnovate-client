@@ -99,9 +99,25 @@ const HUD_CSS = `
     65%  { box-shadow: 0 0 0 9px rgba(22,163,74,0), 0 2px 8px rgba(0,0,0,0.4); }
     100% { box-shadow: 0 0 0 0 rgba(22,163,74,0), 0 2px 8px rgba(0,0,0,0.4); }
   }
-  /* Vehicle card in sidebar */
-  .fv-card { transition: box-shadow 0.15s, background 0.15s, border-color 0.15s; }
-  .fv-card:hover { background: #F0F7FF !important; border-color: #93C5FD !important; box-shadow: 0 2px 8px rgba(37,99,235,0.10) !important; }
+  /* Vehicle card in sidebar — modern feel: soft elevation on rest, lift on hover */
+  .fv-card {
+    transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 0 0 1px rgba(15, 23, 42, 0.02);
+  }
+  .fv-card:hover {
+    background: #F8FAFC !important;
+    border-color: #94A3B8 !important;
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08), 0 1px 3px rgba(15, 23, 42, 0.04) !important;
+    transform: translateY(-1px);
+  }
+  /* Modern button hover for top HUD */
+  .fv-hud-btn { transition: background 0.15s, color 0.15s, box-shadow 0.15s; }
+  .fv-hud-btn:hover { background: #F1F5F9 !important; color: #0F172A !important; }
+  /* Sidebar inner-glow at top of cards list */
+  .fv-sidebar-shade {
+    background: linear-gradient(to bottom, rgba(15,23,42,0.04), transparent);
+    height: 8px; flex-shrink: 0;
+  }
   /* Tab buttons */
   .fv-tab-btn { transition: color 0.15s, background 0.15s; }
   .fv-tab-btn:hover { background: #EFF6FF !important; color: #2563EB !important; }
@@ -2114,27 +2130,39 @@ const MyFleet = () => {
       {/* ══════ TOP HUD BAR ══════ */}
       <div style={{
         flexShrink: 0, height: HUD_H, zIndex: 1000, position: 'relative',
-        background: '#ffffff',
+        background: 'linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%)',
         borderBottom: '1px solid #E2E8F0',
-        display: 'flex', alignItems: 'center', gap: 8, padding: '0 14px',
-        boxShadow: '0 1px 0 #E2E8F0, 0 2px 8px rgba(0,0,0,0.04)',
+        display: 'flex', alignItems: 'center', gap: 10, padding: '0 16px',
+        boxShadow: '0 1px 0 rgba(15,23,42,0.06), 0 4px 12px rgba(15,23,42,0.04)',
       }}>
-        {/* Panel toggle — show/hide vehicle list sidebar */}
+        {/* Panel toggle */}
         <button
           title={panelOpen ? 'Hide vehicle list' : 'Show vehicle list'}
           onClick={() => setPanelOpen(o => !o)}
-          style={{ background: panelOpen ? '#EFF6FF' : 'transparent', border: `1px solid ${panelOpen ? '#BFDBFE' : '#E2E8F0'}`, cursor: 'pointer', color: panelOpen ? '#2563EB' : '#64748B', padding: '6px 8px', borderRadius: 7, display: 'flex', alignItems: 'center', transition: 'all 0.15s', flexShrink: 0 }}>
-          <Ic n="menu" size={15} color={panelOpen ? '#2563EB' : '#475569'} />
+          className="fv-hud-btn"
+          style={{
+            background: panelOpen ? 'linear-gradient(135deg,#EFF6FF,#DBEAFE)' : 'transparent',
+            border: `1px solid ${panelOpen ? '#93C5FD' : '#E2E8F0'}`,
+            cursor: 'pointer', color: panelOpen ? '#1D4ED8' : '#64748B',
+            padding: '7px 9px', borderRadius: 0, display: 'flex', alignItems: 'center',
+            flexShrink: 0, boxShadow: panelOpen ? '0 1px 4px rgba(37,99,235,0.15)' : 'none',
+          }}>
+          <Ic n="menu" size={16} color={panelOpen ? '#1D4ED8' : '#475569'} />
         </button>
 
-        {/* Brand */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0 }}>
-          <div style={{ width: 28, height: 28, borderRadius: 7, background: 'linear-gradient(135deg,#1D4ED8,#3B82F6)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(37,99,235,0.28)' }}>
-            <Ic n="map" size={14} color="#fff" sw={2} />
+        {/* Brand mark */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexShrink: 0 }}>
+          <div style={{
+            width: 32, height: 32, borderRadius: 0,
+            background: 'linear-gradient(135deg,#1E40AF 0%,#3B82F6 100%)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 2px 10px rgba(30,64,175,0.40), inset 0 1px 0 rgba(255,255,255,0.16)',
+          }}>
+            <Ic n="map" size={15} color="#fff" sw={2.2} />
           </div>
           <div>
-            <div style={{ fontSize: 13.5, fontWeight: 800, color: '#0F172A', letterSpacing: '-0.3px', lineHeight: 1.1 }}>FleetView</div>
-            <div style={{ fontSize: 9.5, color: '#94A3B8', fontWeight: 500, lineHeight: 1 }}>Live tracking</div>
+            <div style={{ fontSize: 14, fontWeight: 900, color: '#0F172A', letterSpacing: '-0.4px', lineHeight: 1.1 }}>FleetView</div>
+            <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 600, lineHeight: 1, letterSpacing: '0.04em' }}>LIVE TRACKING</div>
           </div>
         </div>
 
@@ -2231,51 +2259,72 @@ const MyFleet = () => {
 
         <div style={{ flex: 1 }} />
 
-        {/* Refresh — pull latest vehicle & GPS data */}
+        {/* Refresh */}
         <button
           title="Refresh fleet data"
           onClick={fetchVehicles}
           disabled={loading}
-          style={{ background: 'transparent', border: '1px solid #E2E8F0', cursor: loading ? 'not-allowed' : 'pointer', color: '#475569', padding: '6px 9px', borderRadius: 7, display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, flexShrink: 0, transition: 'background 0.15s' }}>
-          <Ic n="refresh" size={13} color={loading ? '#CBD5E1' : '#475569'} />
+          className="fv-hud-btn"
+          style={{
+            background: 'transparent', border: '1px solid #E2E8F0', borderRadius: 0,
+            cursor: loading ? 'not-allowed' : 'pointer', color: '#475569',
+            padding: '7px 10px', display: 'flex', alignItems: 'center', gap: 5,
+            fontSize: 12, fontWeight: 600, flexShrink: 0,
+          }}>
+          <Ic n="refresh" size={14} color={loading ? '#CBD5E1' : '#475569'} />
         </button>
 
-        {/* Table view — switch to tabular list with all columns */}
+        {/* Table view */}
         <button
-          title="Switch to table view — see all vehicle data in a spreadsheet-style list"
+          title="Switch to table view"
           onClick={() => setViewMode('table')}
-          style={{ background: 'transparent', border: '1px solid #E2E8F0', cursor: 'pointer', color: '#374151', padding: '6px 12px', borderRadius: 7, display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, fontFamily: 'inherit', flexShrink: 0, transition: 'background 0.15s' }}>
-          <Ic n="layers" size={13} color="#475569" /> Table
+          className="fv-hud-btn"
+          style={{
+            background: 'transparent', border: '1px solid #E2E8F0', borderRadius: 0,
+            cursor: 'pointer', color: '#374151', padding: '7px 13px',
+            display: 'flex', alignItems: 'center', gap: 6,
+            fontSize: 12, fontWeight: 700, fontFamily: 'inherit', flexShrink: 0,
+            letterSpacing: '0.02em',
+          }}>
+          <Ic n="layers" size={14} color="#475569" /> TABLE
         </button>
 
-        {/* Add Vehicle — register a new tracked vehicle */}
+        {/* Add Vehicle */}
         <Link
           to="/add-vehicle"
           title="Register a new vehicle with GPS device"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'linear-gradient(135deg,#1D4ED8,#3B82F6)', color: '#fff', borderRadius: 7, fontSize: 12, fontWeight: 700, textDecoration: 'none', boxShadow: '0 2px 8px rgba(37,99,235,0.25)', flexShrink: 0 }}>
-          <Ic n="plus" size={13} /> Add Vehicle
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 7,
+            padding: '8px 16px',
+            background: 'linear-gradient(135deg,#1E40AF 0%,#3B82F6 100%)',
+            color: '#fff', borderRadius: 0, fontSize: 12, fontWeight: 800,
+            textDecoration: 'none', letterSpacing: '0.04em', flexShrink: 0,
+            boxShadow: '0 2px 10px rgba(30,64,175,0.36), inset 0 1px 0 rgba(255,255,255,0.14)',
+          }}>
+          <Ic n="plus" size={14} color="#fff" /> ADD VEHICLE
         </Link>
       </div>
 
       {/* ══════ CONTENT ROW: left panel + map + right panel ══════ */}
       <div style={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden' }}>
 
-      {/* ── LEFT PANEL — white vehicle list sidebar ── */}
+      {/* ── LEFT PANEL — vehicle list sidebar (modern slate-tinted) ── */}
       <div style={{
         flexShrink: 0,
         width: panelOpen ? PANEL_W : 0,
         overflow: 'hidden',
         transition: 'width 0.25s cubic-bezier(0.4,0,0.2,1)',
-        background: '#FFFFFF',
+        background: '#F8FAFC',
         borderRight: '1px solid #E2E8F0',
+        boxShadow: 'inset -1px 0 0 rgba(15,23,42,0.04)',
         display: 'flex',
         flexDirection: 'column',
       }}>
       {/* Inner fixed-width wrapper so content doesn't reflow during transition */}
       <div style={{ width: PANEL_W, flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-        {/* Search + group filter */}
-        <div style={{ padding: '14px 14px 12px', flexShrink: 0, borderBottom: '1px solid #E2E8F0', background: '#FAFBFC' }}>
+        {/* Search + group filter — translucent header with depth */}
+        <div style={{ padding: '14px 14px 12px', flexShrink: 0, borderBottom: '1px solid #E2E8F0', background: 'linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%)', boxShadow: '0 1px 0 rgba(15,23,42,0.04)' }}>
           {/* Search input */}
           <div style={{ position: 'relative', marginBottom: groups.length > 0 ? 10 : 0 }}>
             <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
@@ -2283,7 +2332,8 @@ const MyFleet = () => {
             </span>
             <input
               title="Filter vehicles by name, number plate or IMEI"
-              style={{ width: '100%', background: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: 0, color: '#0F172A', fontSize: 14, fontWeight: 500, padding: '11px 12px 11px 38px', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', transition: 'border-color 0.15s, box-shadow 0.15s' }}
+              className="fv-input"
+              style={{ paddingLeft: 38, fontSize: 14 }}
               placeholder="Search by name, number or IMEI…"
               value={search}
               onChange={e => setSearch(e.target.value)}
@@ -2336,7 +2386,7 @@ const MyFleet = () => {
         </div>
 
         {/* Vehicle count + multi-select controls */}
-        <div style={{ padding: '10px 16px 9px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #E2E8F0' }}>
+        <div style={{ padding: '10px 16px 9px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #E2E8F0', background: '#F1F5F9' }}>
           <span style={{ fontSize: 12, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
             {filteredVehicles.length} vehicle{filteredVehicles.length !== 1 ? 's' : ''}
           </span>
@@ -2350,8 +2400,8 @@ const MyFleet = () => {
           )}
         </div>
 
-        {/* Vehicle cards list — click a card to open details & locate on map */}
-        <div style={{ flex: 1, overflow: 'auto', padding: '6px 8px 16px' }}>
+        {/* Vehicle cards list */}
+        <div style={{ flex: 1, overflow: 'auto', padding: '10px 10px 24px', background: '#F1F5F9' }}>
           {loading && (
             <div style={{ padding: '32px 0', textAlign: 'center' }}>
               <div style={{ width: 20, height: 20, border: '2px solid #E2E8F0', borderTopColor: '#3B82F6', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 8px' }} />
@@ -2385,12 +2435,13 @@ const MyFleet = () => {
                 title={`${vehicleDisplayName(v)} — click to view details and locate on map`}
                 className="fv-card"
                 style={{
-                  padding: '14px 16px 13px', cursor: 'pointer', borderRadius: 0, marginBottom: 6,
-                  background: isSel ? '#EFF6FF' : '#FFFFFF',
+                  padding: '14px 16px 13px', cursor: 'pointer', borderRadius: 0, marginBottom: 8,
+                  background: isSel ? 'linear-gradient(180deg, #EFF6FF 0%, #FFFFFF 100%)' : '#FFFFFF',
                   border: `1px solid ${isSel ? '#93C5FD' : '#E2E8F0'}`,
-                  borderLeft: `5px solid ${isSel ? '#2563EB' : stColor}`,
-                  transition: 'all 0.12s',
-                  boxShadow: isSel ? '0 2px 10px rgba(37,99,235,0.14)' : 'none',
+                  borderLeft: `4px solid ${isSel ? '#2563EB' : stColor}`,
+                  boxShadow: isSel
+                    ? '0 6px 18px rgba(37,99,235,0.18), 0 1px 3px rgba(15,23,42,0.06), 0 0 0 1px rgba(37,99,235,0.10)'
+                    : '0 1px 2px rgba(15, 23, 42, 0.04), 0 0 0 1px rgba(15, 23, 42, 0.02)',
                 }}>
                 {/* Row 1: checkbox + icon + name + reg + status pill */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -2402,7 +2453,13 @@ const MyFleet = () => {
                     onChange={() => toggleFocus(v.id)}
                     style={{ flexShrink: 0, width: 18, height: 18, accentColor: '#2563EB', cursor: 'pointer', margin: 0 }}
                   />
-                  <div style={{ width: 48, height: 48, borderRadius: 0, background: stColor, color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>
+                  <div style={{
+                    width: 50, height: 50, borderRadius: 0,
+                    background: `linear-gradient(135deg, ${stColor} 0%, ${stColor}D9 100%)`,
+                    color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 24, flexShrink: 0,
+                    boxShadow: `inset 0 1px 0 rgba(255,255,255,0.18), 0 2px 6px ${stColor}38`,
+                  }}>
                     {VEHICLE_ICON_MAP[v.vehicleIcon] || '🚗'}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -2411,21 +2468,31 @@ const MyFleet = () => {
                         {vehicleDisplayName(v)}
                       </span>
                       {ageLabel && (
-                        <span style={{ fontSize: 10, color: '#FFFFFF', fontWeight: 800, flexShrink: 0, background: ageColor, padding: '2px 8px', borderRadius: 0, letterSpacing: '0.04em' }}>{ageLabel.toUpperCase()}</span>
+                        <span style={{
+                          fontSize: 10, color: '#FFFFFF', fontWeight: 800, flexShrink: 0,
+                          background: `linear-gradient(135deg,${ageColor} 0%,${ageColor}CC 100%)`,
+                          padding: '2px 9px', borderRadius: 0, letterSpacing: '0.05em',
+                          boxShadow: `0 1px 4px ${ageColor}44`,
+                        }}>{ageLabel.toUpperCase()}</span>
                       )}
                     </div>
                     {v.vehicleNumber && v.vehicleName && (
                       <div style={{ fontSize: 13, color: '#475569', fontFamily: 'monospace', fontWeight: 600, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.vehicleNumber}</div>
                     )}
                   </div>
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0, padding: '5px 11px', borderRadius: 0, background: stColor, border: 'none' }}>
-                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#FFFFFF', flexShrink: 0, boxShadow: ign === true ? '0 0 4px #FFFFFF' : 'none' }} />
-                    <span style={{ fontSize: 11, fontWeight: 800, color: '#FFFFFF', letterSpacing: '0.05em' }}>{stLabel.toUpperCase()}</span>
+                  <div style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0,
+                    padding: '6px 12px', borderRadius: 0,
+                    background: `linear-gradient(135deg, ${stColor} 0%, ${stColor}E0 100%)`,
+                    boxShadow: `inset 0 1px 0 rgba(255,255,255,0.20), 0 1px 2px ${stColor}40`,
+                  }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#FFFFFF', flexShrink: 0, boxShadow: ign === true ? '0 0 6px #FFFFFF' : 'none' }} />
+                    <span style={{ fontSize: 11, fontWeight: 800, color: '#FFFFFF', letterSpacing: '0.06em' }}>{stLabel.toUpperCase()}</span>
                   </div>
                 </div>
 
-                {/* Row 2: speed | ignition | battery | fuel — full-width metrics strip */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))', gap: 0, marginTop: 12, marginLeft: 30 }}>
+                {/* Row 2: metrics strip — dark-slate card with colored left border tiles */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))', gap: 0, marginTop: 12, marginLeft: 30, background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
                   {/* Speed */}
                   <div style={{ display: 'flex', flexDirection: 'column', padding: '6px 10px', borderLeft: `3px solid ${speed != null && speed > 80 ? '#ef4444' : speed != null && speed > 5 ? '#2563EB' : '#CBD5E1'}` }}>
                     <span style={{ fontSize: 9.5, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Speed</span>
@@ -2513,13 +2580,23 @@ const MyFleet = () => {
           </MarkerClusterGroup>
         </MapContainer>
 
-        {/* Legend floats inside the map area */}
-        <div style={{ position: 'absolute', bottom: 18, left: 14, zIndex: 10, background: 'rgba(255,255,255,0.96)', backdropFilter: 'blur(6px)', borderRadius: 20, padding: '7px 14px', display: 'flex', gap: 12, alignItems: 'center', border: '1px solid #E2E8F0', boxShadow: '0 2px 12px rgba(0,0,0,0.10)' }}>
-          <LegendDot color="#22c55e" label={`${runningCount} Running`} />
-          <span style={{ width: 1, height: 12, background: '#E2E8F0' }} />
-          <LegendDot color="#ef4444" label={`${stoppedCount} Stopped`} />
-          <span style={{ width: 1, height: 12, background: '#E2E8F0' }} />
-          <LegendDot color="#475569" label={`${mapVehicles.length} on map`} />
+        {/* Legend — glassmorphic, squared to match design system */}
+        <div style={{
+          position: 'absolute', bottom: 18, left: 14, zIndex: 10,
+          background: 'rgba(15,23,42,0.72)',
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+          borderRadius: 0,
+          padding: '8px 16px',
+          display: 'flex', gap: 14, alignItems: 'center',
+          border: '1px solid rgba(255,255,255,0.10)',
+          boxShadow: '0 4px 24px rgba(0,0,0,0.26), inset 0 1px 0 rgba(255,255,255,0.08)',
+        }}>
+          <LegendDot color="#22c55e" label={`${runningCount} Running`} dark />
+          <span style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.14)' }} />
+          <LegendDot color="#ef4444" label={`${stoppedCount} Stopped`} dark />
+          <span style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.14)' }} />
+          <LegendDot color="#94A3B8" label={`${mapVehicles.length} on map`} dark />
         </div>
       </div>{/* /map area */}
 
@@ -3057,26 +3134,32 @@ const DarkStatusPill = ({ vs }) => {
 
 const HudChip = ({ value, label, dot, active, onClick }) => (
   <div onClick={onClick} style={{
-    display: 'flex', alignItems: 'center', gap: 6,
-    padding: '5px 12px',
-    background: dot,
+    display: 'flex', alignItems: 'center', gap: 7,
+    padding: '6px 14px',
+    background: `linear-gradient(135deg, ${dot} 0%, ${dot}CC 100%)`,
     border: 'none',
     borderRadius: 0,
     cursor: 'pointer',
-    opacity: active ? 1 : 0.88,
-    boxShadow: active ? '0 0 0 2px #fff, 0 2px 8px rgba(0,0,0,0.18)' : 'none',
-    transition: 'all 0.15s',
+    opacity: active ? 1 : 0.78,
+    boxShadow: active
+      ? `0 0 0 2px #fff, 0 4px 14px ${dot}55, inset 0 1px 0 rgba(255,255,255,0.22)`
+      : `inset 0 1px 0 rgba(255,255,255,0.14), 0 1px 3px ${dot}30`,
+    transition: 'opacity 0.15s, box-shadow 0.15s, transform 0.15s',
     flexShrink: 0,
+    transform: active ? 'translateY(-1px)' : 'none',
   }}>
-    <span style={{ fontSize: 13, fontWeight: 800, color: '#fff', fontVariantNumeric: 'tabular-nums' }}>{value}</span>
-    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.92)', fontWeight: 600 }}>{label}</span>
+    <span style={{ fontSize: 14, fontWeight: 800, color: '#fff', fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.01em' }}>{value}</span>
+    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.90)', fontWeight: 700, letterSpacing: '0.03em' }}>{label}</span>
   </div>
 );
 
-const LegendDot = ({ color, label }) => (
-  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-    <span style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />
-    <span style={{ fontSize: 11, color: '#475569', fontWeight: 600 }}>{label}</span>
+const LegendDot = ({ color, label, dark }) => (
+  <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+    <span style={{
+      width: 9, height: 9, borderRadius: '50%', background: color, flexShrink: 0,
+      boxShadow: `0 0 6px ${color}88`,
+    }} />
+    <span style={{ fontSize: 12, color: dark ? 'rgba(255,255,255,0.88)' : '#475569', fontWeight: 700, letterSpacing: '0.02em' }}>{label}</span>
   </div>
 );
 
