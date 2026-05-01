@@ -31,14 +31,243 @@ import { getISTToday, getISTDaysAgo, getISTNow, getISTDaysAgoDatetime } from '..
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const INDIA_CENTER = [22.9734, 78.6569];
+
+// ─── 3D Vehicle Icon URLs (Microsoft Fluent Emoji 3D, MIT licence) ───────────
+// Source: https://github.com/microsoft/fluentui-emoji
+// CDN:    https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji@main/assets/
+// These are the same style of pre-rendered 3D PNG icons as iconscout's
+// premium set, but fully free and open-source.
+const _CDN = 'https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji@main/assets';
+const VEHICLE_ICON_3D = {
+  car:          `${_CDN}/Automobile/3D/automobile_3d.png`,
+  suv:          `${_CDN}/Sport%20Utility%20Vehicle/3D/sport_utility_vehicle_3d.png`,
+  pickup:       `${_CDN}/Pickup%20Truck/3D/pickup_truck_3d.png`,
+  truck:        `${_CDN}/Articulated%20Lorry/3D/articulated_lorry_3d.png`,
+  bus:          `${_CDN}/Bus/3D/bus_3d.png`,
+  minibus:      `${_CDN}/Minibus/3D/minibus_3d.png`,
+  schoolbus:    `${_CDN}/Bus/3D/bus_3d.png`,
+  motorcycle:   `${_CDN}/Motorcycle/3D/motorcycle_3d.png`,
+  bike:         `${_CDN}/Motorcycle/3D/motorcycle_3d.png`,
+  auto:         `${_CDN}/Auto%20Rickshaw/3D/auto_rickshaw_3d.png`,
+  van:          `${_CDN}/Minibus/3D/minibus_3d.png`,
+  ambulance:    `${_CDN}/Ambulance/3D/ambulance_3d.png`,
+  fire:         `${_CDN}/Fire%20Engine/3D/fire_engine_3d.png`,
+  police:       `${_CDN}/Police%20Car/3D/police_car_3d.png`,
+  tractor:      `${_CDN}/Tractor/3D/tractor_3d.png`,
+  earthmover:   `${_CDN}/Tractor/3D/tractor_3d.png`,
+  dumper:       `${_CDN}/Delivery%20Truck/3D/delivery_truck_3d.png`,
+  tipper:       `${_CDN}/Delivery%20Truck/3D/delivery_truck_3d.png`,
+  sweeper:      `${_CDN}/Delivery%20Truck/3D/delivery_truck_3d.png`,
+  container:    `${_CDN}/Articulated%20Lorry/3D/articulated_lorry_3d.png`,
+  tanker:       `${_CDN}/Articulated%20Lorry/3D/articulated_lorry_3d.png`,
+  watertanker:  `${_CDN}/Delivery%20Truck/3D/delivery_truck_3d.png`,
+  garbagevan:   `${_CDN}/Delivery%20Truck/3D/delivery_truck_3d.png`,
+  mortuaryvan:  `${_CDN}/Ambulance/3D/ambulance_3d.png`,
+  crane:        `${_CDN}/Building%20Construction/3D/building_construction_3d.png`,
+  jcb:          `${_CDN}/Building%20Construction/3D/building_construction_3d.png`,
+  excavator:    `${_CDN}/Building%20Construction/3D/building_construction_3d.png`,
+  concretepump: `${_CDN}/Building%20Construction/3D/building_construction_3d.png`,
+  paver:        `${_CDN}/Building%20Construction/3D/building_construction_3d.png`,
+  roadroller:   `${_CDN}/Building%20Construction/3D/building_construction_3d.png`,
+  wheelloader:  `${_CDN}/Tractor/3D/tractor_3d.png`,
+  mixer:        `${_CDN}/Pickup%20Truck/3D/pickup_truck_3d.png`,
+  fury:         `${_CDN}/Delivery%20Truck/3D/delivery_truck_3d.png`,
+  ajax:         `${_CDN}/Delivery%20Truck/3D/delivery_truck_3d.png`,
+};
+const _DEFAULT_3D = `${_CDN}/Automobile/3D/automobile_3d.png`;
+
+// ─── Now keep the old SVG fallbacks in case of CDN failure ───────────────────
+const _SVGCar = ({ c }) => (
+  <svg viewBox="0 0 100 62" fill="none" xmlns="http://www.w3.org/2000/svg">
+    {/* Body side */}
+    <path d="M6 34 L78 34 L86 46 L6 46 Z" fill={c} />
+    {/* Body top */}
+    <path d="M6 34 L78 34 L84 26 L12 26 Z" fill={c+'EE'} />
+    {/* Cabin side */}
+    <path d="M22 26 L68 26 L64 16 L26 16 Z" fill="#FFFFFF44" />
+    <path d="M22 26 L22 34 L68 34 L68 26 Z" fill={c+'CC'} />
+    {/* Cabin top */}
+    <path d="M26 16 L64 16 L68 26 L22 26 Z" fill="#FFFFFF66" />
+    {/* Windshield */}
+    <path d="M26 18 L48 18 L48 25 L26 25 Z" fill="#A8D8F8CC" rx="1"/>
+    <path d="M50 18 L64 18 L68 25 L50 25 Z" fill="#A8D8F8CC"/>
+    {/* Wheels */}
+    <ellipse cx="24" cy="46" rx="11" ry="6" fill="#1A1A2E" />
+    <ellipse cx="24" cy="46" rx="6" ry="3" fill="#374151" />
+    <ellipse cx="66" cy="46" rx="11" ry="6" fill="#1A1A2E" />
+    <ellipse cx="66" cy="46" rx="6" ry="3" fill="#374151" />
+    {/* Ground shadow */}
+    <ellipse cx="46" cy="56" rx="40" ry="5" fill="rgba(0,0,0,0.14)" />
+  </svg>
+);
+
+const _SVGSuv = ({ c }) => (
+  <svg viewBox="0 0 100 64" fill="none">
+    <path d="M4 36 L82 36 L90 50 L4 50 Z" fill={c} />
+    <path d="M4 36 L82 36 L86 26 L8 26 Z" fill={c+'EE'} />
+    <path d="M14 14 L74 14 L82 26 L8 26 Z" fill={c+'CC'} />
+    <path d="M14 14 L74 14 L74 26 L14 26 Z" fill="#FFFFFF44" />
+    <path d="M16 16 L44 16 L44 24 L16 24 Z" fill="#A8D8F8CC" />
+    <path d="M46 16 L74 16 L78 24 L46 24 Z" fill="#A8D8F8CC" />
+    <ellipse cx="24" cy="50" rx="12" ry="7" fill="#1A1A2E" />
+    <ellipse cx="24" cy="50" rx="7" ry="4" fill="#374151" />
+    <ellipse cx="70" cy="50" rx="12" ry="7" fill="#1A1A2E" />
+    <ellipse cx="70" cy="50" rx="7" ry="4" fill="#374151" />
+    <ellipse cx="46" cy="58" rx="42" ry="5" fill="rgba(0,0,0,0.14)" />
+  </svg>
+);
+
+const _SVGTruck = ({ c }) => (
+  <svg viewBox="0 0 110 68" fill="none">
+    {/* Trailer */}
+    <path d="M34 18 L104 18 L110 50 L34 50 Z" fill={c+'DD'} />
+    <path d="M34 18 L104 18 L104 28 L34 28 Z" fill={c+'FF'} />
+    {/* Cab */}
+    <path d="M6 28 L34 28 L34 50 L6 50 Z" fill={c} />
+    <path d="M6 28 L34 28 L34 18 L12 18 Z" fill={c+'CC'} />
+    <path d="M8 20 L28 20 L28 27 L8 27 Z" fill="#A8D8F8CC" />
+    {/* Wheels */}
+    <ellipse cx="20" cy="50" rx="10" ry="6" fill="#1A1A2E" />
+    <ellipse cx="20" cy="50" rx="5" ry="3" fill="#374151" />
+    <ellipse cx="52" cy="50" rx="10" ry="6" fill="#1A1A2E" />
+    <ellipse cx="52" cy="50" rx="5" ry="3" fill="#374151" />
+    <ellipse cx="82" cy="50" rx="10" ry="6" fill="#1A1A2E" />
+    <ellipse cx="82" cy="50" rx="5" ry="3" fill="#374151" />
+    <ellipse cx="55" cy="60" rx="50" ry="6" fill="rgba(0,0,0,0.12)" />
+  </svg>
+);
+
+const _SVGBus = ({ c }) => (
+  <svg viewBox="0 0 110 66" fill="none">
+    <path d="M6 14 L98 14 L106 50 L6 50 Z" fill={c} />
+    <path d="M6 14 L98 14 L98 24 L6 24 Z" fill={c+'EE'} />
+    {/* Windows row */}
+    {[16,32,48,64,80].map((x,i) => (
+      <rect key={i} x={x} y={16} width={12} height={7} rx={1} fill="#A8D8F8CC" />
+    ))}
+    {/* Destination board */}
+    <rect x={14} y={26} width={72} height={8} rx={1} fill="#1E293B" />
+    <rect x={16} y={27} width={40} height={5} rx={1} fill="#FBBF24" opacity={0.7} />
+    {/* Wheels */}
+    <ellipse cx="24" cy="50" rx="12" ry="7" fill="#1A1A2E" />
+    <ellipse cx="24" cy="50" rx="6" ry="3.5" fill="#374151" />
+    <ellipse cx="76" cy="50" rx="12" ry="7" fill="#1A1A2E" />
+    <ellipse cx="76" cy="50" rx="6" ry="3.5" fill="#374151" />
+    <ellipse cx="56" cy="60" rx="50" ry="5" fill="rgba(0,0,0,0.12)" />
+  </svg>
+);
+
+const _SVGBike = ({ c }) => (
+  <svg viewBox="0 0 80 60" fill="none">
+    {/* Frame */}
+    <path d="M20 36 L52 24 L60 36 Z" fill={c} />
+    <path d="M20 36 L28 18 L52 18 L52 24 L20 36 Z" fill={c+'DD'} />
+    {/* Handlebars */}
+    <rect x={46} y={14} width={18} height={4} rx={2} fill="#374151" />
+    {/* Seat */}
+    <rect x={24} y={16} width={22} height={5} rx={2} fill="#1E293B" />
+    {/* Engine block */}
+    <rect x={32} y={24} width={18} height={12} rx={2} fill={c+'BB'} />
+    {/* Wheels */}
+    <circle cx="18" cy="40" r="12" stroke="#1A1A2E" strokeWidth="4" fill="none" />
+    <circle cx="18" cy="40" r="4" fill="#374151" />
+    <circle cx="62" cy="40" r="12" stroke="#1A1A2E" strokeWidth="4" fill="none" />
+    <circle cx="62" cy="40" r="4" fill="#374151" />
+    <ellipse cx="40" cy="54" rx="28" ry="4" fill="rgba(0,0,0,0.12)" />
+  </svg>
+);
+
+const _SVGVan = ({ c }) => (
+  <svg viewBox="0 0 100 62" fill="none">
+    <path d="M4 22 L88 22 L96 46 L4 46 Z" fill={c} />
+    <path d="M4 22 L88 22 L88 14 L10 14 Z" fill={c+'EE'} />
+    <path d="M10 14 L88 14 L88 22 L10 22 Z" fill="#FFFFFF44" />
+    {[12,34,56,74].map((x,i) => (
+      <rect key={i} x={x} y={16} width={16} height={5} rx={1} fill="#A8D8F8CC" />
+    ))}
+    <ellipse cx="22" cy="46" rx="11" ry="6" fill="#1A1A2E" />
+    <ellipse cx="22" cy="46" rx="6" ry="3" fill="#374151" />
+    <ellipse cx="72" cy="46" rx="11" ry="6" fill="#1A1A2E" />
+    <ellipse cx="72" cy="46" rx="6" ry="3" fill="#374151" />
+    <ellipse cx="48" cy="56" rx="44" ry="5" fill="rgba(0,0,0,0.12)" />
+  </svg>
+);
+
+const _SVGAuto = ({ c }) => (
+  <svg viewBox="0 0 80 58" fill="none">
+    <path d="M8 30 L66 30 L72 44 L8 44 Z" fill={c} />
+    <path d="M8 30 L66 30 L62 18 L14 18 Z" fill={c+'EE'} />
+    <path d="M18 20 L54 20 L54 29 L18 29 Z" fill="#FFFFFF44" />
+    <path d="M20 21 L38 21 L38 28 L20 28 Z" fill="#A8D8F8CC" />
+    <path d="M54 30 L72 30 L72 44 L60 44 Z" fill={c+'88'} />
+    <rect x={56} y={22} width={10} height={2} rx={1} fill="#374151" />
+    <ellipse cx="20" cy="44" rx="10" ry="6" fill="#1A1A2E" />
+    <ellipse cx="20" cy="44" rx="5" ry="3" fill="#374151" />
+    <ellipse cx="58" cy="44" rx="10" ry="6" fill="#1A1A2E" />
+    <ellipse cx="58" cy="44" rx="5" ry="3" fill="#374151" />
+    <ellipse cx="40" cy="52" rx="32" ry="4" fill="rgba(0,0,0,0.12)" />
+  </svg>
+);
+
+const _SVGConstruction = ({ c }) => (
+  <svg viewBox="0 0 100 68" fill="none">
+    {/* Cabin */}
+    <path d="M6 28 L36 28 L36 50 L6 50 Z" fill={c} />
+    <path d="M6 28 L36 28 L36 18 L12 18 Z" fill={c+'CC'} />
+    <path d="M8 20 L30 20 L30 27 L8 27 Z" fill="#A8D8F8CC" />
+    {/* Body/Tipper */}
+    <path d="M36 20 L98 20 L98 50 L36 50 Z" fill={c+'DD'} />
+    <path d="M36 20 L98 20 L98 12 L42 12 Z" fill="#F59E0B" opacity={0.85} />
+    <rect x={38} y={22} width={56} height={4} rx={1} fill="#FFFFFF22" />
+    {/* Wheels (large) */}
+    <ellipse cx="20" cy="50" rx="12" ry="8" fill="#1A1A2E" />
+    <ellipse cx="20" cy="50" rx="6" ry="4" fill="#374151" />
+    <ellipse cx="56" cy="50" rx="12" ry="8" fill="#1A1A2E" />
+    <ellipse cx="56" cy="50" rx="6" ry="4" fill="#374151" />
+    <ellipse cx="84" cy="50" rx="12" ry="8" fill="#1A1A2E" />
+    <ellipse cx="84" cy="50" rx="6" ry="4" fill="#374151" />
+    <ellipse cx="52" cy="62" rx="48" ry="5" fill="rgba(0,0,0,0.12)" />
+  </svg>
+);
+
+const _SVGTractor = ({ c }) => (
+  <svg viewBox="0 0 90 66" fill="none">
+    <path d="M8 26 L50 26 L50 48 L8 48 Z" fill={c} />
+    <path d="M8 26 L50 26 L44 14 L14 14 Z" fill={c+'CC'} />
+    <path d="M14 16 L38 16 L38 25 L14 25 Z" fill="#A8D8F8CC" />
+    <path d="M50 34 L80 34 L80 48 L50 48 Z" fill={c+'BB'} />
+    <path d="M50 34 L80 34 L76 26 L54 26 Z" fill="#F59E0B" opacity={0.8} />
+    <ellipse cx="24" cy="48" rx="16" ry="10" fill="#1A1A2E" />
+    <ellipse cx="24" cy="48" rx="9" ry="5.5" fill="#374151" />
+    <ellipse cx="24" cy="48" rx="4" ry="2.5" fill="#1A1A2E" />
+    <ellipse cx="66" cy="48" rx="10" ry="6" fill="#1A1A2E" />
+    <ellipse cx="66" cy="48" rx="5" ry="3" fill="#374151" />
+    <ellipse cx="44" cy="60" rx="36" ry="5" fill="rgba(0,0,0,0.12)" />
+  </svg>
+);
+
+// Map from icon key → shape category
+const _ICON_SHAPE_MAP = {
+  car: _SVGCar, suv: _SVGSuv, pickup: _SVGSuv, motorcycle: _SVGBike, bike: _SVGBike,
+  truck: _SVGTruck, container: _SVGTruck, tipper: _SVGTruck, fury: _SVGTruck,
+  bus: _SVGBus, schoolbus: _SVGBus, minibus: _SVGBus,
+  van: _SVGVan, ambulance: _SVGVan, fire: _SVGVan, police: _SVGVan, mortuaryvan: _SVGVan, garbagevan: _SVGVan,
+  auto: _SVGAuto,
+  tractor: _SVGTractor, earthmover: _SVGTractor,
+  dumper: _SVGConstruction, jcb: _SVGConstruction, excavator: _SVGConstruction,
+  mixer: _SVGConstruction, concretepump: _SVGConstruction, paver: _SVGConstruction,
+  roadroller: _SVGConstruction, wheelloader: _SVGConstruction, ajax: _SVGConstruction,
+  crane: _SVGConstruction, sweeper: _SVGConstruction,
+  tanker: _SVGTruck, watertanker: _SVGTruck,
+};
+
+// Keep the emoji map for fallback / non-map uses
 const VEHICLE_ICON_MAP = {
   car: '🚗', suv: '🚙', truck: '🚛', bus: '🚌', bike: '🏍️', auto: '🛺',
   van: '🚐', ambulance: '🚑', pickup: '🛻', motorcycle: '🏍️', minibus: '🚌',
   schoolbus: '🚍', tractor: '🚜', crane: '🏗️', jcb: '🏗️',
   dumper: '🚚', earthmover: '🚜', tanker: '⛽', container: '🚛',
   fire: '🚒', police: '🚔', sweeper: '🚛', tipper: '🚚',
-  // Construction / specialty equipment — emoji coverage is thin so many
-  // share a best-fit emoji and rely on the text label for differentiation.
   excavator: '🚜', mixer: '🛻', concretepump: '🏗️', paver: '🛣️',
   fury: '🚚', ajax: '🛻', roadroller: '🚧', wheelloader: '🚜',
   watertanker: '💧', garbagevan: '🗑️', mortuaryvan: '⚰️',
@@ -99,25 +328,18 @@ const HUD_CSS = `
     65%  { box-shadow: 0 0 0 9px rgba(22,163,74,0), 0 2px 8px rgba(0,0,0,0.4); }
     100% { box-shadow: 0 0 0 0 rgba(22,163,74,0), 0 2px 8px rgba(0,0,0,0.4); }
   }
-  /* Vehicle card in sidebar — modern feel: soft elevation on rest, lift on hover */
+  /* Vehicle card — light theme, smooth elevation */
   .fv-card {
-    transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 0 0 1px rgba(15, 23, 42, 0.02);
+    transition: box-shadow 0.22s ease, transform 0.22s ease, border-color 0.22s ease, background 0.15s ease;
   }
   .fv-card:hover {
-    background: #F8FAFC !important;
-    border-color: #94A3B8 !important;
-    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08), 0 1px 3px rgba(15, 23, 42, 0.04) !important;
-    transform: translateY(-1px);
+    transform: translateY(-2px) !important;
+    box-shadow: 0 10px 30px rgba(15,23,42,0.12), 0 2px 6px rgba(15,23,42,0.06) !important;
+    border-color: #C7D2E8 !important;
   }
-  /* Modern button hover for top HUD */
+  /* HUD icon buttons */
   .fv-hud-btn { transition: background 0.15s, color 0.15s, box-shadow 0.15s; }
   .fv-hud-btn:hover { background: #F1F5F9 !important; color: #0F172A !important; }
-  /* Sidebar inner-glow at top of cards list */
-  .fv-sidebar-shade {
-    background: linear-gradient(to bottom, rgba(15,23,42,0.04), transparent);
-    height: 8px; flex-shrink: 0;
-  }
   /* Tab buttons */
   .fv-tab-btn { transition: color 0.15s, background 0.15s; }
   .fv-tab-btn:hover { background: #EFF6FF !important; color: #2563EB !important; }
@@ -248,23 +470,94 @@ const getMapSubdomains = () => {
 // ─── Map Marker Icon ──────────────────────────────────────────────────────────
 // Accepts an optional stateColor so it can reflect DB-defined vehicle states
 const makeVehicleIcon = (vehicle, isSelected, stateColor) => {
-  const ign   = getIgnition(vehicle);
-  const bg    = stateColor || (ign === true ? '#16a34a' : ign === false ? '#dc2626' : '#475569');
-  const cls   = isSelected ? 'fv-sel' : ign === true ? 'fv-run' : 'fv-stop';
-  const emoji = VEHICLE_ICON_MAP[vehicle.vehicleIcon] || '🚗';
-  const size  = isSelected ? 46 : 38;
-  const fs    = isSelected ? 24 : 20;
+  const ign = getIgnition(vehicle);
+  const bg  = stateColor || (ign === true ? '#16a34a' : ign === false ? '#dc2626' : '#475569');
+  const cls = isSelected ? 'fv-sel' : ign === true ? 'fv-run' : 'fv-stop';
+  const W   = isSelected ? 50 : 42;   // (original 46/38 × 1.5 × 0.7)
+  const H   = Math.round(W * 0.72);
+  // Build the same SVG paths inline — pick the right shape for this vehicle type
+  // and inject the accent colour. We use a minimal SVG string for each shape
+  // family so the marker HTML stays compact.
+  const key = (vehicle.vehicleIcon || '').toLowerCase();
+  const isBike   = ['bike','motorcycle'].includes(key);
+  const isBus    = ['bus','schoolbus','minibus'].includes(key);
+  const isTruck  = ['truck','container','tipper','fury','tanker','watertanker','sweeper'].includes(key);
+  const isConstr = ['jcb','dumper','excavator','mixer','concretepump','paver','roadroller','wheelloader','ajax','crane','earthmover'].includes(key);
+  const isVan    = ['van','ambulance','fire','police','mortuaryvan','garbagevan'].includes(key);
+  const isTractor= ['tractor'].includes(key);
+  const isSuv    = ['suv','pickup'].includes(key);
+
+  let svgBody;
+  if (isBike) {
+    svgBody = `<path d="M20 36 L52 24 L60 36 Z" fill="${bg}"/><path d="M20 36 L28 18 L52 18 L52 24 L20 36 Z" fill="${bg}DD"/><rect x="24" y="16" width="22" height="5" rx="2" fill="#1E293B"/><circle cx="18" cy="40" r="10" stroke="#1A1A2E" stroke-width="3" fill="none"/><circle cx="62" cy="40" r="10" stroke="#1A1A2E" stroke-width="3" fill="none"/>`;
+  } else if (isBus) {
+    svgBody = `<path d="M6 16 L94 16 L100 46 L6 46 Z" fill="${bg}"/><path d="M6 16 L94 16 L94 24 L6 24 Z" fill="${bg}EE"/>${[14,30,46,62,78].map(x=>`<rect x="${x}" y="17" width="12" height="6" rx="1" fill="#A8D8F8CC"/>`).join('')}<ellipse cx="22" cy="46" rx="11" ry="6" fill="#1A1A2E"/><ellipse cx="72" cy="46" rx="11" ry="6" fill="#1A1A2E"/>`;
+  } else if (isTruck) {
+    svgBody = `<path d="M32 18 L100 18 L100 46 L32 46 Z" fill="${bg}DD"/><path d="M32 18 L100 18 L100 12 L38 12 Z" fill="${bg}"/><path d="M6 28 L32 28 L32 46 L6 46 Z" fill="${bg}"/><path d="M6 28 L32 28 L32 20 L10 20 Z" fill="${bg}CC"/><rect x="8" y="21" width="20" height="6" rx="1" fill="#A8D8F8CC"/><ellipse cx="18" cy="46" rx="10" ry="6" fill="#1A1A2E"/><ellipse cx="50" cy="46" rx="10" ry="6" fill="#1A1A2E"/><ellipse cx="80" cy="46" rx="10" ry="6" fill="#1A1A2E"/>`;
+  } else if (isConstr) {
+    svgBody = `<path d="M6 28 L36 28 L36 48 L6 48 Z" fill="${bg}"/><path d="M6 28 L36 28 L36 18 L12 18 Z" fill="${bg}CC"/><rect x="8" y="20" width="20" height="7" rx="1" fill="#A8D8F8CC"/><path d="M36 20 L96 20 L96 48 L36 48 Z" fill="${bg}DD"/><path d="M36 20 L96 20 L96 12 L42 12 Z" fill="#F59E0B" opacity="0.9"/><ellipse cx="18" cy="48" rx="12" ry="7" fill="#1A1A2E"/><ellipse cx="54" cy="48" rx="12" ry="7" fill="#1A1A2E"/><ellipse cx="82" cy="48" rx="12" ry="7" fill="#1A1A2E"/>`;
+  } else if (isVan) {
+    svgBody = `<path d="M4 22 L88 22 L94 46 L4 46 Z" fill="${bg}"/><path d="M4 22 L88 22 L88 14 L10 14 Z" fill="${bg}EE"/>${[10,30,52,70].map(x=>`<rect x="${x}" y="15" width="15" height="6" rx="1" fill="#A8D8F8CC"/>`).join('')}<ellipse cx="22" cy="46" rx="11" ry="6" fill="#1A1A2E"/><ellipse cx="70" cy="46" rx="11" ry="6" fill="#1A1A2E"/>`;
+  } else if (isTractor) {
+    svgBody = `<path d="M8 26 L50 26 L50 48 L8 48 Z" fill="${bg}"/><path d="M8 26 L50 26 L44 14 L14 14 Z" fill="${bg}CC"/><rect x="14" y="16" width="24" height="9" rx="1" fill="#A8D8F8CC"/><path d="M50 34 L80 34 L80 48 L50 48 Z" fill="${bg}BB"/><path d="M50 34 L80 34 L76 26 L54 26 Z" fill="#F59E0B" opacity="0.8"/><ellipse cx="24" cy="48" rx="15" ry="9" fill="#1A1A2E"/><ellipse cx="24" cy="48" rx="8" ry="5" fill="#374151"/><ellipse cx="65" cy="48" rx="10" ry="6" fill="#1A1A2E"/>`;
+  } else if (isSuv) {
+    svgBody = `<path d="M4 36 L84 36 L90 50 L4 50 Z" fill="${bg}"/><path d="M4 36 L84 36 L86 26 L8 26 Z" fill="${bg}EE"/><path d="M14 14 L76 14 L84 26 L8 26 Z" fill="${bg}CC"/><rect x="16" y="16" width="28" height="9" rx="1" fill="#A8D8F8CC"/><rect x="46" y="16" width="28" height="9" rx="1" fill="#A8D8F8CC"/><ellipse cx="24" cy="50" rx="12" ry="7" fill="#1A1A2E"/><ellipse cx="70" cy="50" rx="12" ry="7" fill="#1A1A2E"/>`;
+  } else {
+    // Default: car
+    svgBody = `<path d="M6 34 L78 34 L86 46 L6 46 Z" fill="${bg}"/><path d="M6 34 L78 34 L84 26 L12 26 Z" fill="${bg}EE"/><path d="M22 26 L68 26 L64 16 L26 16 Z" fill="${bg}CC"/><rect x="26" y="18" width="22" height="7" rx="1" fill="#A8D8F8CC"/><rect x="50" y="18" width="14" height="7" rx="1" fill="#A8D8F8CC"/><ellipse cx="24" cy="46" rx="11" ry="6" fill="#1A1A2E"/><ellipse cx="66" cy="46" rx="11" ry="6" fill="#1A1A2E"/>`;
+  }
+
+  const imgSrc = VEHICLE_ICON_3D[vehicle.vehicleIcon] || _DEFAULT_3D;
   return L.divIcon({
     className: '',
-    html: `<div style="display:flex;flex-direction:column;align-items:center;">
-      <div class="${cls}" style="width:${size}px;height:${size}px;background:${bg};border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:${fs}px;border:2.5px solid #fff;cursor:pointer;box-shadow:0 3px 10px rgba(0,0,0,0.28),0 1px 3px rgba(0,0,0,0.18);">
-        ${emoji}
-      </div>
-      <div style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:7px solid ${bg};margin-top:-1px;"></div>
+    html: `<div class="${cls}" style="display:flex;flex-direction:column;align-items:center;cursor:pointer;">
+      <img
+        src="${imgSrc}"
+        width="${W}" height="${W}"
+        style="object-fit:contain;display:block;filter:drop-shadow(0 6px 14px rgba(0,0,0,0.28)) drop-shadow(0 2px 4px rgba(0,0,0,0.16));"
+        onerror="this.style.display='none'"
+      />
+      <div style="
+        width:${isSelected ? 18 : 12}px;height:${isSelected ? 7 : 5}px;
+        background:${bg};border-radius:50%;opacity:0.50;
+        filter:blur(2px);margin-top:-4px;
+      "></div>
     </div>`,
-    iconSize: [size, size + 8],
-    iconAnchor: [size / 2, size + 8],
+    iconSize: [W, W + 10],
+    iconAnchor: [W / 2, W + 10],
   });
+};
+
+// ─── Vehicle3DAvatar — Fluent Emoji 3D PNG icons ─────────────────────────────
+// Uses Microsoft's open-source Fluent Emoji 3D pre-rendered PNGs from CDN.
+// Falls back to SVG on load error.  `size` is the width; height auto-scales.
+const Vehicle3DAvatar = ({ icon, color = '#3B82F6', size = 78 }) => {
+  const src = VEHICLE_ICON_3D[icon] || _DEFAULT_3D;
+  const ShapeComp = _ICON_SHAPE_MAP[icon] || _SVGCar;
+  const [imgErr, setImgErr] = React.useState(false);
+  return (
+    <div style={{
+      width: size, height: size, flexShrink: 0,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      filter: 'drop-shadow(0 6px 12px rgba(0,0,0,0.24)) drop-shadow(0 2px 4px rgba(0,0,0,0.14))',
+      userSelect: 'none',
+    }}>
+      {imgErr ? (
+        <div style={{ width: size, height: Math.round(size * 0.72) }}>
+          <ShapeComp c={color} />
+        </div>
+      ) : (
+        <img
+          src={src}
+          alt={icon || 'vehicle'}
+          width={size}
+          height={size}
+          style={{ objectFit: 'contain', display: 'block' }}
+          onError={() => setImgErr(true)}
+        />
+      )}
+    </div>
+  );
 };
 
 // ─── Cluster Icon ────────────────────────────────────────────────────────────
@@ -513,9 +806,7 @@ const VehicleTooltip = ({ vehicle }) => {
       {/* Header */}
       <div style={{ background: '#FFFFFF', borderRadius: '8px 8px 0 0', padding: '12px 14px', borderBottom: `3px solid ${ignColor}`, marginBottom: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 40, height: 40, borderRadius: 10, background: ignBg, border: `1.5px solid ${ignColor}33`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>
-            {VEHICLE_ICON_MAP[vehicle.vehicleIcon] || '🚗'}
-          </div>
+          <Vehicle3DAvatar icon={vehicle.vehicleIcon} color={ignColor} size={42} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 800, fontSize: 13.5, color: '#0F172A', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{vehicleDisplayName(vehicle)}</div>
             {vehicle.vehicleName && vehicle.vehicleNumber && (
@@ -594,6 +885,15 @@ const MyFleet = () => {
   // Multi-select: vehicles the user has pinned to track simultaneously on the
   // map. When ≥2 are pinned, FocusBoundsController fits the map to all of them.
   const [focusedIds, setFocusedIds] = useState(() => new Set());
+  // Tracks which copy button was last clicked: `${vehicleId}-${field}`
+  // so the UI can show a momentary ✓ confirmation.
+  const [copiedKey, setCopiedKey] = useState('');
+  const copyToClip = (e, text, key) => {
+    e.stopPropagation();
+    navigator.clipboard?.writeText(text).catch(() => {});
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(k => k === key ? '' : k), 2000);
+  };
 
   // Refs to every Leaflet marker on the map, keyed by vehicleId. Populated by
   // SmoothMarker on mount and consumed by SmoothMotionController's RAF loop
@@ -1667,7 +1967,7 @@ const MyFleet = () => {
                       vehicle: (
                         <td key="vehicle">
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ fontSize: '16px', lineHeight: 1, flexShrink: 0 }}>{VEHICLE_ICON_MAP[v.vehicleIcon] || '🚗'}</span>
+                            <Vehicle3DAvatar icon={v.vehicleIcon} color={getVState(v, deviceStatesByType).stateColor || '#64748B'} size={29} />
                             <span style={{ fontWeight: 600, color: '#1e3a5f', whiteSpace: 'nowrap' }}>{vehicleDisplayName(v)}</span>
                           </div>
                         </td>
@@ -1877,9 +2177,7 @@ const MyFleet = () => {
 
                 {/* ── Top header bar ── */}
                 <div style={{ background: '#FFFFFF', borderBottom: `3px solid ${ignColor}`, padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-                  <div style={{ width: 44, height: 44, borderRadius: 11, background: ignColor + '12', border: `1.5px solid ${ignColor}30`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>
-                    {VEHICLE_ICON_MAP[dv.vehicleIcon] || '🚗'}
-                  </div>
+                  <Vehicle3DAvatar icon={dv.vehicleIcon} color={ignColor} size={46} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 15.5, fontWeight: 800, color: '#0F172A', letterSpacing: '-0.02em', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {dv.vehicleName || dv.vehicleNumber || 'Vehicle'}
@@ -2308,35 +2606,44 @@ const MyFleet = () => {
       {/* ══════ CONTENT ROW: left panel + map + right panel ══════ */}
       <div style={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden' }}>
 
-      {/* ── LEFT PANEL — vehicle list sidebar (modern slate-tinted) ── */}
+      {/* ── LEFT PANEL — light bright vehicle list ── */}
       <div style={{
         flexShrink: 0,
         width: panelOpen ? PANEL_W : 0,
         overflow: 'hidden',
-        transition: 'width 0.25s cubic-bezier(0.4,0,0.2,1)',
-        background: '#F8FAFC',
+        transition: 'width 0.28s cubic-bezier(0.4,0,0.2,1)',
+        background: 'linear-gradient(175deg, #FAFBFF 0%, #F3F4F8 100%)',
         borderRight: '1px solid #E2E8F0',
-        boxShadow: 'inset -1px 0 0 rgba(15,23,42,0.04)',
+        boxShadow: '2px 0 16px rgba(15,23,42,0.08)',
         display: 'flex',
         flexDirection: 'column',
       }}>
       {/* Inner fixed-width wrapper so content doesn't reflow during transition */}
       <div style={{ width: PANEL_W, flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-        {/* Search + group filter — translucent header with depth */}
-        <div style={{ padding: '14px 14px 12px', flexShrink: 0, borderBottom: '1px solid #E2E8F0', background: 'linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%)', boxShadow: '0 1px 0 rgba(15,23,42,0.04)' }}>
-          {/* Search input */}
+        {/* Search + group filter */}
+        <div style={{ padding: '14px 14px 12px', flexShrink: 0, borderBottom: '1px solid #E2E8F0', background: '#FFFFFF' }}>
           <div style={{ position: 'relative', marginBottom: groups.length > 0 ? 10 : 0 }}>
-            <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
+            <span style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
               <Ic n="search" size={16} color="#94A3B8" />
             </span>
             <input
-              title="Filter vehicles by name, number plate or IMEI"
-              className="fv-input"
-              style={{ paddingLeft: 38, fontSize: 14 }}
-              placeholder="Search by name, number or IMEI…"
+              title="Filter vehicles"
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                paddingLeft: 40, paddingRight: 14, paddingTop: 11, paddingBottom: 11,
+                background: '#F8FAFC',
+                border: '1.5px solid #E2E8F0',
+                borderRadius: 12,
+                color: '#0F172A', fontSize: 14, fontWeight: 500, outline: 'none',
+                fontFamily: 'inherit',
+                transition: 'border-color 0.15s, box-shadow 0.15s',
+              }}
+              placeholder="Search vehicles…"
               value={search}
               onChange={e => setSearch(e.target.value)}
+              onFocus={e => { e.target.style.borderColor = '#6366F1'; e.target.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.12)'; e.target.style.background = '#FFFFFF'; }}
+              onBlur={e => { e.target.style.borderColor = '#E2E8F0'; e.target.style.boxShadow = 'none'; e.target.style.background = '#F8FAFC'; }}
             />
           </div>
           {/* Group filter — pills when 0–1 groups exist, dropdown when multiple */}
@@ -2346,7 +2653,7 @@ const MyFleet = () => {
                 title="Filter by vehicle group"
                 value={selectedGroupId ?? ''}
                 onChange={e => setSelectedGroupId(e.target.value ? Number(e.target.value) : null)}
-                style={{ flex: 1, minWidth: 0, background: '#FFFFFF', border: `1px solid ${selectedGroupId ? (groups.find(g => g.id === selectedGroupId)?.color || '#3B82F6') : '#E2E8F0'}`, borderRadius: 7, color: '#0F172A', fontSize: 12, fontWeight: 600, padding: '6px 10px', outline: 'none', fontFamily: 'inherit', cursor: 'pointer' }}>
+                style={{ flex: 1, minWidth: 0, background: '#F8FAFC', border: `1.5px solid ${selectedGroupId ? (groups.find(g => g.id === selectedGroupId)?.color || '#6366F1') : '#E2E8F0'}`, borderRadius: 10, color: '#0F172A', fontSize: 12, fontWeight: 600, padding: '8px 10px', outline: 'none', fontFamily: 'inherit', cursor: 'pointer' }}>
                 <option value="">All groups ({vehicles.length})</option>
                 {groups.map(g => (
                   <option key={g.id} value={g.id}>{g.name}</option>
@@ -2385,23 +2692,21 @@ const MyFleet = () => {
           ) : null}
         </div>
 
-        {/* Vehicle count + multi-select controls */}
-        <div style={{ padding: '10px 16px 9px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #E2E8F0', background: '#F1F5F9' }}>
-          <span style={{ fontSize: 12, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-            {filteredVehicles.length} vehicle{filteredVehicles.length !== 1 ? 's' : ''}
+        {/* Vehicle count + multi-select */}
+        <div style={{ padding: '8px 16px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #EEF0F5', background: '#F1F5F9' }}>
+          <span style={{ fontSize: 11.5, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            {filteredVehicles.length} vehicles
           </span>
           {focusedIds.size > 0 && (
-            <button
-              onClick={() => setFocusedIds(new Set())}
-              title="Clear multi-select"
-              style={{ background: '#2563EB', border: 'none', color: '#FFFFFF', fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 0, cursor: 'pointer', fontFamily: 'inherit', letterSpacing: '0.04em' }}>
-              {focusedIds.size} SELECTED · CLEAR
+            <button onClick={() => setFocusedIds(new Set())}
+              style={{ background: '#6366F1', border: 'none', color: '#FFFFFF', fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 20, cursor: 'pointer', fontFamily: 'inherit', letterSpacing: '0.04em' }}>
+              {focusedIds.size} selected · Clear
             </button>
           )}
         </div>
 
         {/* Vehicle cards list */}
-        <div style={{ flex: 1, overflow: 'auto', padding: '10px 10px 24px', background: '#F1F5F9' }}>
+        <div style={{ flex: 1, overflow: 'auto', padding: '10px 10px 24px' }}>
           {loading && (
             <div style={{ padding: '32px 0', textAlign: 'center' }}>
               <div style={{ width: 20, height: 20, border: '2px solid #E2E8F0', borderTopColor: '#3B82F6', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 8px' }} />
@@ -2432,109 +2737,161 @@ const MyFleet = () => {
             return (
               <div key={v.id}
                 onClick={() => selectVehicle(v)}
-                title={`${vehicleDisplayName(v)} — click to view details and locate on map`}
+                title={`${vehicleDisplayName(v)} — click to locate and view`}
                 className="fv-card"
                 style={{
-                  padding: '14px 16px 13px', cursor: 'pointer', borderRadius: 0, marginBottom: 8,
-                  background: isSel ? 'linear-gradient(180deg, #EFF6FF 0%, #FFFFFF 100%)' : '#FFFFFF',
-                  border: `1px solid ${isSel ? '#93C5FD' : '#E2E8F0'}`,
-                  borderLeft: `4px solid ${isSel ? '#2563EB' : stColor}`,
+                  cursor: 'pointer',
+                  borderRadius: 16,
+                  marginBottom: 10,
+                  overflow: 'hidden',
+                  background: isSel
+                    ? `linear-gradient(145deg, #FFFFFF 0%, ${stColor}10 100%)`
+                    : '#FFFFFF',
+                  border: isSel
+                    ? `1.5px solid ${stColor}60`
+                    : '1.5px solid #EEF0F6',
                   boxShadow: isSel
-                    ? '0 6px 18px rgba(37,99,235,0.18), 0 1px 3px rgba(15,23,42,0.06), 0 0 0 1px rgba(37,99,235,0.10)'
-                    : '0 1px 2px rgba(15, 23, 42, 0.04), 0 0 0 1px rgba(15, 23, 42, 0.02)',
+                    ? `0 6px 24px ${stColor}28, 0 2px 6px rgba(15,23,42,0.08), 0 0 0 1px ${stColor}20`
+                    : '0 2px 8px rgba(15,23,42,0.06), 0 0 0 1px rgba(15,23,42,0.03)',
                 }}>
-                {/* Row 1: checkbox + icon + name + reg + status pill */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+
+                {/* ── Card top: 3D avatar + info + checkbox ── */}
+                <div style={{ padding: '14px 16px 12px', display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+
+                  {/* 3D vehicle avatar */}
+                  <Vehicle3DAvatar icon={v.vehicleIcon} color={stColor} size={56} />
+
+                  {/* Name + reg + IMEI + status */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    {/* Vehicle name */}
+                    <div style={{ fontSize: 15.5, fontWeight: 800, color: '#0F172A', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', letterSpacing: '-0.01em', marginBottom: 5 }}>
+                      {vehicleDisplayName(v)}
+                    </div>
+
+                    {/* Registration number with copy */}
+                    {v.vehicleNumber && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          background: '#EFF6FF', border: '1px solid #BFDBFE',
+                          borderRadius: 6, padding: '2px 8px',
+                          fontSize: 12, fontWeight: 700, color: '#1D4ED8', fontFamily: 'monospace',
+                          letterSpacing: '0.06em',
+                        }}>
+                          🪪 {v.vehicleNumber}
+                        </span>
+                        <button
+                          onClick={e => copyToClip(e, v.vehicleNumber, `${v.id}-reg`)}
+                          title="Copy registration number"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', borderRadius: 4, color: copiedKey === `${v.id}-reg` ? '#10B981' : '#94A3B8', fontSize: 12, display: 'flex', alignItems: 'center', transition: 'color 0.15s' }}>
+                          {copiedKey === `${v.id}-reg` ? '✓' : '⎘'}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* IMEI with copy */}
+                    {v.imei && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6 }}>
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          background: '#F8FAFC', border: '1px solid #E2E8F0',
+                          borderRadius: 6, padding: '2px 8px',
+                          fontSize: 11, fontWeight: 600, color: '#64748B', fontFamily: 'monospace',
+                          letterSpacing: '0.04em',
+                        }}>
+                          📡 {v.imei}
+                        </span>
+                        <button
+                          onClick={e => copyToClip(e, v.imei, `${v.id}-imei`)}
+                          title="Copy IMEI"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', borderRadius: 4, color: copiedKey === `${v.id}-imei` ? '#10B981' : '#94A3B8', fontSize: 12, display: 'flex', alignItems: 'center', transition: 'color 0.15s' }}>
+                          {copiedKey === `${v.id}-imei` ? '✓' : '⎘'}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Status + age badges */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 5,
+                        padding: '3px 10px', borderRadius: 20,
+                        background: `linear-gradient(135deg, ${stColor}35 0%, ${stColor}18 100%)`,
+                        border: `1px solid ${stColor}45`,
+                        fontSize: 10.5, fontWeight: 800, color: stColor, letterSpacing: '0.07em',
+                      }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: stColor, flexShrink: 0, boxShadow: ign === true ? `0 0 8px ${stColor}` : 'none' }} />
+                        {stLabel.toUpperCase()}
+                      </span>
+                      {ageLabel && (
+                        <span style={{ fontSize: 10.5, fontWeight: 700, color: ageColor, background: `${ageColor}18`, border: `1px solid ${ageColor}38`, padding: '3px 9px', borderRadius: 20 }}>
+                          {ageLabel}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Multi-track checkbox */}
                   <input
                     type="checkbox"
                     title="Track on map (multi-select)"
                     checked={focusedIds.has(v.id)}
                     onClick={e => e.stopPropagation()}
                     onChange={() => toggleFocus(v.id)}
-                    style={{ flexShrink: 0, width: 18, height: 18, accentColor: '#2563EB', cursor: 'pointer', margin: 0 }}
+                    style={{ flexShrink: 0, width: 17, height: 17, accentColor: '#6366F1', cursor: 'pointer', margin: 0, marginTop: 2 }}
                   />
-                  <div style={{
-                    width: 50, height: 50, borderRadius: 0,
-                    background: `linear-gradient(135deg, ${stColor} 0%, ${stColor}D9 100%)`,
-                    color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 24, flexShrink: 0,
-                    boxShadow: `inset 0 1px 0 rgba(255,255,255,0.18), 0 2px 6px ${stColor}38`,
-                  }}>
-                    {VEHICLE_ICON_MAP[v.vehicleIcon] || '🚗'}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 16, fontWeight: 800, color: '#0F172A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.2, letterSpacing: '-0.01em' }}>
-                        {vehicleDisplayName(v)}
-                      </span>
-                      {ageLabel && (
-                        <span style={{
-                          fontSize: 10, color: '#FFFFFF', fontWeight: 800, flexShrink: 0,
-                          background: `linear-gradient(135deg,${ageColor} 0%,${ageColor}CC 100%)`,
-                          padding: '2px 9px', borderRadius: 0, letterSpacing: '0.05em',
-                          boxShadow: `0 1px 4px ${ageColor}44`,
-                        }}>{ageLabel.toUpperCase()}</span>
-                      )}
-                    </div>
-                    {v.vehicleNumber && v.vehicleName && (
-                      <div style={{ fontSize: 13, color: '#475569', fontFamily: 'monospace', fontWeight: 600, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.vehicleNumber}</div>
-                    )}
-                  </div>
-                  <div style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0,
-                    padding: '6px 12px', borderRadius: 0,
-                    background: `linear-gradient(135deg, ${stColor} 0%, ${stColor}E0 100%)`,
-                    boxShadow: `inset 0 1px 0 rgba(255,255,255,0.20), 0 1px 2px ${stColor}40`,
-                  }}>
-                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#FFFFFF', flexShrink: 0, boxShadow: ign === true ? '0 0 6px #FFFFFF' : 'none' }} />
-                    <span style={{ fontSize: 11, fontWeight: 800, color: '#FFFFFF', letterSpacing: '0.06em' }}>{stLabel.toUpperCase()}</span>
-                  </div>
                 </div>
 
-                {/* Row 2: metrics strip — dark-slate card with colored left border tiles */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))', gap: 0, marginTop: 12, marginLeft: 30, background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
-                  {/* Speed */}
-                  <div style={{ display: 'flex', flexDirection: 'column', padding: '6px 10px', borderLeft: `3px solid ${speed != null && speed > 80 ? '#ef4444' : speed != null && speed > 5 ? '#2563EB' : '#CBD5E1'}` }}>
-                    <span style={{ fontSize: 9.5, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Speed</span>
-                    {speed != null ? (
-                      <span style={{ fontSize: 17, fontWeight: 800, color: speed > 80 ? '#ef4444' : speed > 5 ? '#2563EB' : '#0F172A', fontVariantNumeric: 'tabular-nums', lineHeight: 1.05, marginTop: 2 }}>
-                        {speed}<span style={{ fontSize: 10, fontWeight: 600, color: '#94A3B8', marginLeft: 2 }}>km/h</span>
-                      </span>
-                    ) : !hasCoords ? (
-                      <span style={{ fontSize: 12, fontWeight: 700, color: '#F59E0B', marginTop: 2 }}>NO GPS</span>
-                    ) : <span style={{ fontSize: 17, fontWeight: 800, color: '#94A3B8', marginTop: 2 }}>—</span>}
-                  </div>
-                  {/* Ignition */}
-                  {ign !== null && (
-                    <div style={{ display: 'flex', flexDirection: 'column', padding: '6px 10px', borderLeft: `3px solid ${ign ? '#16a34a' : '#94A3B8'}` }}>
-                      <span style={{ fontSize: 9.5, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Ignition</span>
-                      <span style={{ fontSize: 14, fontWeight: 800, color: ign ? '#16a34a' : '#475569', marginTop: 4 }}>{ign ? 'ON' : 'OFF'}</span>
-                    </div>
-                  )}
-                  {/* Battery */}
-                  {battery != null && (
-                    <div style={{ display: 'flex', flexDirection: 'column', padding: '6px 10px', borderLeft: `3px solid ${battery < 20 ? '#ef4444' : '#7C3AED'}` }}>
-                      <span style={{ fontSize: 9.5, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Battery</span>
-                      <span style={{ fontSize: 17, fontWeight: 800, color: battery < 20 ? '#ef4444' : '#0F172A', fontVariantNumeric: 'tabular-nums', lineHeight: 1.05, marginTop: 2 }}>
-                        {Math.round(battery)}<span style={{ fontSize: 10, fontWeight: 600, color: '#94A3B8' }}>%</span>
-                      </span>
-                    </div>
-                  )}
-                  {/* Fuel */}
-                  {fuel != null && (
-                    <div style={{ display: 'flex', flexDirection: 'column', padding: '6px 10px', borderLeft: `3px solid ${fuel < 20 ? '#ef4444' : fuel < 40 ? '#f59e0b' : '#16a34a'}` }}>
-                      <span style={{ fontSize: 9.5, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Fuel</span>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                        <span style={{ fontSize: 17, fontWeight: 800, color: fuel < 20 ? '#ef4444' : '#0F172A', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
-                          {Math.round(fuel)}<span style={{ fontSize: 10, fontWeight: 600, color: '#94A3B8' }}>%</span>
+                {/* ── Metrics strip — background inherits sidebar theme color ── */}
+                {(speed != null || ign !== null || battery != null || fuel != null || !hasCoords) && (
+                  <div style={{
+                    display: 'flex', alignItems: 'stretch',
+                    background: 'var(--theme-sidebar-bg, #1A2F6B)',
+                    borderTop: '1px solid rgba(255,255,255,0.06)',
+                  }}>
+                    {/* Speed */}
+                    <div style={{ flex: 1, padding: '9px 12px', borderRight: '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <span style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.50)', textTransform: 'uppercase', letterSpacing: '0.09em' }}>Speed</span>
+                      {speed != null ? (
+                        <span style={{ fontSize: 17, fontWeight: 900, lineHeight: 1, fontVariantNumeric: 'tabular-nums', color: speed > 80 ? '#FCA5A5' : speed > 5 ? '#93C5FD' : 'rgba(255,255,255,0.60)' }}>
+                          {speed}<span style={{ fontSize: 9.5, fontWeight: 600, color: 'rgba(255,255,255,0.38)', marginLeft: 2 }}>km/h</span>
                         </span>
-                        <span style={{ flex: 1, minWidth: 24, height: 4, background: '#F1F5F9', overflow: 'hidden', display: 'inline-block' }}>
-                          <span style={{ width: `${Math.max(0, Math.min(100, fuel))}%`, height: '100%', display: 'block', background: fuel > 30 ? '#22c55e' : fuel > 15 ? '#f59e0b' : '#ef4444' }} />
+                      ) : !hasCoords ? (
+                        <span style={{ fontSize: 11, fontWeight: 700, color: '#FCD34D' }}>NO GPS</span>
+                      ) : <span style={{ fontSize: 17, fontWeight: 900, color: 'rgba(255,255,255,0.25)' }}>—</span>}
+                    </div>
+                    {/* Ignition */}
+                    {ign !== null && (
+                      <div style={{ flex: 1, padding: '9px 12px', borderRight: '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.50)', textTransform: 'uppercase', letterSpacing: '0.09em' }}>Ignition</span>
+                        <span style={{ fontSize: 13.5, fontWeight: 800, lineHeight: 1.2, color: ign ? '#6EE7B7' : 'rgba(255,255,255,0.40)', display: 'flex', alignItems: 'center', gap: 5, marginTop: 2 }}>
+                          <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: ign ? '#34D399' : 'rgba(255,255,255,0.25)', boxShadow: ign ? '0 0 7px #34D399' : 'none' }} />
+                          {ign ? 'ON' : 'OFF'}
                         </span>
                       </div>
-                    </div>
-                  )}
-                </div>
+                    )}
+                    {/* Battery */}
+                    {battery != null && (
+                      <div style={{ flex: 1, padding: '9px 12px', borderRight: '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.50)', textTransform: 'uppercase', letterSpacing: '0.09em' }}>Battery</span>
+                        <span style={{ fontSize: 17, fontWeight: 900, lineHeight: 1, fontVariantNumeric: 'tabular-nums', color: battery < 20 ? '#FCA5A5' : '#C4B5FD' }}>
+                          {Math.round(battery)}<span style={{ fontSize: 9.5, fontWeight: 600, color: 'rgba(255,255,255,0.38)' }}>%</span>
+                        </span>
+                      </div>
+                    )}
+                    {/* Fuel */}
+                    {fuel != null && (
+                      <div style={{ flex: 1, padding: '9px 12px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.50)', textTransform: 'uppercase', letterSpacing: '0.09em' }}>Fuel</span>
+                        <span style={{ fontSize: 17, fontWeight: 900, lineHeight: 1, fontVariantNumeric: 'tabular-nums', color: fuel < 20 ? '#FCA5A5' : fuel < 40 ? '#FCD34D' : '#6EE7B7' }}>
+                          {Math.round(fuel)}<span style={{ fontSize: 9.5, fontWeight: 600, color: 'rgba(255,255,255,0.38)' }}>%</span>
+                        </span>
+                        <div style={{ height: 3, background: 'rgba(255,255,255,0.12)', borderRadius: 10, overflow: 'hidden', marginTop: 2 }}>
+                          <div style={{ width: `${fuel}%`, height: '100%', background: fuel < 20 ? '#F87171' : fuel < 40 ? '#FBBF24' : '#34D399', borderRadius: 10, transition: 'width 0.4s ease' }} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -2642,9 +2999,7 @@ const MyFleet = () => {
 
                   {/* Identity */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 240, flex: '0 1 auto' }}>
-                    <div style={{ width: 56, height: 56, background: stColor, color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, flexShrink: 0 }}>
-                      {VEHICLE_ICON_MAP[sv.vehicleIcon] || '🚗'}
-                    </div>
+                    <Vehicle3DAvatar icon={sv.vehicleIcon} color={stColor} size={61} />
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontSize: 19, fontWeight: 800, color: '#0F172A', lineHeight: 1.15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', letterSpacing: '-0.01em' }}>
                         {vehicleDisplayName(sv)}
@@ -2959,7 +3314,7 @@ const MyFleet = () => {
               return (
                 <label key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 0', cursor: 'pointer', borderBottom: `1px solid ${C.borderLight}` }}>
                   <input type="checkbox" checked={inGroup} onChange={() => handleToggleVehicleInGroup(showManageVehicles, v.id, inGroup)} style={{ width: 16, height: 16, accentColor: C.primary }} />
-                  <span style={{ fontSize: 18 }}>{VEHICLE_ICON_MAP[v.vehicleIcon] || '🚗'}</span>
+                  <Vehicle3DAvatar icon={v.vehicleIcon} color={C.primary} size={34} />
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{vehicleDisplayName(v)}</div>
                     {v.vehicleNumber && v.vehicleName && <div style={{ fontSize: 11, color: C.textMuted, fontFamily: 'monospace' }}>{v.vehicleNumber}</div>}
@@ -3134,22 +3489,26 @@ const DarkStatusPill = ({ vs }) => {
 
 const HudChip = ({ value, label, dot, active, onClick }) => (
   <div onClick={onClick} style={{
-    display: 'flex', alignItems: 'center', gap: 7,
-    padding: '6px 14px',
-    background: `linear-gradient(135deg, ${dot} 0%, ${dot}CC 100%)`,
-    border: 'none',
-    borderRadius: 0,
+    display: 'flex', alignItems: 'center', gap: 6,
+    padding: active ? '5px 14px' : '5px 12px',
+    background: active
+      ? `linear-gradient(135deg, ${dot} 0%, ${dot}DD 100%)`
+      : '#FFFFFF',
+    border: active
+      ? `1px solid ${dot}`
+      : '1px solid #E2E8F0',
+    borderRadius: 999,
     cursor: 'pointer',
-    opacity: active ? 1 : 0.78,
     boxShadow: active
-      ? `0 0 0 2px #fff, 0 4px 14px ${dot}55, inset 0 1px 0 rgba(255,255,255,0.22)`
-      : `inset 0 1px 0 rgba(255,255,255,0.14), 0 1px 3px ${dot}30`,
-    transition: 'opacity 0.15s, box-shadow 0.15s, transform 0.15s',
+      ? `0 4px 14px ${dot}44, 0 0 0 3px ${dot}22, inset 0 1px 0 rgba(255,255,255,0.18)`
+      : '0 1px 3px rgba(15,23,42,0.08)',
+    transition: 'all 0.18s cubic-bezier(0.4,0,0.2,1)',
     flexShrink: 0,
-    transform: active ? 'translateY(-1px)' : 'none',
+    transform: active ? 'translateY(-1px) scale(1.03)' : 'scale(1)',
   }}>
-    <span style={{ fontSize: 14, fontWeight: 800, color: '#fff', fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.01em' }}>{value}</span>
-    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.90)', fontWeight: 700, letterSpacing: '0.03em' }}>{label}</span>
+    {!active && <span style={{ width: 7, height: 7, borderRadius: '50%', background: dot, flexShrink: 0, boxShadow: `0 0 5px ${dot}88` }} />}
+    <span style={{ fontSize: 13.5, fontWeight: 800, color: active ? '#fff' : '#0F172A', fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.01em' }}>{value}</span>
+    <span style={{ fontSize: 10.5, color: active ? 'rgba(255,255,255,0.88)' : '#64748B', fontWeight: 700, letterSpacing: '0.02em' }}>{label}</span>
   </div>
 );
 
