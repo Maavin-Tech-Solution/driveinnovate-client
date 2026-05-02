@@ -294,9 +294,24 @@ const VEHICLE_ICON_LABELS = {
   watertanker: 'Water Tanker', garbagevan: 'Garbage Van', mortuaryvan: 'Mortuary Van',
 };
 const SENSOR_TYPES = ['number', 'boolean', 'text'];
-// Map-view sidebar width. Was 260; doubled to give the vehicle list room
-// to display name + reg + status + metrics legibly without truncation.
-const PANEL_W = 540;
+const PANEL_W = 513;   // 446 +15% per user request
+
+// Pick a recognisable icon for any custom sensor based on its name / mapped param.
+const sensorIcon = (name = '', param = '') => {
+  const t = (name + ' ' + param).toLowerCase();
+  if (/ignit|acc\b/.test(t))      return '🔑';
+  if (/speed|km.*h/.test(t))      return '🏎️';
+  if (/temp/.test(t))             return '🌡️';
+  if (/fuel|petrol/.test(t))      return '⛽';
+  if (/bat/.test(t))              return '🔋';
+  if (/volt/.test(t))             return '⚡';
+  if (/gsm|signal|rssi/.test(t))  return '📶';
+  if (/sat/.test(t))              return '🛰️';
+  if (/door/.test(t))             return '🚪';
+  if (/load|rpm|engine/.test(t))  return '⚙️';
+  if (/move|motion/.test(t))      return '📍';
+  return '📊';
+};
 const HUD_H = 52;
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
@@ -885,6 +900,12 @@ const MyFleet = () => {
   // Multi-select: vehicles the user has pinned to track simultaneously on the
   // map. When ≥2 are pinned, FocusBoundsController fits the map to all of them.
   const [focusedIds, setFocusedIds] = useState(() => new Set());
+
+  // Per-vehicle sensor cache for the sidebar card sensor strip.
+  // Loaded lazily once per vehicle when it first appears in the map-view list.
+  const [vehicleSensorsCache, setVehicleSensorsCache] = useState(() => new Map());
+  // Which card currently has its sensor strip expanded (vehicleId or null).
+  const [expandedSensorId, setExpandedSensorId] = useState(null);
   // Tracks which copy button was last clicked: `${vehicleId}-${field}`
   // so the UI can show a momentary ✓ confirmation.
   const [copiedKey, setCopiedKey] = useState('');
@@ -1547,6 +1568,27 @@ const MyFleet = () => {
     return list;
   }, [vehicles, groups, selectedGroupId, search, statusFilter, chipFilter, sortCol, sortDir, deviceStatesByType, stateTick]);
 
+  // Lazily load sensors for every visible vehicle when the map-view sidebar
+  // is open. Placed AFTER filteredVehicles useMemo to avoid TDZ error.
+  useEffect(() => {
+    if (viewMode !== 'map' || !filteredVehicles.length) return;
+    const missing = filteredVehicles.filter(v => !vehicleSensorsCache.has(v.id));
+    if (!missing.length) return;
+    Promise.allSettled(
+      missing.map(v =>
+        getVehicleSensors(v.id)
+          .then(res => ({ id: v.id, sensors: res?.data || [] }))
+          .catch(() => ({ id: v.id, sensors: [] }))
+      )
+    ).then(results => {
+      setVehicleSensorsCache(prev => {
+        const next = new Map(prev);
+        results.forEach(r => { if (r.status === 'fulfilled') next.set(r.value.id, r.value.sensors); });
+        return next;
+      });
+    });
+  }, [viewMode, filteredVehicles]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const mapVehicles = useMemo(() => filteredVehicles.map(v => ({ ...v, coords: getVehicleCoords(v) })).filter(v => v.coords), [filteredVehicles]);
 
   // Lat/lng pairs for the pinned set — drives FocusBoundsController.
@@ -1636,6 +1678,188 @@ const MyFleet = () => {
   const panelBorder = '1px solid #E2E8F0';
 
   // ─── RENDER ─────────────────────────────────────────────────────────────────
+
+  /* ══════ SHARED VEHICLE DETAIL MODAL (useMemo — computed every render) ══════ */
+  const vehicleDetailModalJsx = React.useMemo(() => {
+    if (!drawerVehicle) return null;
+    const dv       = drawerVehicle;
+    const ign      = getIgnition(dv);
+    const gps      = dv.deviceStatus?.gpsData;
+    const dst      = dv.deviceStatus?.status;
+    const dfuel    = dv.deviceStatus?.fuel;
+    const dvs      = getVState(dv, deviceStatesByType);
+    const ignColor = dvs.stateColor;
+    const ignBg    = ign === true ? '#f0fdf4' : ign === false ? '#fef2f2' : '#f8fafc';
+    const ignLabel = dvs.stateName;
+    const statItems = [
+      gps?.speed      != null && { icon: '🏎️', label: 'Speed',      val: String(gps.speed),              unit: 'km/h', accent: gps.speed > 80 ? '#dc2626' : '#2563eb' },
+      dfuel?.level    != null && { icon: '⛽',  label: 'Fuel',       val: String(Math.round(dfuel.level)), unit: '%',    accent: dfuel.level < 20 ? '#dc2626' : dfuel.level < 40 ? '#d97706' : '#16a34a' },
+      dst?.battery    != null && { icon: '🔋',  label: 'Battery',    val: String(dst.battery),             unit: '%',    accent: dst.battery < 20 ? '#dc2626' : '#7c3aed' },
+      dst?.voltage    != null && { icon: '⚡',  label: 'Voltage',    val: String(dst.voltage),             unit: 'V',    accent: '#d97706' },
+      gps?.satellites != null && { icon: '🛰️', label: 'Satellites', val: String(gps.satellites),          unit: '',     accent: gps.satellites < 4 ? '#d97706' : '#059669' },
+      dst?.gsmSignal  != null && { icon: '📶', label: 'GSM',        val: String(dst.gsmSignal),            unit: '',     accent: '#0891b2' },
+    ].filter(Boolean);
+    return (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 7000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setDrawerVehicle(null)}>
+        <style>{`@keyframes modalIn { from { opacity: 0; transform: scale(0.97) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }`}</style>
+        <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.5)', backdropFilter: 'blur(4px)' }} />
+
+        <div
+          style={{ position: 'relative', zIndex: 1, width: '96vw', maxWidth: '1176px', height: '88vh', background: '#fff', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 80px rgba(0,0,0,0.28), 0 0 0 1px rgba(0,0,0,0.07)', animation: 'modalIn 0.22s cubic-bezier(0.22,1,0.36,1)', fontFamily: "'Plus Jakarta Sans',sans-serif", overflow: 'hidden' }}
+          onClick={e => e.stopPropagation()}>
+
+          {/* ── Top header bar ── */}
+          <div style={{ background: '#FFFFFF', borderBottom: `3px solid ${ignColor}`, padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+            <Vehicle3DAvatar icon={dv.vehicleIcon} color={ignColor} size={46} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 15.5, fontWeight: 800, color: '#0F172A', letterSpacing: '-0.02em', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {dv.vehicleName || dv.vehicleNumber || 'Vehicle'}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 3, flexWrap: 'wrap' }}>
+                {dv.vehicleName && dv.vehicleNumber && <span style={{ fontSize: 11, fontWeight: 600, color: '#64748B', fontFamily: 'monospace' }}>{dv.vehicleNumber}</span>}
+                {dv.imei && <span style={{ fontSize: 10.5, color: '#94A3B8', fontFamily: 'monospace' }}>IMEI: {dv.imei}</span>}
+                {dv.deviceType && <span title="GPS device type" style={{ fontSize: 9.5, background: '#EFF6FF', color: '#2563EB', padding: '1px 8px', borderRadius: 20, fontWeight: 700, border: '1px solid #BFDBFE' }}>{dv.deviceType}</span>}
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              <span title={`Vehicle state: ${ignLabel}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 12px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: ignBg, color: ignColor, border: `1.5px solid ${ignColor}35` }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: ignColor, boxShadow: ign === true ? `0 0 5px ${ignColor}` : 'none' }} />
+                {ignLabel}
+              </span>
+              <button onClick={() => setDrawerVehicle(null)} title="Close vehicle details"
+                style={{ width: 32, height: 32, background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 7, color: '#94A3B8', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Ic n="x" size={14} color="#94A3B8" />
+              </button>
+            </div>
+          </div>
+
+          {/* ── Two-column body ── */}
+          <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+
+            {/* ── Left panel ── */}
+            <div style={{ width: 256, borderRight: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', background: '#f8fafc', flexShrink: 0, overflowY: 'auto' }}>
+
+              {/* Live data grid */}
+              <div style={{ padding: '16px 14px 12px' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>Live Data</div>
+                {statItems.length > 0 ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                    {statItems.map((s, i) => (
+                      <div key={i} style={{ background: '#fff', border: '1px solid #E2E8F0', borderTop: `3px solid ${s.accent}`, padding: '9px 10px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 3 }}>
+                          <span style={{ fontSize: 11 }}>{s.icon}</span>
+                          <span style={{ fontSize: 9, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{s.label}</span>
+                        </div>
+                        <div style={{ fontSize: 19, fontWeight: 800, color: s.accent, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
+                          {s.val}<span style={{ fontSize: 10, fontWeight: 500, color: '#94A3B8', marginLeft: 1 }}>{s.unit}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ background: '#fff', border: '1px solid #E2E8F0', padding: '18px', textAlign: 'center', color: '#94A3B8', fontSize: 12 }}>No live data</div>
+                )}
+              </div>
+
+              {/* Quick actions */}
+              <div style={{ padding: '0 14px 14px' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>Actions</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 1, border: '1px solid #E2E8F0', overflow: 'hidden' }}>
+                  {[
+                    { label: syncing && syncingId === dv.id ? 'Syncing…' : 'Sync Device Data', icon: 'refresh', color: '#0891B2', bg: '#ECFEFF', onClick: () => handleSync(dv), disabled: syncing && syncingId === dv.id },
+                    { label: 'Play Route',    icon: 'play',    color: '#7C3AED', bg: '#F5F3FF', onClick: () => openPlayer(dv) },
+                    ...(liveShareEnabled && (isPapaOrDealer || user?.permissions?.canShareLiveLocation) ? [
+                      { label: 'Share Live',  icon: 'share',   color: '#2563EB', bg: '#EFF6FF', onClick: () => openShareModal('vehicle', dv.id, vehicleDisplayName(dv), dv.vehicleIcon) },
+                    ] : []),
+                    { label: 'View on Map',   icon: 'map',     color: '#059669', bg: '#F0FDF4', onClick: () => { setDrawerVehicle(null); setViewMode('map'); selectVehicle(dv); } },
+                    { label: 'Remove Vehicle',icon: 'trash',   color: '#DC2626', bg: '#FEF2F2', onClick: () => { setDrawerVehicle(null); handleDelete(dv.id); } },
+                  ].map(a => (
+                    <button key={a.label} onClick={a.onClick} disabled={a.disabled}
+                      style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '10px 13px', background: '#fff', border: 'none', borderBottom: '1px solid #F1F5F9', cursor: a.disabled ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 600, color: a.color, fontFamily: 'inherit', textAlign: 'left', transition: 'background 0.1s', opacity: a.disabled ? 0.6 : 1 }}
+                      onMouseEnter={e => { if (!a.disabled) e.currentTarget.style.background = a.bg; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = '#fff'; }}>
+                      <Ic n={a.icon} size={14} color={a.color} />
+                      {a.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Device info */}
+              <div style={{ padding: '0 14px 14px' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>Device Info</div>
+                <div style={{ background: '#fff', border: '1px solid #E2E8F0' }}>
+                  {[
+                    ['Type',   dv.deviceType || '—'],
+                    ['IMEI',   dv.imei || '—'],
+                    ['Server', dv.serverIp ? `${dv.serverIp}:${dv.serverPort}` : '—'],
+                    ['Name',   dv.deviceName || '—'],
+                  ].map(([k, v], i, arr) => (
+                    <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderBottom: i < arr.length - 1 ? '1px solid #F1F5F9' : 'none' }}>
+                      <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600, flexShrink: 0 }}>{k}</span>
+                      <span style={{ fontSize: 11, color: '#334155', fontWeight: 600, fontFamily: 'monospace', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right' }}>{v}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* ── Right panel: tabs + content ── */}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+
+              {/* Tab bar */}
+              <div style={{ display: 'flex', borderBottom: '2px solid #E2E8F0', background: '#f8fafc', flexShrink: 0, overflowX: 'auto' }}>
+                {[
+                  { id: 'overview', label: 'Overview', icon: 'activity' },
+                  { id: 'trips',    label: 'Trips',    icon: 'route'    },
+                  { id: 'reports',  label: 'Reports',  icon: 'chart'    },
+                  { id: 'sensors',  label: 'Sensors',  icon: 'radio'    },
+                  { id: 'edit',     label: 'Edit',     icon: 'edit'     },
+                ].map(t => (
+                  <button key={t.id} onClick={() => setActiveTab(t.id)}
+                    className="fv-tab-btn"
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '11px 18px', border: 'none', background: activeTab === t.id ? '#FFFFFF' : 'transparent', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: 13, fontWeight: activeTab === t.id ? 700 : 500, color: activeTab === t.id ? '#2563EB' : '#64748B', borderBottom: `2px solid ${activeTab === t.id ? '#2563EB' : 'transparent'}`, marginBottom: -2, fontFamily: 'inherit', transition: 'color 0.15s' }}>
+                    <Ic n={t.icon} size={13} color={activeTab === t.id ? '#2563EB' : '#94A3B8'} />
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Tab content */}
+              <div style={{ flex: 1, overflow: 'auto', background: '#fff' }}>
+                <div style={{ padding: 22 }}>
+                  {activeTab === 'overview' && <OverviewTab vehicle={dv} />}
+                  {activeTab === 'trips' && (
+                    <TripsTab vehicle={dv} reportFrom={reportFrom} reportTo={reportTo}
+                      reportData={reportData} reportLoading={reportLoading} reportPage={reportPage}
+                      setReportFrom={setReportFrom} setReportTo={setReportTo} setReportPage={setReportPage}
+                      fetchReport={fetchReport} openPlayer={openPlayer} />
+                  )}
+                  {activeTab === 'reports' && (
+                    <ReportsTab vehicle={dv} reportTab={reportTab} setReportTab={setReportTab}
+                      reportFrom={reportFrom} reportTo={reportTo} setReportFrom={setReportFrom} setReportTo={setReportTo}
+                      reportData={reportData} reportLoading={reportLoading} reportPage={reportPage} setReportPage={setReportPage}
+                      reportExporting={reportExporting} packetsDownloading={packetsDownloading}
+                      fetchReport={fetchReport} handleExport={handleExport} handleDownloadPackets={handleDownloadPackets} />
+                  )}
+                  {activeTab === 'sensors' && (
+                    <SensorsTab vehicle={dv} sensors={sensors} loadingSensors={loadingSensors}
+                      showSensorForm={showSensorForm} sensorForm={sensorForm} editingSensor={editingSensor}
+                      savingSensor={savingSensor} setSensorForm={setSensorForm} setShowSensorForm={setShowSensorForm}
+                      openSensorForm={openSensorForm} handleSaveSensor={handleSaveSensor} handleDeleteSensor={handleDeleteSensor} />
+                  )}
+                  {activeTab === 'edit' && (
+                    <EditTab editForm={editForm} setEditForm={setEditForm} saving={saving} handleSaveEdit={handleSaveEdit} currentImei={selectedVehicle?.imei || ''} onRequestImeiEdit={requestImeiEdit} />
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawerVehicle, activeTab, syncing, syncingId, liveShareEnabled, isPapaOrDealer, user, deviceStatesByType, sensors, loadingSensors, showSensorForm, sensorForm, editingSensor, savingSensor, editForm, saving, reportFrom, reportTo, reportData, reportLoading, reportPage, reportTab, reportExporting, packetsDownloading, selectedVehicle]);
 
   /* ══════ TABLE VIEW ══════ */
   if (viewMode === 'table') {
@@ -2147,276 +2371,101 @@ const MyFleet = () => {
           )}
         </div>
 
-        {/* ── Vehicle Detail Modal ──────────────────────────────────────── */}
-        {drawerVehicle && (() => {
-          const dv       = drawerVehicle;
-          const ign      = getIgnition(dv);
-          const gps      = dv.deviceStatus?.gpsData;
-          const dst      = dv.deviceStatus?.status;
-          const dfuel    = dv.deviceStatus?.fuel;
-          const dvs      = getVState(dv, deviceStatesByType);
-          const ignColor = dvs.stateColor;
-          const ignBg    = ign === true ? '#f0fdf4' : ign === false ? '#fef2f2' : '#f8fafc';
-          const ignLabel = dvs.stateName;
-          const statItems = [
-            gps?.speed      != null && { icon: '🏎️', label: 'Speed',      val: String(gps.speed),              unit: 'km/h', accent: gps.speed > 80 ? '#dc2626' : '#2563eb' },
-            dfuel?.level    != null && { icon: '⛽',  label: 'Fuel',       val: String(Math.round(dfuel.level)), unit: '%',    accent: dfuel.level < 20 ? '#dc2626' : dfuel.level < 40 ? '#d97706' : '#16a34a' },
-            dst?.battery    != null && { icon: '🔋',  label: 'Battery',    val: String(dst.battery),             unit: '%',    accent: dst.battery < 20 ? '#dc2626' : '#7c3aed' },
-            dst?.voltage    != null && { icon: '⚡',  label: 'Voltage',    val: String(dst.voltage),             unit: 'V',    accent: '#d97706' },
-            gps?.satellites != null && { icon: '🛰️', label: 'Satellites', val: String(gps.satellites),          unit: '',     accent: gps.satellites < 4 ? '#d97706' : '#059669' },
-            dst?.gsmSignal  != null && { icon: '📶', label: 'GSM',        val: String(dst.gsmSignal),            unit: '',     accent: '#0891b2' },
-          ].filter(Boolean);
-          return (
-            <div style={{ position: 'fixed', inset: 0, zIndex: 7000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setDrawerVehicle(null)}>
-              <style>{`@keyframes modalIn { from { opacity: 0; transform: scale(0.97) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }`}</style>
-              <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.5)', backdropFilter: 'blur(4px)' }} />
+        {vehicleDetailModalJsx}
 
-              <div
-                style={{ position: 'relative', zIndex: 1, width: '92vw', maxWidth: '980px', height: '86vh', background: '#fff', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 80px rgba(0,0,0,0.28), 0 0 0 1px rgba(0,0,0,0.07)', animation: 'modalIn 0.22s cubic-bezier(0.22,1,0.36,1)', fontFamily: "'Plus Jakarta Sans',sans-serif", overflow: 'hidden' }}
-                onClick={e => e.stopPropagation()}>
-
-                {/* ── Top header bar ── */}
-                <div style={{ background: '#FFFFFF', borderBottom: `3px solid ${ignColor}`, padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-                  <Vehicle3DAvatar icon={dv.vehicleIcon} color={ignColor} size={46} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 15.5, fontWeight: 800, color: '#0F172A', letterSpacing: '-0.02em', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {dv.vehicleName || dv.vehicleNumber || 'Vehicle'}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 3, flexWrap: 'wrap' }}>
-                      {dv.vehicleName && dv.vehicleNumber && <span style={{ fontSize: 11, fontWeight: 600, color: '#64748B', fontFamily: 'monospace' }}>{dv.vehicleNumber}</span>}
-                      {dv.imei && <span style={{ fontSize: 10.5, color: '#94A3B8', fontFamily: 'monospace' }}>IMEI: {dv.imei}</span>}
-                      {dv.deviceType && <span title="GPS device type" style={{ fontSize: 9.5, background: '#EFF6FF', color: '#2563EB', padding: '1px 8px', borderRadius: 20, fontWeight: 700, border: '1px solid #BFDBFE' }}>{dv.deviceType}</span>}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                    <span title={`Vehicle state: ${ignLabel}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 12px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: ignBg, color: ignColor, border: `1.5px solid ${ignColor}35` }}>
-                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: ignColor, boxShadow: ign === true ? `0 0 5px ${ignColor}` : 'none' }} />
-                      {ignLabel}
-                    </span>
-                    <button onClick={() => setDrawerVehicle(null)} title="Close vehicle details"
-                      style={{ width: 32, height: 32, background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 7, color: '#94A3B8', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      <Ic n="x" size={14} color="#94A3B8" />
-                    </button>
-                  </div>
+        {/* Live Share Modal — table view */}
+        {showShareModal && shareTarget && (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 7100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            onClick={() => setShowShareModal(false)}>
+            <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(4px)' }} />
+            <div style={{ position: 'relative', zIndex: 1, background: '#fff', borderRadius: 16, width: 420, maxWidth: '95vw', boxShadow: '0 24px 80px rgba(0,0,0,0.24)', fontFamily: "'Plus Jakarta Sans',sans-serif", overflow: 'hidden' }}
+              onClick={e => e.stopPropagation()}>
+              <div style={{ background: 'linear-gradient(135deg,#1D4ED8,#3B82F6)', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
+                  {shareTarget.type === 'vehicle' ? (VEHICLE_ICON_MAP[shareTarget.icon] || '🚗') : '📦'}
                 </div>
-
-                {/* ── Two-column body ── */}
-                <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-
-                  {/* ── Left panel ── */}
-                  <div style={{ width: 256, borderRight: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', background: '#f8fafc', flexShrink: 0, overflowY: 'auto' }}>
-
-                    {/* Live data grid */}
-                    <div style={{ padding: '16px 14px 12px' }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>Live Data</div>
-                      {statItems.length > 0 ? (
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                          {statItems.map((s, i) => (
-                            <div key={i} style={{ background: '#fff', border: '1px solid #E2E8F0', borderTop: `3px solid ${s.accent}`, padding: '9px 10px' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 3 }}>
-                                <span style={{ fontSize: 11 }}>{s.icon}</span>
-                                <span style={{ fontSize: 9, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{s.label}</span>
-                              </div>
-                              <div style={{ fontSize: 19, fontWeight: 800, color: s.accent, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
-                                {s.val}<span style={{ fontSize: 10, fontWeight: 500, color: '#94A3B8', marginLeft: 1 }}>{s.unit}</span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div style={{ background: '#fff', border: '1px solid #E2E8F0', padding: '18px', textAlign: 'center', color: '#94A3B8', fontSize: 12 }}>No live data</div>
-                      )}
-                    </div>
-
-                    {/* Quick actions */}
-                    <div style={{ padding: '0 14px 14px' }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>Actions</div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 1, border: '1px solid #E2E8F0', overflow: 'hidden' }}>
-                        {[
-                          { label: syncing && syncingId === dv.id ? 'Syncing…' : 'Sync Device Data', icon: 'refresh', color: '#0891B2', bg: '#ECFEFF', onClick: () => handleSync(dv), disabled: syncing && syncingId === dv.id },
-                          { label: 'Play Route',    icon: 'play',    color: '#7C3AED', bg: '#F5F3FF', onClick: () => openPlayer(dv) },
-                          ...(liveShareEnabled && (isPapaOrDealer || user?.permissions?.canShareLiveLocation) ? [
-                            { label: 'Share Live',  icon: 'share',   color: '#2563EB', bg: '#EFF6FF', onClick: () => openShareModal('vehicle', dv.id, vehicleDisplayName(dv), dv.vehicleIcon) },
-                          ] : []),
-                          { label: 'View on Map',   icon: 'map',     color: '#059669', bg: '#F0FDF4', onClick: () => { setDrawerVehicle(null); setViewMode('map'); selectVehicle(dv); } },
-                          { label: 'Remove Vehicle',icon: 'trash',   color: '#DC2626', bg: '#FEF2F2', onClick: () => { setDrawerVehicle(null); handleDelete(dv.id); } },
-                        ].map(a => (
-                          <button key={a.label} onClick={a.onClick} disabled={a.disabled}
-                            style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '10px 13px', background: '#fff', border: 'none', borderBottom: '1px solid #F1F5F9', cursor: a.disabled ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 600, color: a.color, fontFamily: 'inherit', textAlign: 'left', transition: 'background 0.1s', opacity: a.disabled ? 0.6 : 1 }}
-                            onMouseEnter={e => { if (!a.disabled) e.currentTarget.style.background = a.bg; }}
-                            onMouseLeave={e => { e.currentTarget.style.background = '#fff'; }}>
-                            <Ic n={a.icon} size={14} color={a.color} />
-                            {a.label}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: '#fff' }}>Share Live Tracking</div>
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>{shareTarget.name}</div>
+                </div>
+                <button onClick={() => setShowShareModal(false)} style={{ width: 30, height: 30, background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 7, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Ic n="x" size={14} color="#fff" />
+                </button>
+              </div>
+              <div style={{ padding: '20px' }}>
+                {!liveShareResult ? (
+                  <>
+                    <div style={{ marginBottom: 16 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Link Expires</div>
+                      <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+                        {[['hours', 'Duration'], ['custom', 'Specific Time']].map(([mode, label]) => (
+                          <button key={mode} onClick={() => setShareExpiryMode(mode)}
+                            style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1.5px solid ${shareExpiryMode === mode ? '#2563EB' : '#E2E8F0'}`, background: shareExpiryMode === mode ? '#EFF6FF' : '#F8FAFC', color: shareExpiryMode === mode ? '#2563EB' : '#64748B', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                            {label}
                           </button>
                         ))}
                       </div>
-                    </div>
-
-                    {/* Device info */}
-                    <div style={{ padding: '0 14px 14px' }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>Device Info</div>
-                      <div style={{ background: '#fff', border: '1px solid #E2E8F0' }}>
-                        {[
-                          ['Type',   dv.deviceType || '—'],
-                          ['IMEI',   dv.imei || '—'],
-                          ['Server', dv.serverIp ? `${dv.serverIp}:${dv.serverPort}` : '—'],
-                          ['Name',   dv.deviceName || '—'],
-                        ].map(([k, v], i, arr) => (
-                          <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderBottom: i < arr.length - 1 ? '1px solid #F1F5F9' : 'none' }}>
-                            <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600, flexShrink: 0 }}>{k}</span>
-                            <span style={{ fontSize: 11, color: '#334155', fontWeight: 600, fontFamily: 'monospace', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right' }}>{v}</span>
+                      {shareExpiryMode === 'hours' ? (
+                        <>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                            {[['1','1h'],['2','2h'],['4','4h'],['8','8h'],['12','12h'],['24','1 day'],['48','2 days'],['72','3 days']].map(([h, label]) => (
+                              <button key={h} onClick={() => setShareHours(h)}
+                                style={{ padding: '5px 12px', borderRadius: 20, border: `1.5px solid ${shareHours === h ? '#2563EB' : '#E2E8F0'}`, background: shareHours === h ? '#2563EB' : '#fff', color: shareHours === h ? '#fff' : '#374151', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                                {label}
+                              </button>
+                            ))}
                           </div>
-                        ))}
-                      </div>
+                          <div style={{ padding: '8px 12px', background: '#F8FAFC', borderRadius: 8, fontSize: 12, color: '#64748B', border: '1px solid #E2E8F0' }}>
+                            Expires: <strong style={{ color: '#374151' }}>{new Date(Date.now() + Number(shareHours) * 3600000).toLocaleString()}</strong>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div style={{ fontSize: 11, color: '#94A3B8', marginBottom: 6 }}>Pick a specific date and time</div>
+                          <input type="datetime-local" value={shareCustomTime} onChange={e => setShareCustomTime(e.target.value)}
+                            min={new Date().toISOString().slice(0, 16)}
+                            style={{ width: '100%', padding: '8px 11px', border: '1.5px solid #E2E8F0', borderRadius: 8, fontSize: 13, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+                        </>
+                      )}
                     </div>
-                  </div>
-
-                  {/* ── Right panel: tabs + content ── */}
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-
-                    {/* Tab bar */}
-                    <div style={{ display: 'flex', borderBottom: '2px solid #E2E8F0', background: '#f8fafc', flexShrink: 0, overflowX: 'auto' }}>
-                      {[
-                        { id: 'overview', label: 'Overview', icon: 'activity' },
-                        { id: 'trips',    label: 'Trips',    icon: 'route'    },
-                        { id: 'reports',  label: 'Reports',  icon: 'chart'    },
-                        { id: 'sensors',  label: 'Sensors',  icon: 'radio'    },
-                        { id: 'edit',     label: 'Edit',     icon: 'edit'     },
-                      ].map(t => (
-                        <button key={t.id} onClick={() => setActiveTab(t.id)}
-                          className="fv-tab-btn"
-                          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '11px 18px', border: 'none', background: activeTab === t.id ? '#FFFFFF' : 'transparent', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: 13, fontWeight: activeTab === t.id ? 700 : 500, color: activeTab === t.id ? '#2563EB' : '#64748B', borderBottom: `2px solid ${activeTab === t.id ? '#2563EB' : 'transparent'}`, marginBottom: -2, fontFamily: 'inherit', transition: 'color 0.15s' }}>
-                          <Ic n={t.icon} size={13} color={activeTab === t.id ? '#2563EB' : '#94A3B8'} />
-                          {t.label}
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* Tab content */}
-                    <div style={{ flex: 1, overflow: 'auto', background: '#fff' }}>
-                      <div style={{ padding: 22 }}>
-                        {activeTab === 'overview' && <OverviewTab vehicle={dv} />}
-                        {activeTab === 'trips' && (
-                          <TripsTab vehicle={dv} reportFrom={reportFrom} reportTo={reportTo}
-                            reportData={reportData} reportLoading={reportLoading} reportPage={reportPage}
-                            setReportFrom={setReportFrom} setReportTo={setReportTo} setReportPage={setReportPage}
-                            fetchReport={fetchReport} openPlayer={openPlayer} />
-                        )}
-                        {activeTab === 'reports' && (
-                          <ReportsTab vehicle={dv} reportTab={reportTab} setReportTab={setReportTab}
-                            reportFrom={reportFrom} reportTo={reportTo} setReportFrom={setReportFrom} setReportTo={setReportTo}
-                            reportData={reportData} reportLoading={reportLoading} reportPage={reportPage} setReportPage={setReportPage}
-                            reportExporting={reportExporting} packetsDownloading={packetsDownloading}
-                            fetchReport={fetchReport} handleExport={handleExport} handleDownloadPackets={handleDownloadPackets} />
-                        )}
-                        {activeTab === 'sensors' && (
-                          <SensorsTab vehicle={dv} sensors={sensors} loadingSensors={loadingSensors}
-                            showSensorForm={showSensorForm} sensorForm={sensorForm} editingSensor={editingSensor}
-                            savingSensor={savingSensor} setSensorForm={setSensorForm} setShowSensorForm={setShowSensorForm}
-                            openSensorForm={openSensorForm} handleSaveSensor={handleSaveSensor} handleDeleteSensor={handleDeleteSensor} />
-                        )}
-                        {activeTab === 'edit' && (
-                          <EditTab editForm={editForm} setEditForm={setEditForm} saving={saving} handleSaveEdit={handleSaveEdit} currentImei={selectedVehicle?.imei || ''} onRequestImeiEdit={requestImeiEdit} />
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        })()}
-
-      {/* Live Share Modal — table view */}
-      {showShareModal && shareTarget && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 7100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          onClick={() => setShowShareModal(false)}>
-          <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(4px)' }} />
-          <div style={{ position: 'relative', zIndex: 1, background: '#fff', borderRadius: 16, width: 420, maxWidth: '95vw', boxShadow: '0 24px 80px rgba(0,0,0,0.24)', fontFamily: "'Plus Jakarta Sans',sans-serif", overflow: 'hidden' }}
-            onClick={e => e.stopPropagation()}>
-            <div style={{ background: 'linear-gradient(135deg,#1D4ED8,#3B82F6)', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
-                {shareTarget.type === 'vehicle' ? (VEHICLE_ICON_MAP[shareTarget.icon] || '🚗') : '📦'}
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 15, fontWeight: 800, color: '#fff' }}>Share Live Tracking</div>
-                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>{shareTarget.name}</div>
-              </div>
-              <button onClick={() => setShowShareModal(false)} style={{ width: 30, height: 30, background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 7, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Ic n="x" size={14} color="#fff" />
-              </button>
-            </div>
-            <div style={{ padding: '20px' }}>
-              {!liveShareResult ? (
-                <>
-                  <div style={{ marginBottom: 16 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Link Expires</div>
-                    <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-                      {[['hours', 'Duration'], ['custom', 'Specific Time']].map(([mode, label]) => (
-                        <button key={mode} onClick={() => setShareExpiryMode(mode)}
-                          style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1.5px solid ${shareExpiryMode === mode ? '#2563EB' : '#E2E8F0'}`, background: shareExpiryMode === mode ? '#EFF6FF' : '#F8FAFC', color: shareExpiryMode === mode ? '#2563EB' : '#64748B', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                    {shareExpiryMode === 'hours' ? (
-                      <>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-                          {[['1','1h'],['2','2h'],['4','4h'],['8','8h'],['12','12h'],['24','1 day'],['48','2 days'],['72','3 days']].map(([h, label]) => (
-                            <button key={h} onClick={() => setShareHours(h)}
-                              style={{ padding: '5px 12px', borderRadius: 20, border: `1.5px solid ${shareHours === h ? '#2563EB' : '#E2E8F0'}`, background: shareHours === h ? '#2563EB' : '#fff', color: shareHours === h ? '#fff' : '#374151', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                        <div style={{ padding: '8px 12px', background: '#F8FAFC', borderRadius: 8, fontSize: 12, color: '#64748B', border: '1px solid #E2E8F0' }}>
-                          Expires: <strong style={{ color: '#374151' }}>{new Date(Date.now() + Number(shareHours) * 3600000).toLocaleString()}</strong>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div style={{ fontSize: 11, color: '#94A3B8', marginBottom: 6 }}>Pick a specific date and time</div>
-                        <input type="datetime-local" value={shareCustomTime} onChange={e => setShareCustomTime(e.target.value)}
-                          min={new Date().toISOString().slice(0, 16)}
-                          style={{ width: '100%', padding: '8px 11px', border: '1.5px solid #E2E8F0', borderRadius: 8, fontSize: 13, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
-                      </>
-                    )}
-                  </div>
-                  <button onClick={handleCreateLiveShare} disabled={sharingLive}
-                    style={{ width: '100%', padding: '11px', background: sharingLive ? '#93C5FD' : 'linear-gradient(135deg,#1D4ED8,#3B82F6)', border: 'none', borderRadius: 9, color: '#fff', fontSize: 13, fontWeight: 700, cursor: sharingLive ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontFamily: 'inherit', marginTop: 4 }}>
-                    {sharingLive ? 'Generating…' : <><Ic n="link" size={14} color="#fff" /> Generate Share Link</>}
-                  </button>
-                </>
-              ) : (
-                <>
-                  <div style={{ textAlign: 'center', marginBottom: 16 }}>
-                    <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#F0FDF4', border: '2px solid #22c55e', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, margin: '0 auto 10px' }}>✓</div>
-                    <div style={{ fontSize: 15, fontWeight: 800, color: '#0F172A' }}>Link Ready!</div>
-                    <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>Expires: {new Date(liveShareResult.expiresAt).toLocaleString()}</div>
-                  </div>
-                  <div style={{ background: '#F8FAFC', borderRadius: 9, border: '1px solid #E2E8F0', padding: '10px 12px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Ic n="link" size={13} color="#64748B" />
-                    <span style={{ flex: 1, fontSize: 11.5, color: '#374151', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {`${window.location.origin}/live/${liveShareResult.token}`}
-                    </span>
-                    <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/live/${liveShareResult.token}`); toast.success('Link copied!'); }}
-                      style={{ flexShrink: 0, padding: '5px 10px', background: '#2563EB', border: 'none', borderRadius: 6, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontFamily: 'inherit' }}>
-                      <Ic n="copy" size={11} color="#fff" /> Copy
+                    <button onClick={handleCreateLiveShare} disabled={sharingLive}
+                      style={{ width: '100%', padding: '11px', background: sharingLive ? '#93C5FD' : 'linear-gradient(135deg,#1D4ED8,#3B82F6)', border: 'none', borderRadius: 9, color: '#fff', fontSize: 13, fontWeight: 700, cursor: sharingLive ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontFamily: 'inherit', marginTop: 4 }}>
+                      {sharingLive ? 'Generating…' : <><Ic n="link" size={14} color="#fff" /> Generate Share Link</>}
                     </button>
-                  </div>
-                  <button onClick={() => setLiveShareResult(null)}
-                    style={{ width: '100%', padding: '9px', background: '#F1F5F9', border: '1px solid #E2E8F0', borderRadius: 9, color: '#374151', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-                    Generate Another Link
-                  </button>
-                </>
-              )}
+                  </>
+                ) : (
+                  <>
+                    <div style={{ textAlign: 'center', marginBottom: 16 }}>
+                      <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#F0FDF4', border: '2px solid #22c55e', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, margin: '0 auto 10px' }}>✓</div>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: '#0F172A' }}>Link Ready!</div>
+                      <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>Expires: {new Date(liveShareResult.expiresAt).toLocaleString()}</div>
+                    </div>
+                    <div style={{ background: '#F8FAFC', borderRadius: 9, border: '1px solid #E2E8F0', padding: '10px 12px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Ic n="link" size={13} color="#64748B" />
+                      <span style={{ flex: 1, fontSize: 11.5, color: '#374151', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {`${window.location.origin}/live/${liveShareResult.token}`}
+                      </span>
+                      <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/live/${liveShareResult.token}`); toast.success('Link copied!'); }}
+                        style={{ flexShrink: 0, padding: '5px 10px', background: '#2563EB', border: 'none', borderRadius: 6, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontFamily: 'inherit' }}>
+                        <Ic n="copy" size={11} color="#fff" /> Copy
+                      </button>
+                    </div>
+                    <button onClick={() => setLiveShareResult(null)}
+                      style={{ width: '100%', padding: '9px', background: '#F1F5F9', border: '1px solid #E2E8F0', borderRadius: 9, color: '#374151', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                      Generate Another Link
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+
+        {/* ── /table-view-content ── */}
       </div>
     );
   }
+
 
   /* ══════ MAP VIEW ══════ */
   return (
@@ -2425,182 +2474,82 @@ const MyFleet = () => {
     // between panels instead of being covered by absolute overlays.
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', margin: '-24px', width: 'calc(100% + 48px)', fontFamily: "'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" }}>
 
-      {/* ══════ TOP HUD BAR ══════ */}
-      <div style={{
-        flexShrink: 0, height: HUD_H, zIndex: 1000, position: 'relative',
-        background: 'linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%)',
-        borderBottom: '1px solid #E2E8F0',
-        display: 'flex', alignItems: 'center', gap: 10, padding: '0 16px',
-        boxShadow: '0 1px 0 rgba(15,23,42,0.06), 0 4px 12px rgba(15,23,42,0.04)',
-      }}>
+      {/* ══════ MAP TOP SECTION — same stat cards + toolbar as table view ══════ */}
+      <div style={{ flexShrink: 0, background: '#FFFFFF', borderBottom: '1px solid #E2E8F0', padding: '14px 16px 10px', zIndex: 100, position: 'relative' }}>
         {/* Panel toggle */}
-        <button
-          title={panelOpen ? 'Hide vehicle list' : 'Show vehicle list'}
-          onClick={() => setPanelOpen(o => !o)}
-          className="fv-hud-btn"
-          style={{
-            background: panelOpen ? 'linear-gradient(135deg,#EFF6FF,#DBEAFE)' : 'transparent',
-            border: `1px solid ${panelOpen ? '#93C5FD' : '#E2E8F0'}`,
-            cursor: 'pointer', color: panelOpen ? '#1D4ED8' : '#64748B',
-            padding: '7px 9px', borderRadius: 0, display: 'flex', alignItems: 'center',
-            flexShrink: 0, boxShadow: panelOpen ? '0 1px 4px rgba(37,99,235,0.15)' : 'none',
-          }}>
-          <Ic n="menu" size={16} color={panelOpen ? '#1D4ED8' : '#475569'} />
-        </button>
-
-        {/* Brand mark */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexShrink: 0 }}>
-          <div style={{
-            width: 32, height: 32, borderRadius: 0,
-            background: 'linear-gradient(135deg,#1E40AF 0%,#3B82F6 100%)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            boxShadow: '0 2px 10px rgba(30,64,175,0.40), inset 0 1px 0 rgba(255,255,255,0.16)',
-          }}>
-            <Ic n="map" size={15} color="#fff" sw={2.2} />
-          </div>
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 900, color: '#0F172A', letterSpacing: '-0.4px', lineHeight: 1.1 }}>FleetView</div>
-            <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 600, lineHeight: 1, letterSpacing: '0.04em' }}>LIVE TRACKING</div>
-          </div>
-        </div>
-
-        <div style={{ width: 1, height: 26, background: '#E2E8F0', margin: '0 4px', flexShrink: 0 }} />
-
-        {/* Client Picker — papa / dealer only: switch whose fleet is displayed */}
-        {isPapaOrDealer && clientNodes.length > 0 && (
-          <div ref={cpRef} style={{ position: 'relative', flexShrink: 0 }}>
-            <button
-              onClick={() => setCpOpen(o => !o)}
-              title="Switch client fleet"
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', background: viewClientId ? '#EFF6FF' : '#F8FAFC', border: `1px solid ${viewClientId ? '#93C5FD' : '#E2E8F0'}`, borderRadius: 7, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: viewClientId ? '#2563EB' : '#475569', fontFamily: 'inherit', maxWidth: 180, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
-              <Ic n="users" size={13} color={viewClientId ? '#2563EB' : '#64748B'} />
-              {viewClientId
-                ? (clientNodes.find(n => n.id === viewClientId)?.name || 'Client')
-                : 'My Fleet'}
-              {viewClientId && (
-                <span
-                  onClick={e => { e.stopPropagation(); setViewClientId(null); setCpOpen(false); }}
-                  title="Back to my fleet"
-                  style={{ marginLeft: 2, cursor: 'pointer', color: '#94A3B8', lineHeight: 1 }}>✕</span>
-              )}
-              <Ic n={cpOpen ? 'chevUp' : 'chevD'} size={11} color="#94A3B8" />
-            </button>
-
-            {cpOpen && (
-              <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 200, width: 280, background: '#fff', border: '1px solid #E2E8F0', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.13)', overflow: 'hidden' }}>
-                {/* Search */}
-                <div style={{ padding: '8px 10px', borderBottom: '1px solid #F1F5F9', position: 'relative' }}>
-                  <span style={{ position: 'absolute', left: 19, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
-                    <Ic n="search" size={12} color="#94A3B8" />
-                  </span>
-                  <input
-                    autoFocus
-                    value={cpSearch}
-                    onChange={e => setCpSearch(e.target.value)}
-                    placeholder="Search clients…"
-                    style={{ width: '100%', padding: '5px 8px 5px 26px', border: '1px solid #E2E8F0', borderRadius: 6, fontSize: 12, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
-                  />
-                </div>
-                {/* List */}
-                <div style={{ maxHeight: 280, overflowY: 'auto' }}>
-                  {/* "My Fleet" option */}
-                  <button
-                    onClick={() => { setViewClientId(null); setCpOpen(false); setCpSearch(''); }}
-                    style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '9px 12px', border: 'none', background: viewClientId === null ? '#EFF6FF' : 'transparent', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600, color: viewClientId === null ? '#2563EB' : '#374151', textAlign: 'left' }}>
-                    <div style={{ width: 28, height: 28, borderRadius: 8, background: 'linear-gradient(135deg,#1D4ED8,#3B82F6)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 13 }}>👤</div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>My Fleet</div>
-                      <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 400 }}>Your own vehicles</div>
-                    </div>
-                    {viewClientId === null && <span style={{ fontSize: 10, background: '#2563EB', color: '#fff', padding: '1px 7px', borderRadius: 20, fontWeight: 700, flexShrink: 0 }}>Active</span>}
-                  </button>
-
-                  {clientNodes
-                    .filter(n => !cpSearch.trim() || n.name?.toLowerCase().includes(cpSearch.toLowerCase()) || n.email?.toLowerCase().includes(cpSearch.toLowerCase()))
-                    .map(n => {
-                      const avatarColors = [
-                        ['#1D4ED8','#3B82F6'], ['#047857','#10B981'], ['#7C3AED','#8B5CF6'],
-                        ['#B45309','#F59E0B'], ['#B91C1C','#EF4444'], ['#0E7490','#06B6D4'],
-                      ];
-                      const [from, to] = avatarColors[n.depth % avatarColors.length];
-                      const breadcrumb = n.path?.slice(0, -1).join(' › ');
-                      return (
-                        <button key={n.id}
-                          onClick={() => { setViewClientId(n.id); setCpOpen(false); setCpSearch(''); }}
-                          style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: `8px 12px 8px ${12 + n.depth * 12}px`, border: 'none', background: viewClientId === n.id ? '#EFF6FF' : 'transparent', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600, color: viewClientId === n.id ? '#2563EB' : '#374151', textAlign: 'left', borderTop: '1px solid #F8FAFC' }}>
-                          <div style={{ width: 28, height: 28, borderRadius: 8, background: `linear-gradient(135deg,${from},${to})`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 11, fontWeight: 800, color: '#fff', textTransform: 'uppercase' }}>{(n.name || '?')[0]}</div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            {breadcrumb && <div style={{ fontSize: 9, color: '#94A3B8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 1 }}>{breadcrumb}</div>}
-                            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.name}</div>
-                            {n.email && <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.email}</div>}
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                            {n.depth > 0 && <span style={{ fontSize: 9, background: '#F1F5F9', color: '#64748B', padding: '1px 5px', borderRadius: 20, fontWeight: 700 }}>L{n.depth}</span>}
-                            {viewClientId === n.id && <span style={{ fontSize: 10, background: '#2563EB', color: '#fff', padding: '1px 7px', borderRadius: 20, fontWeight: 700 }}>Active</span>}
-                          </div>
-                        </button>
-                      );
-                    })
-                  }
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Stat chips — driven by fleetChips (dynamic from Master-Settings states) */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5, overflowX: 'auto', minWidth: 0 }}>
+        {/* Stat cards — identical to table view */}
+        <div style={{ display: 'flex', gap: '12px', marginBottom: '10px', flexWrap: 'wrap' }}>
           {fleetChips.map(c => (
-            <HudChip key={c.id} value={CHIP_COUNTS[c.id]} label={c.label} dot={c.dot} active={chipFilter === c.id} onClick={() => setChipFilter(chipFilter === c.id ? null : c.id)} />
+            <div key={c.id} onClick={() => setChipFilter(chipFilter === c.id ? null : c.id)} style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 20px', background: c.gradient, borderRadius: 0, boxShadow: chipFilter === c.id ? `0 0 0 3px #fff, ${c.shadow}` : c.shadow, minWidth: '145px', position: 'relative', overflow: 'hidden', flex: '0 0 auto', cursor: 'pointer', opacity: chipFilter && chipFilter !== c.id ? 0.55 : 1, transition: 'all 0.15s', transform: chipFilter === c.id ? 'scale(1.03)' : 'none' }}>
+              <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: '40%', background: 'linear-gradient(135deg, transparent 0%, rgba(255,255,255,0.06) 100%)', pointerEvents: 'none' }} />
+              <div style={{ flex: 1, position: 'relative' }}>
+                <div style={{ fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.72)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '5px' }}>{c.label}</div>
+                <div style={{ fontSize: '34px', fontWeight: 800, color: '#fff', lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{CHIP_COUNTS[c.id]}</div>
+              </div>
+              <div style={{ width: '38px', height: '38px', borderRadius: 0, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', flexShrink: 0, backdropFilter: 'blur(4px)', position: 'relative' }}>{c.icon}</div>
+            </div>
           ))}
         </div>
 
-        <div style={{ flex: 1 }} />
+        {/* Toolbar — same as table view with Map active in view-toggle */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          {/* Panel toggle */}
+          <button title={panelOpen ? 'Hide vehicle list' : 'Show vehicle list'} onClick={() => setPanelOpen(o => !o)} className="btn btn-outline" style={{ gap: 6 }}>
+            <Ic n="menu" size={13} color="#64748B" /> {panelOpen ? 'Hide List' : 'Show List'}
+          </button>
 
-        {/* Refresh */}
-        <button
-          title="Refresh fleet data"
-          onClick={fetchVehicles}
-          disabled={loading}
-          className="fv-hud-btn"
-          style={{
-            background: 'transparent', border: '1px solid #E2E8F0', borderRadius: 0,
-            cursor: loading ? 'not-allowed' : 'pointer', color: '#475569',
-            padding: '7px 10px', display: 'flex', alignItems: 'center', gap: 5,
-            fontSize: 12, fontWeight: 600, flexShrink: 0,
-          }}>
-          <Ic n="refresh" size={14} color={loading ? '#CBD5E1' : '#475569'} />
-        </button>
+          {/* Search */}
+          <div style={{ position: 'relative' }}>
+            <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8', fontSize: '15px', pointerEvents: 'none' }}>⌕</span>
+            <input className="form-control" style={{ paddingLeft: '32px', width: '200px' }} placeholder="Search vehicles…" value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
 
-        {/* Table view */}
-        <button
-          title="Switch to table view"
-          onClick={() => setViewMode('table')}
-          className="fv-hud-btn"
-          style={{
-            background: 'transparent', border: '1px solid #E2E8F0', borderRadius: 0,
-            cursor: 'pointer', color: '#374151', padding: '7px 13px',
-            display: 'flex', alignItems: 'center', gap: 6,
-            fontSize: 12, fontWeight: 700, fontFamily: 'inherit', flexShrink: 0,
-            letterSpacing: '0.02em',
-          }}>
-          <Ic n="layers" size={14} color="#475569" /> TABLE
-        </button>
+          {/* Client Picker */}
+          {isPapaOrDealer && clientNodes.length > 0 && (
+            <div ref={cpRef} style={{ position: 'relative' }}>
+              <button onClick={() => setCpOpen(o => !o)} className="btn btn-outline" style={{ gap: 6, background: viewClientId ? '#EFF6FF' : '#fff', borderColor: viewClientId ? '#93C5FD' : undefined, color: viewClientId ? '#2563EB' : '#475569', fontWeight: 600, maxWidth: 200, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+                <Ic n="users" size={13} color={viewClientId ? '#2563EB' : '#64748B'} />
+                {viewClientId ? (clientNodes.find(n => n.id === viewClientId)?.name || 'Client') : 'My Fleet'}
+                {viewClientId && <span onClick={e => { e.stopPropagation(); setViewClientId(null); setCpOpen(false); }} style={{ marginLeft: 2, cursor: 'pointer', color: '#94A3B8' }}>✕</span>}
+                <Ic n={cpOpen ? 'chevUp' : 'chevD'} size={11} color="#94A3B8" />
+              </button>
+              {cpOpen && (
+                <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 200, width: 280, background: '#fff', border: '1px solid #E2E8F0', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.13)', overflow: 'hidden' }}>
+                  <div style={{ padding: '8px 10px', borderBottom: '1px solid #F1F5F9', position: 'relative' }}>
+                    <span style={{ position: 'absolute', left: 19, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}><Ic n="search" size={12} color="#94A3B8" /></span>
+                    <input autoFocus value={cpSearch} onChange={e => setCpSearch(e.target.value)} placeholder="Search clients…" style={{ width: '100%', padding: '5px 8px 5px 26px', border: '1px solid #E2E8F0', borderRadius: 6, fontSize: 12, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+                  </div>
+                  <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+                    <button onClick={() => { setViewClientId(null); setCpOpen(false); setCpSearch(''); }} style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '9px 12px', border: 'none', background: viewClientId === null ? '#EFF6FF' : 'transparent', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600, color: viewClientId === null ? '#2563EB' : '#374151', textAlign: 'left' }}>
+                      <div style={{ width: 28, height: 28, borderRadius: 8, background: 'linear-gradient(135deg,#1D4ED8,#3B82F6)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 13 }}>👤</div>
+                      <div style={{ flex: 1, minWidth: 0 }}><div>My Fleet</div><div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 400 }}>Your own vehicles</div></div>
+                      {viewClientId === null && <span style={{ fontSize: 10, background: '#2563EB', color: '#fff', padding: '1px 7px', borderRadius: 20, fontWeight: 700, flexShrink: 0 }}>Active</span>}
+                    </button>
+                    {clientNodes.filter(n => !cpSearch.trim() || n.name?.toLowerCase().includes(cpSearch.toLowerCase())).map(n => {
+                      const avatarColors = [['#1D4ED8','#3B82F6'],['#047857','#10B981'],['#7C3AED','#8B5CF6'],['#B45309','#F59E0B'],['#B91C1C','#EF4444'],['#0E7490','#06B6D4']];
+                      const [from, to] = avatarColors[n.depth % avatarColors.length];
+                      return (
+                        <button key={n.id} onClick={() => { setViewClientId(n.id); setCpOpen(false); setCpSearch(''); }} style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: `8px 12px 8px ${12 + n.depth * 12}px`, border: 'none', background: viewClientId === n.id ? '#EFF6FF' : 'transparent', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600, color: viewClientId === n.id ? '#2563EB' : '#374151', textAlign: 'left', borderTop: '1px solid #F8FAFC' }}>
+                          <div style={{ width: 28, height: 28, borderRadius: 8, background: `linear-gradient(135deg,${from},${to})`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 11, fontWeight: 800, color: '#fff', textTransform: 'uppercase' }}>{(n.name || '?')[0]}</div>
+                          <div style={{ flex: 1, minWidth: 0 }}><div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.name}</div>{n.email && <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 400 }}>{n.email}</div>}</div>
+                          {viewClientId === n.id && <span style={{ fontSize: 10, background: '#2563EB', color: '#fff', padding: '1px 7px', borderRadius: 20, fontWeight: 700 }}>Active</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
-        {/* Add Vehicle */}
-        <Link
-          to="/add-vehicle"
-          title="Register a new vehicle with GPS device"
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 7,
-            padding: '8px 16px',
-            background: 'linear-gradient(135deg,#1E40AF 0%,#3B82F6 100%)',
-            color: '#fff', borderRadius: 0, fontSize: 12, fontWeight: 800,
-            textDecoration: 'none', letterSpacing: '0.04em', flexShrink: 0,
-            boxShadow: '0 2px 10px rgba(30,64,175,0.36), inset 0 1px 0 rgba(255,255,255,0.14)',
-          }}>
-          <Ic n="plus" size={14} color="#fff" /> ADD VEHICLE
-        </Link>
+          <button onClick={fetchVehicles} disabled={loading} className="btn btn-outline">↺ Refresh</button>
+          <div className="view-toggle">
+            <button className="view-toggle-btn inactive" onClick={() => setViewMode('table')}>☰ Table</button>
+            <button className="view-toggle-btn active">⊞ Map</button>
+          </div>
+          <div style={{ flex: 1 }} />
+          <Link to="/add-vehicle" className="btn btn-primary">+ Add Vehicle</Link>
+        </div>
       </div>
 
       {/* ══════ CONTENT ROW: left panel + map + right panel ══════ */}
@@ -2736,8 +2685,14 @@ const MyFleet = () => {
             const ign        = getIgnition(v);
             return (
               <div key={v.id}
-                onClick={() => selectVehicle(v)}
-                title={`${vehicleDisplayName(v)} — click to locate and view`}
+                onClick={() => {
+                  // Center map on vehicle + open the same popup as table view.
+                  const coords = getVehicleCoords(v);
+                  if (coords) setMapCenter([coords.lat, coords.lng]);
+                  selectVehicle(v);       // sets tracking for SmoothMotionController
+                  setDrawerVehicle(v);    // opens the unified popup
+                }}
+                title={`${vehicleDisplayName(v)} — click to view details`}
                 className="fv-card"
                 style={{
                   cursor: 'pointer',
@@ -2755,143 +2710,174 @@ const MyFleet = () => {
                     : '0 2px 8px rgba(15,23,42,0.06), 0 0 0 1px rgba(15,23,42,0.03)',
                 }}>
 
-                {/* ── Card top: 3D avatar + info + checkbox ── */}
-                <div style={{ padding: '14px 16px 12px', display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+                {/* ── Card body — horizontal two-row layout ── */}
+                <div style={{ padding: '12px 14px 10px', display: 'flex', alignItems: 'flex-start', gap: 12 }}>
 
-                  {/* 3D vehicle avatar */}
-                  <Vehicle3DAvatar icon={v.vehicleIcon} color={stColor} size={56} />
+                  {/* 3D icon — left column */}
+                  <Vehicle3DAvatar icon={v.vehicleIcon} color={stColor} size={52} />
 
-                  {/* Name + reg + IMEI + status */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    {/* Vehicle name */}
-                    <div style={{ fontSize: 15.5, fontWeight: 800, color: '#0F172A', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', letterSpacing: '-0.01em', marginBottom: 5 }}>
-                      {vehicleDisplayName(v)}
-                    </div>
+                  {/* Info column — all content goes here */}
+                  <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
 
-                    {/* Registration number with copy */}
-                    {v.vehicleNumber && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
-                        <span style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 4,
-                          background: '#EFF6FF', border: '1px solid #BFDBFE',
-                          borderRadius: 6, padding: '2px 8px',
-                          fontSize: 12, fontWeight: 700, color: '#1D4ED8', fontFamily: 'monospace',
-                          letterSpacing: '0.06em',
-                        }}>
-                          🪪 {v.vehicleNumber}
-                        </span>
-                        <button
-                          onClick={e => copyToClip(e, v.vehicleNumber, `${v.id}-reg`)}
-                          title="Copy registration number"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', borderRadius: 4, color: copiedKey === `${v.id}-reg` ? '#10B981' : '#94A3B8', fontSize: 12, display: 'flex', alignItems: 'center', transition: 'color 0.15s' }}>
-                          {copiedKey === `${v.id}-reg` ? '✓' : '⎘'}
-                        </button>
-                      </div>
-                    )}
-
-                    {/* IMEI with copy */}
-                    {v.imei && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6 }}>
-                        <span style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 4,
-                          background: '#F8FAFC', border: '1px solid #E2E8F0',
-                          borderRadius: 6, padding: '2px 8px',
-                          fontSize: 11, fontWeight: 600, color: '#64748B', fontFamily: 'monospace',
-                          letterSpacing: '0.04em',
-                        }}>
-                          📡 {v.imei}
-                        </span>
-                        <button
-                          onClick={e => copyToClip(e, v.imei, `${v.id}-imei`)}
-                          title="Copy IMEI"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', borderRadius: 4, color: copiedKey === `${v.id}-imei` ? '#10B981' : '#94A3B8', fontSize: 12, display: 'flex', alignItems: 'center', transition: 'color 0.15s' }}>
-                          {copiedKey === `${v.id}-imei` ? '✓' : '⎘'}
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Status + age badges */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    {/* ROW 1: Name + Status pill + Age — all on one line */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 15, fontWeight: 800, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', letterSpacing: '-0.01em', maxWidth: '52%' }}>
+                        {vehicleDisplayName(v)}
+                      </span>
+                      {/* Status pill */}
                       <span style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 5,
-                        padding: '3px 10px', borderRadius: 20,
+                        display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0,
+                        padding: '2px 9px', borderRadius: 20,
                         background: `linear-gradient(135deg, ${stColor}35 0%, ${stColor}18 100%)`,
                         border: `1px solid ${stColor}45`,
-                        fontSize: 10.5, fontWeight: 800, color: stColor, letterSpacing: '0.07em',
+                        fontSize: 10, fontWeight: 800, color: stColor, letterSpacing: '0.07em',
                       }}>
-                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: stColor, flexShrink: 0, boxShadow: ign === true ? `0 0 8px ${stColor}` : 'none' }} />
+                        <span style={{ width: 5, height: 5, borderRadius: '50%', background: stColor, boxShadow: ign === true ? `0 0 6px ${stColor}` : 'none' }} />
                         {stLabel.toUpperCase()}
                       </span>
+                      {/* Age */}
                       {ageLabel && (
-                        <span style={{ fontSize: 10.5, fontWeight: 700, color: ageColor, background: `${ageColor}18`, border: `1px solid ${ageColor}38`, padding: '3px 9px', borderRadius: 20 }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: ageColor, background: `${ageColor}18`, border: `1px solid ${ageColor}38`, padding: '2px 8px', borderRadius: 20, flexShrink: 0 }}>
                           {ageLabel}
                         </span>
                       )}
                     </div>
+
+                    {/* ROW 2: Reg | IMEI | SIM1 | SIM2 — all inline chips, wrap if needed */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                      {v.vehicleNumber && (
+                        <>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 5, padding: '2px 7px', fontSize: 11, fontWeight: 700, color: '#1D4ED8', fontFamily: 'monospace', letterSpacing: '0.04em' }}>
+                            🪪 {v.vehicleNumber}
+                          </span>
+                          <button onClick={e => copyToClip(e, v.vehicleNumber, `${v.id}-reg`)} title="Copy reg"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', color: copiedKey === `${v.id}-reg` ? '#10B981' : '#CBD5E1', fontSize: 11, lineHeight: 1, transition: 'color 0.15s' }}>
+                            {copiedKey === `${v.id}-reg` ? '✓' : '⎘'}
+                          </button>
+                        </>
+                      )}
+                      {v.imei && (
+                        <>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 5, padding: '2px 7px', fontSize: 10.5, fontWeight: 600, color: '#64748B', fontFamily: 'monospace', letterSpacing: '0.03em' }}>
+                            📡 {v.imei}
+                          </span>
+                          <button onClick={e => copyToClip(e, v.imei, `${v.id}-imei`)} title="Copy IMEI"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', color: copiedKey === `${v.id}-imei` ? '#10B981' : '#CBD5E1', fontSize: 11, lineHeight: 1, transition: 'color 0.15s' }}>
+                            {copiedKey === `${v.id}-imei` ? '✓' : '⎘'}
+                          </button>
+                        </>
+                      )}
+                      {v.sim1 && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 5, padding: '2px 7px', fontSize: 10.5, fontWeight: 600, color: '#16A34A', fontFamily: 'monospace', letterSpacing: '0.02em' }}>
+                          SIM1 {v.sim1}
+                        </span>
+                      )}
+                      {v.sim2 && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 5, padding: '2px 7px', fontSize: 10.5, fontWeight: 600, color: '#2563EB', fontFamily: 'monospace', letterSpacing: '0.02em' }}>
+                          SIM2 {v.sim2}
+                        </span>
+                      )}
+                    </div>
+
                   </div>
 
-                  {/* Multi-track checkbox */}
+                  {/* Multi-track checkbox — top-right */}
                   <input
                     type="checkbox"
                     title="Track on map (multi-select)"
                     checked={focusedIds.has(v.id)}
                     onClick={e => e.stopPropagation()}
                     onChange={() => toggleFocus(v.id)}
-                    style={{ flexShrink: 0, width: 17, height: 17, accentColor: '#6366F1', cursor: 'pointer', margin: 0, marginTop: 2 }}
+                    style={{ flexShrink: 0, width: 16, height: 16, accentColor: '#6366F1', cursor: 'pointer', margin: 0, marginTop: 3 }}
                   />
                 </div>
 
-                {/* ── Metrics strip — background inherits sidebar theme color ── */}
-                {(speed != null || ign !== null || battery != null || fuel != null || !hasCoords) && (
-                  <div style={{
-                    display: 'flex', alignItems: 'stretch',
-                    background: 'var(--theme-sidebar-bg, #1A2F6B)',
-                    borderTop: '1px solid rgba(255,255,255,0.06)',
-                  }}>
-                    {/* Speed */}
-                    <div style={{ flex: 1, padding: '9px 12px', borderRight: '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      <span style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.50)', textTransform: 'uppercase', letterSpacing: '0.09em' }}>Speed</span>
-                      {speed != null ? (
-                        <span style={{ fontSize: 17, fontWeight: 900, lineHeight: 1, fontVariantNumeric: 'tabular-nums', color: speed > 80 ? '#FCA5A5' : speed > 5 ? '#93C5FD' : 'rgba(255,255,255,0.60)' }}>
-                          {speed}<span style={{ fontSize: 9.5, fontWeight: 600, color: 'rgba(255,255,255,0.38)', marginLeft: 2 }}>km/h</span>
-                        </span>
-                      ) : !hasCoords ? (
-                        <span style={{ fontSize: 11, fontWeight: 700, color: '#FCD34D' }}>NO GPS</span>
-                      ) : <span style={{ fontSize: 17, fontWeight: 900, color: 'rgba(255,255,255,0.25)' }}>—</span>}
-                    </div>
-                    {/* Ignition */}
-                    {ign !== null && (
-                      <div style={{ flex: 1, padding: '9px 12px', borderRight: '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        <span style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.50)', textTransform: 'uppercase', letterSpacing: '0.09em' }}>Ignition</span>
-                        <span style={{ fontSize: 13.5, fontWeight: 800, lineHeight: 1.2, color: ign ? '#6EE7B7' : 'rgba(255,255,255,0.40)', display: 'flex', alignItems: 'center', gap: 5, marginTop: 2 }}>
-                          <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: ign ? '#34D399' : 'rgba(255,255,255,0.25)', boxShadow: ign ? '0 0 7px #34D399' : 'none' }} />
-                          {ign ? 'ON' : 'OFF'}
-                        </span>
-                      </div>
-                    )}
-                    {/* Battery */}
-                    {battery != null && (
-                      <div style={{ flex: 1, padding: '9px 12px', borderRight: '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        <span style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.50)', textTransform: 'uppercase', letterSpacing: '0.09em' }}>Battery</span>
-                        <span style={{ fontSize: 17, fontWeight: 900, lineHeight: 1, fontVariantNumeric: 'tabular-nums', color: battery < 20 ? '#FCA5A5' : '#C4B5FD' }}>
-                          {Math.round(battery)}<span style={{ fontSize: 9.5, fontWeight: 600, color: 'rgba(255,255,255,0.38)' }}>%</span>
-                        </span>
-                      </div>
-                    )}
-                    {/* Fuel */}
-                    {fuel != null && (
-                      <div style={{ flex: 1, padding: '9px 12px', display: 'flex', flexDirection: 'column', gap: 3 }}>
-                        <span style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.50)', textTransform: 'uppercase', letterSpacing: '0.09em' }}>Fuel</span>
-                        <span style={{ fontSize: 17, fontWeight: 900, lineHeight: 1, fontVariantNumeric: 'tabular-nums', color: fuel < 20 ? '#FCA5A5' : fuel < 40 ? '#FCD34D' : '#6EE7B7' }}>
-                          {Math.round(fuel)}<span style={{ fontSize: 9.5, fontWeight: 600, color: 'rgba(255,255,255,0.38)' }}>%</span>
-                        </span>
-                        <div style={{ height: 3, background: 'rgba(255,255,255,0.12)', borderRadius: 10, overflow: 'hidden', marginTop: 2 }}>
-                          <div style={{ width: `${fuel}%`, height: '100%', background: fuel < 20 ? '#F87171' : fuel < 40 ? '#FBBF24' : '#34D399', borderRadius: 10, transition: 'width 0.4s ease' }} />
+                {/* ── Sensor strip ─────────────────────────────────────────
+                    Shows the custom sensors configured for this vehicle.
+                    Default: icon-only chips in the sidebar theme colour.
+                    Click the strip to expand and see live values.         ── */}
+                {(() => {
+                  const cardSensors = vehicleSensorsCache.get(v.id) || [];
+                  if (!cardSensors.length) return null;
+                  const expanded = expandedSensorId === v.id;
+                  // Resolve live value from deviceStatus using the same logic as SensorsTab
+                  const resolveVal = (param) => {
+                    if (!param) return undefined;
+                    const ds = v.deviceStatus || {};
+                    const s  = ds.status || {};
+                    const g  = ds.gpsData || {};
+                    const f  = ds.fuel || {};
+                    const io = g.ioElements || {};
+                    if (param.startsWith('status.')) return s[param.slice(7)];
+                    if (param.startsWith('fuel.'))   return f[param.slice(5)];
+                    if (['speed','latitude','longitude','altitude','satellites','course','heading','hdop'].includes(param)) return g[param];
+                    const raw = io[param];
+                    return raw !== undefined ? (typeof raw === 'object' && raw !== null ? raw.value : raw) : undefined;
+                  };
+                  return (
+                    <div
+                      onClick={e => { e.stopPropagation(); setExpandedSensorId(expanded ? null : v.id); }}
+                      title={expanded ? 'Collapse sensors' : 'Click to expand sensor values'}
+                      style={{
+                        background: 'var(--theme-sidebar-bg, #1A2F6B)',
+                        borderTop: '1px solid rgba(255,255,255,0.06)',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                      }}>
+                      {/* Collapsed — icon row */}
+                      {!expanded && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', flexWrap: 'wrap' }}>
+                          {cardSensors.map(s => {
+                            const val = resolveVal(s.mappedParameter);
+                            return (
+                              <span key={s.id} title={s.name}
+                                style={{
+                                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                                  padding: '3px 8px', borderRadius: 20,
+                                  background: val !== undefined ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.06)',
+                                  border: '1px solid rgba(255,255,255,0.12)',
+                                  fontSize: 13,
+                                }}>
+                                {sensorIcon(s.name, s.mappedParameter)}
+                                {val !== undefined && (
+                                  <span style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.85)' }}>
+                                    {String(val)}{s.unit ? <span style={{ color: 'rgba(255,255,255,0.45)', marginLeft: 1 }}>{s.unit}</span> : null}
+                                  </span>
+                                )}
+                              </span>
+                            );
+                          })}
+                          <span style={{ marginLeft: 'auto', fontSize: 9, color: 'rgba(255,255,255,0.30)', letterSpacing: '0.05em' }}>▼</span>
                         </div>
-                      </div>
-                    )}
-                  </div>
-                )}
+                      )}
+                      {/* Expanded — grid of sensor tiles */}
+                      {expanded && (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: 0 }}>
+                          {cardSensors.map((s, i) => {
+                            const val = resolveVal(s.mappedParameter);
+                            return (
+                              <div key={s.id}
+                                style={{
+                                  padding: '9px 10px',
+                                  borderRight: i < cardSensors.length - 1 ? '1px solid rgba(255,255,255,0.07)' : 'none',
+                                  display: 'flex', flexDirection: 'column', gap: 3,
+                                }}>
+                                <span style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: 3 }}>
+                                  {sensorIcon(s.name, s.mappedParameter)} {s.name}
+                                </span>
+                                <span style={{ fontSize: 15, fontWeight: 800, color: val !== undefined ? '#F1F5F9' : 'rgba(255,255,255,0.25)', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
+                                  {val !== undefined ? String(val) : '—'}
+                                  {val !== undefined && s.unit && <span style={{ fontSize: 9, fontWeight: 500, color: 'rgba(255,255,255,0.40)', marginLeft: 2 }}>{s.unit}</span>}
+                                </span>
+                              </div>
+                            );
+                          })}
+                          <div style={{ gridColumn: '1 / -1', padding: '4px 10px', textAlign: 'right', fontSize: 9, color: 'rgba(255,255,255,0.30)', letterSpacing: '0.05em', borderTop: '1px solid rgba(255,255,255,0.06)' }}>▲ collapse</div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             );
           })}
@@ -2957,17 +2943,8 @@ const MyFleet = () => {
         </div>
       </div>{/* /map area */}
 
-      {/* ── DETAIL BOTTOM SHEET (replaces the old right-side drawer) ─────── */}
-      {/* Peek states: collapsed (110 px strip), half (50vh), full (100vh).  */}
-      {/* Drag the handle pill to resize, or click the ⌐ ◐ ◼ buttons.       */}
-      <BottomSheet
-        open={!!selectedVehicle}
-        peek={detailSheetPeek}
-        onPeekChange={setDetailSheetPeek}
-        onClose={() => setSelectedVehicle(null)}
-        accentColor={selectedVehicle ? getVState(selectedVehicle, deviceStatesByType).stateColor : '#2563EB'}
-      >
-        {selectedVehicle && (() => {
+      {/* Vehicle detail popup is vehicleDetailModalJsx (shared with table view) */}
+      {null && selectedVehicle && (() => {
           const sv      = selectedVehicle;
           const gps     = sv.deviceStatus?.gpsData;
           const dst     = sv.deviceStatus?.status;
@@ -3184,8 +3161,9 @@ const MyFleet = () => {
               </div>
             </>
           );
-        })()}
-      </BottomSheet>
+      })()}
+
+      {vehicleDetailModalJsx}
 
       </div>{/* /content row */}
 

@@ -1042,6 +1042,7 @@ const TABS = [
   { id: 'diagnosis', label: 'Vehicle Diagnosis', icon: '🩺' },
   { id: 'packets',   label: 'Packet Explorer',   icon: '📡' },
   { id: 'decoder',   label: 'Raw Decoder',        icon: '🔬' },
+  { id: 'mongo',     label: 'MongoDB Health',     icon: '🛢️' },
 ];
 
 const Debug = () => {
@@ -1076,6 +1077,109 @@ const Debug = () => {
       {tab === 'diagnosis' && <DiagnosisTab />}
       {tab === 'packets'   && <PacketExplorer />}
       {tab === 'decoder'   && <RawDecoderTab />}
+      {tab === 'mongo'     && <MongoHealthTab />}
+    </div>
+  );
+};
+
+// ── MongoDB Health Tab ────────────────────────────────────────────────────────
+const MongoHealthTab = () => {
+  const [data, setData]       = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState('');
+
+  const check = async () => {
+    setLoading(true); setError('');
+    try {
+      const res = await api.get('/health/mongo');
+      setData(res?.data ?? res);
+    } catch (e) {
+      setError(e.response?.data?.message || e.message || 'Request failed');
+    } finally { setLoading(false); }
+  };
+
+  // Auto-check on mount
+  useEffect(() => { check(); }, []); // eslint-disable-line
+
+  const stateColor = (label) =>
+    label === 'connected' ? '#16a34a' : label === 'connecting' ? '#d97706' : '#dc2626';
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0f172a' }}>MongoDB Connectivity & Change Streams</h3>
+        <button onClick={check} disabled={loading}
+          style={{ padding: '6px 14px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: loading ? 'wait' : 'pointer' }}>
+          {loading ? 'Checking…' : '↻ Refresh'}
+        </button>
+      </div>
+
+      {error && (
+        <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, padding: '12px 16px', color: '#dc2626', fontSize: 13, fontWeight: 600 }}>
+          {error}
+        </div>
+      )}
+
+      {data && (() => {
+        const mongo = data.mongo || {};
+        const streams = data.changeStreams || [];
+        const advice = data.advice || [];
+        return (
+          <>
+            {/* Connection status */}
+            <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '16px 20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                <span style={{ width: 14, height: 14, borderRadius: '50%', background: stateColor(mongo.label), flexShrink: 0, boxShadow: mongo.healthy ? '0 0 8px #16a34a' : 'none' }} />
+                <span style={{ fontSize: 16, fontWeight: 800, color: '#0f172a' }}>
+                  MongoDB — <span style={{ color: stateColor(mongo.label) }}>{(mongo.label || 'unknown').toUpperCase()}</span>
+                </span>
+              </div>
+              <div style={{ fontSize: 12, color: '#64748b' }}>readyState: {mongo.readyState} · checked at {mongo.checkedAt}</div>
+            </div>
+
+            {/* Change streams */}
+            {streams.length > 0 && (
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
+                <div style={{ padding: '10px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  Change Streams ({streams.length})
+                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc' }}>
+                      {['Collection', 'Device Type', 'Status', 'Started At'].map(h => (
+                        <th key={h} style={{ padding: '8px 14px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: 11, textTransform: 'uppercase', borderBottom: '1px solid #e2e8f0' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {streams.map((s, i) => (
+                      <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '9px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f172a' }}>{s.collection}</td>
+                        <td style={{ padding: '9px 14px', color: '#374151' }}>{s.deviceType}</td>
+                        <td style={{ padding: '9px 14px' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: s.alive ? '#dcfce7' : '#fee2e2', color: s.alive ? '#16a34a' : '#dc2626' }}>
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: s.alive ? '#16a34a' : '#dc2626' }} />
+                            {s.alive ? 'ALIVE' : 'DEAD'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '9px 14px', color: '#64748b', fontSize: 12 }}>{s.startedAt ? new Date(s.startedAt).toLocaleString('en-IN') : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Advisory messages */}
+            {advice.length > 0 && (
+              <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '14px 18px' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#92400e', marginBottom: 8 }}>⚠ Advisory</div>
+                {advice.map((a, i) => <div key={i} style={{ fontSize: 12, color: '#92400e', marginBottom: 4 }}>• {a}</div>)}
+              </div>
+            )}
+          </>
+        );
+      })()}
     </div>
   );
 };
