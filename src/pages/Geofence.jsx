@@ -655,16 +655,27 @@ function DrawModal({ mode, editTarget, vehicles, groups, onSave, onClose }) {
   );
 }
 
-// ── Stat card ─────────────────────────────────────────────────────────────────
+// ── Stat card — color-filled, matches dashboard style ─────────────────────────
 
 function StatCard({ label, value, icon, color }) {
   return (
-    <div style={{ background: '#fff', borderRadius: 12, padding: '18px 22px', boxShadow: '0 1px 4px rgba(0,0,0,.08)', borderTop: `4px solid ${color}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flex: 1, minWidth: 150 }}>
-      <div>
-        <div style={{ fontSize: 12, color: '#64748b', fontWeight: 500 }}>{label}</div>
-        <div style={{ fontSize: 28, fontWeight: 700, color: '#0f172a', marginTop: 4 }}>{value}</div>
+    <div style={{
+      background: `linear-gradient(135deg, ${color} 0%, ${color}CC 100%)`,
+      borderRadius: 0,
+      padding: '18px 22px',
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      flex: 1, minWidth: 160,
+      position: 'relative', overflow: 'hidden',
+      boxShadow: `0 6px 18px ${color}44, 0 2px 6px rgba(0,0,0,0.10)`,
+      cursor: 'default',
+    }}>
+      {/* decorative bubble */}
+      <div style={{ position: 'absolute', right: -20, top: -20, width: 90, height: 90, borderRadius: '50%', background: 'rgba(255,255,255,0.10)', pointerEvents: 'none' }} />
+      <div style={{ position: 'relative', zIndex: 1 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.80)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{label}</div>
+        <div style={{ fontSize: 34, fontWeight: 800, color: '#fff', lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{value}</div>
       </div>
-      <div style={{ fontSize: 30 }}>{icon}</div>
+      <div style={{ fontSize: 28, position: 'relative', zIndex: 1, opacity: 0.90 }}>{icon}</div>
     </div>
   );
 }
@@ -810,11 +821,12 @@ export default function Geofence() {
       {/* Page title + stat cards */}
       <div style={{ padding: '20px 28px 16px', background: '#fff', borderBottom: '1px solid #e2e8f0', flexShrink: 0 }}>
         <h1 style={{ fontSize: 20, fontWeight: 800, margin: '0 0 12px', color: '#1e293b' }}>Geofences</h1>
-        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-          <StatCard label="Total"    value={stats.total}    icon="📍" color="#3b82f6" />
-          <StatCard label="Active"   value={stats.active}   icon="✅" color="#10b981" />
-          <StatCard label="Circular" value={stats.circular} icon="⭕" color="#f59e0b" />
-          <StatCard label="Polygon"  value={stats.polygon}  icon="🔷" color="#8b5cf6" />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 0 }}>
+          <StatCard label="Total"    value={stats.total}    icon="📍" color="#3B82F6" />
+          <StatCard label="Active"   value={stats.active}   icon="✅" color="#10B981" />
+          <StatCard label="Inactive" value={stats.total - stats.active} icon="⏸️" color="#64748B" />
+          <StatCard label="Circular" value={stats.circular} icon="⭕" color="#F59E0B" />
+          <StatCard label="Polygon"  value={stats.polygon}  icon="🔷" color="#8B5CF6" />
         </div>
       </div>
 

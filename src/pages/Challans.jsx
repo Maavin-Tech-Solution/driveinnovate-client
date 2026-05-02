@@ -2,6 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { toast } from 'react-toastify';
 import { getChallans, payChallan, deleteChallan } from '../services/challan.service';
 import { toISTDateString } from '../utils/dateFormat';
+import ServiceGate from '../components/common/ServiceGate';
+
+const CHALLAN_ENABLED = import.meta.env.VITE_CHALLAN_SERVICE_ENABLED !== 'false';
+const CHALLAN_MSG     = import.meta.env.VITE_CHALLAN_UNAVAILABLE_MSG;
 
 const STATUS_META = {
   pending:  { cls: 'badge-warning', label: 'Pending' },
@@ -53,6 +57,12 @@ const Challans = () => {
   const totalPending = challans.filter((c) => c.status === 'pending').reduce((s, c) => s + Number(c.amount), 0);
 
   return (
+    <ServiceGate
+      enabled={CHALLAN_ENABLED}
+      message={CHALLAN_MSG}
+      serviceName="Challan Tracking"
+      icon="📋"
+    >
     <div>
       {/* Filter strip */}
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '20px' }}>
@@ -139,6 +149,7 @@ const Challans = () => {
         </div>
       )}
     </div>
+    </ServiceGate>
   );
 };
 

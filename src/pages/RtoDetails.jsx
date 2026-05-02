@@ -2,6 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { toast } from 'react-toastify';
 import { getRtoDetails } from '../services/rto.service';
 import { toISTDateString } from '../utils/dateFormat';
+import ServiceGate from '../components/common/ServiceGate';
+
+const RTO_ENABLED = import.meta.env.VITE_RTO_SERVICE_ENABLED !== 'false';
+const RTO_MSG     = import.meta.env.VITE_RTO_UNAVAILABLE_MSG;
 
 const isExpiringSoon = (d) => { if (!d) return false; const diff = new Date(d) - new Date(); return diff > 0 && diff < 30 * 86400000; };
 const isExpired = (d) => { if (!d) return false; return new Date(d) < new Date(); };
@@ -35,6 +39,7 @@ const RtoDetails = () => {
   const expiring = rtoList.filter(r => ['insuranceExpiry','roadTaxExpiry','fitnessExpiry','pollutionExpiry','nationalPermitExpiry'].some(k => isExpiringSoon(r[k]))).length;
 
   return (
+    <ServiceGate enabled={RTO_ENABLED} message={RTO_MSG} serviceName="RTO Details" icon="🚦">
     <div>
       {/* Summary pills */}
       {rtoList.length > 0 && (
@@ -105,6 +110,7 @@ const RtoDetails = () => {
         </div>
       )}
     </div>
+    </ServiceGate>
   );
 };
 

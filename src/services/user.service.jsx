@@ -3,6 +3,9 @@ import api from './api';
 /** GET /api/users/me */
 export const getProfile = () => api.get('/users/me');
 
+/** GET /api/users/me/parent — dealer/parent contact info (for subscription gates) */
+export const getParentContact = () => api.get('/users/me/parent');
+
 /**
  * PUT /api/users/me
  * Body: { name, phone }

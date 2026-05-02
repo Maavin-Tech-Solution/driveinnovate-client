@@ -1591,14 +1591,14 @@ const MyFleet = () => {
 
   const mapVehicles = useMemo(() => filteredVehicles.map(v => ({ ...v, coords: getVehicleCoords(v) })).filter(v => v.coords), [filteredVehicles]);
 
-  // Lat/lng pairs for the pinned set — drives FocusBoundsController.
-  // Re-computed whenever the pinned IDs change or vehicles refresh (live poll),
-  // so the map stays fitted as each vehicle moves.
+  // Lat/lng pairs for the pinned (multi-tracked) set — drives FocusBoundsController.
+  // Works for 1+ selected vehicles so the map always shows all checked vehicles.
   const focusedBounds = useMemo(() => {
-    if (focusedIds.size < 2) return null;
-    return mapVehicles
+    if (focusedIds.size === 0) return null;
+    const pts = mapVehicles
       .filter(v => focusedIds.has(v.id))
       .map(v => [v.coords.lat, v.coords.lng]);
+    return pts.length ? pts : null;
   }, [mapVehicles, focusedIds]);
 
   const toggleFocus = (id) => {
@@ -2895,8 +2895,10 @@ const MyFleet = () => {
             maxZoom={20}
           />
           <MapResizer />
-          {mapCenter && focusedIds.size < 2 && <MapController center={mapCenter} />}
-          {focusedIds.size < 2 && (
+          {/* When any vehicles are pinned, disable individual-vehicle tracking so
+              FocusBoundsController can handle the view; otherwise normal tracking */}
+          {mapCenter && focusedIds.size === 0 && <MapController center={mapCenter} />}
+          {focusedIds.size === 0 && (
             <SmoothMotionController
               markerRefs={markerRefs}
               selectedId={selectedVehicle?.id || null}
