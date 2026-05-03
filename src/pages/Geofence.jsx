@@ -660,22 +660,29 @@ function DrawModal({ mode, editTarget, vehicles, groups, onSave, onClose }) {
 function StatCard({ label, value, icon, color }) {
   return (
     <div style={{
-      background: `linear-gradient(135deg, ${color} 0%, ${color}CC 100%)`,
-      borderRadius: 0,
-      padding: '18px 22px',
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      flex: 1, minWidth: 160,
+      background: `linear-gradient(135deg, ${color} 0%, ${color}D9 100%)`,
+      borderRadius: 16,
+      padding: '22px 26px',
+      display: 'flex', flexDirection: 'column', gap: 8,
+      flex: 1, minWidth: 160, minHeight: 138,
       position: 'relative', overflow: 'hidden',
-      boxShadow: `0 6px 18px ${color}44, 0 2px 6px rgba(0,0,0,0.10)`,
+      boxShadow: `0 8px 22px ${color}38, 0 2px 8px rgba(15,23,42,0.10)`,
       cursor: 'default',
-    }}>
-      {/* decorative bubble */}
-      <div style={{ position: 'absolute', right: -20, top: -20, width: 90, height: 90, borderRadius: '50%', background: 'rgba(255,255,255,0.10)', pointerEvents: 'none' }} />
-      <div style={{ position: 'relative', zIndex: 1 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.80)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{label}</div>
-        <div style={{ fontSize: 34, fontWeight: 800, color: '#fff', lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{value}</div>
+      transition: 'transform 0.18s, box-shadow 0.18s',
+    }}
+      onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = `0 14px 28px ${color}55, 0 4px 10px rgba(15,23,42,0.14)`; }}
+      onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = `0 8px 22px ${color}38, 0 2px 8px rgba(15,23,42,0.10)`; }}
+    >
+      {/* decorative circle bubble */}
+      <div style={{ position: 'absolute', right: -20, top: -20, width: 110, height: 110, borderRadius: '50%', background: 'rgba(255,255,255,0.12)', pointerEvents: 'none' }} />
+      {/* icon badge */}
+      <div style={{ position: 'absolute', right: 18, top: 16, width: 44, height: 44, borderRadius: 10, background: 'rgba(255,255,255,0.20)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, backdropFilter: 'blur(4px)' }}>
+        {icon}
       </div>
-      <div style={{ fontSize: 28, position: 'relative', zIndex: 1, opacity: 0.90 }}>{icon}</div>
+      <div style={{ position: 'relative', zIndex: 1 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.82)', textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: 8 }}>{label}</div>
+        <div style={{ fontSize: 42, fontWeight: 800, color: '#fff', lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{value}</div>
+      </div>
     </div>
   );
 }
@@ -821,7 +828,7 @@ export default function Geofence() {
       {/* Page title + stat cards */}
       <div style={{ padding: '20px 28px 16px', background: '#fff', borderBottom: '1px solid #e2e8f0', flexShrink: 0 }}>
         <h1 style={{ fontSize: 20, fontWeight: 800, margin: '0 0 12px', color: '#1e293b' }}>Geofences</h1>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 0 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14 }}>
           <StatCard label="Total"    value={stats.total}    icon="📍" color="#3B82F6" />
           <StatCard label="Active"   value={stats.active}   icon="✅" color="#10B981" />
           <StatCard label="Inactive" value={stats.total - stats.active} icon="⏸️" color="#64748B" />

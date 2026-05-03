@@ -984,6 +984,7 @@ const MyFleet = () => {
 
   const [drawerVehicle, setDrawerVehicle] = useState(null);
   const [drawerEditForm, setDrawerEditForm] = useState({});
+  const [drawerSensors, setDrawerSensors] = useState([]);
   const [drawerSaving, setDrawerSaving] = useState(false);
   const [drawerTab, setDrawerTab] = useState('overview');
 
@@ -1168,6 +1169,14 @@ const MyFleet = () => {
       return latest ?? dv;
     });
   }, [vehicles]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load sensors for the drawerVehicle popup whenever it changes.
+  useEffect(() => {
+    if (!drawerVehicle) { setDrawerSensors([]); return; }
+    getVehicleSensors(drawerVehicle.id)
+      .then(r => setDrawerSensors(r.data || []))
+      .catch(() => setDrawerSensors([]));
+  }, [drawerVehicle?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // SmoothMotionController reads the selected vehicle's interpolated position
   // straight from the buffer; trackedPosition / trackedVehicleId state is kept
@@ -1741,23 +1750,73 @@ const MyFleet = () => {
 
               {/* Live data grid */}
               <div style={{ padding: '16px 14px 12px' }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>Live Data</div>
+                <div style={{ fontSize: 11, fontWeight: 800, color: '#0F172A', letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 10 }}>Live Data</div>
                 {statItems.length > 0 ? (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                     {statItems.map((s, i) => (
-                      <div key={i} style={{ background: '#fff', border: '1px solid #E2E8F0', borderTop: `3px solid ${s.accent}`, padding: '9px 10px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 3 }}>
-                          <span style={{ fontSize: 11 }}>{s.icon}</span>
-                          <span style={{ fontSize: 9, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{s.label}</span>
+                      <div key={i} style={{
+                        background: `linear-gradient(135deg, ${s.accent} 0%, ${s.accent}CC 100%)`,
+                        borderRadius: 12,
+                        padding: '12px 14px',
+                        position: 'relative', overflow: 'hidden',
+                        boxShadow: `0 4px 12px ${s.accent}38`,
+                      }}>
+                        <div style={{ position: 'absolute', right: -8, top: -8, width: 48, height: 48, borderRadius: '50%', background: 'rgba(255,255,255,0.12)', pointerEvents: 'none' }} />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6, position: 'relative', zIndex: 1 }}>
+                          <span style={{ fontSize: 13 }}>{s.icon}</span>
+                          <span style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.82)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{s.label}</span>
                         </div>
-                        <div style={{ fontSize: 19, fontWeight: 800, color: s.accent, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
-                          {s.val}<span style={{ fontSize: 10, fontWeight: 500, color: '#94A3B8', marginLeft: 1 }}>{s.unit}</span>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: '#FFFFFF', fontVariantNumeric: 'tabular-nums', lineHeight: 1, position: 'relative', zIndex: 1 }}>
+                          {s.val}<span style={{ fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.78)', marginLeft: 3 }}>{s.unit}</span>
                         </div>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <div style={{ background: '#fff', border: '1px solid #E2E8F0', padding: '18px', textAlign: 'center', color: '#94A3B8', fontSize: 12 }}>No live data</div>
+                  <div style={{ background: '#F8FAFC', border: '1px dashed #CBD5E1', borderRadius: 10, padding: '18px', textAlign: 'center', color: '#94A3B8', fontSize: 12 }}>No live data</div>
+                )}
+
+                {/* Sensors section */}
+                {drawerSensors.length > 0 && (
+                  <div style={{ marginTop: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 800, color: '#0F172A', letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 10 }}>Sensors</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      {drawerSensors.map(s => {
+                        // Resolve live value from device status
+                        const ds  = dv.deviceStatus || {};
+                        const st  = ds.status  || {};
+                        const g   = ds.gpsData || {};
+                        const f   = ds.fuel    || {};
+                        const io  = g.ioElements || {};
+                        const param = s.mappedParameter || '';
+                        let lv;
+                        if (param.startsWith('status.')) lv = st[param.slice(7)];
+                        else if (param.startsWith('fuel.')) lv = f[param.slice(5)];
+                        else if (['speed','latitude','longitude','altitude','satellites','course','heading','hdop'].includes(param)) lv = g[param];
+                        else { const raw = io[param]; lv = raw !== undefined ? (typeof raw === 'object' && raw !== null ? raw.value : raw) : undefined; }
+
+                        const hasVal = lv !== undefined && lv !== null;
+                        const accent = hasVal ? '#6366F1' : '#94A3B8';
+                        return (
+                          <div key={s.id} style={{
+                            background: hasVal ? 'linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)' : '#F1F5F9',
+                            borderRadius: 12, padding: '12px 14px',
+                            position: 'relative', overflow: 'hidden',
+                            boxShadow: hasVal ? '0 4px 12px rgba(99,102,241,0.32)' : 'none',
+                          }}>
+                            <div style={{ position: 'absolute', right: -8, top: -8, width: 40, height: 40, borderRadius: '50%', background: hasVal ? 'rgba(255,255,255,0.12)' : 'transparent', pointerEvents: 'none' }} />
+                            <div style={{ fontSize: 9, fontWeight: 700, color: hasVal ? 'rgba(255,255,255,0.80)' : '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6, position: 'relative', zIndex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {s.name}
+                            </div>
+                            <div style={{ fontSize: 20, fontWeight: 800, color: hasVal ? '#FFFFFF' : '#CBD5E1', fontVariantNumeric: 'tabular-nums', lineHeight: 1, position: 'relative', zIndex: 1 }}>
+                              {hasVal ? String(lv) : '—'}
+                              {hasVal && s.unit && <span style={{ fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.75)', marginLeft: 3 }}>{s.unit}</span>}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 )}
               </div>
 
@@ -1843,7 +1902,9 @@ const MyFleet = () => {
                       fetchReport={fetchReport} handleExport={handleExport} handleDownloadPackets={handleDownloadPackets} />
                   )}
                   {activeTab === 'sensors' && (
-                    <SensorsTab vehicle={dv} sensors={sensors} loadingSensors={loadingSensors}
+                    <SensorsTab vehicle={dv}
+                      sensors={drawerSensors.length ? drawerSensors : sensors}
+                      loadingSensors={loadingSensors}
                       showSensorForm={showSensorForm} sensorForm={sensorForm} editingSensor={editingSensor}
                       savingSensor={savingSensor} setSensorForm={setSensorForm} setShowSensorForm={setShowSensorForm}
                       openSensorForm={openSensorForm} handleSaveSensor={handleSaveSensor} handleDeleteSensor={handleDeleteSensor} />
@@ -1859,7 +1920,7 @@ const MyFleet = () => {
       </div>
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drawerVehicle, activeTab, syncing, syncingId, liveShareEnabled, isPapaOrDealer, user, deviceStatesByType, sensors, loadingSensors, showSensorForm, sensorForm, editingSensor, savingSensor, editForm, saving, reportFrom, reportTo, reportData, reportLoading, reportPage, reportTab, reportExporting, packetsDownloading, selectedVehicle]);
+  }, [drawerVehicle, activeTab, syncing, syncingId, liveShareEnabled, isPapaOrDealer, user, deviceStatesByType, sensors, drawerSensors, loadingSensors, showSensorForm, sensorForm, editingSensor, savingSensor, editForm, saving, reportFrom, reportTo, reportData, reportLoading, reportPage, reportTab, reportExporting, packetsDownloading, selectedVehicle]);
 
   /* ══════ TABLE VIEW ══════ */
   if (viewMode === 'table') {
@@ -3056,16 +3117,23 @@ const MyFleet = () => {
 
                 {/* Live stats — color-filled cards, large numerals, white text */}
                 {liveStats.length > 0 && (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 0, marginTop: 16 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginTop: 16 }}>
                     {liveStats.map((s, i) => (
                       <div key={i}
                            title={`Live ${s.label.toLowerCase()} reading from device`}
-                           style={{ background: s.accent, color: '#FFFFFF', padding: '14px 16px', borderRadius: 0, display: 'flex', flexDirection: 'column', gap: 4, position: 'relative', overflow: 'hidden', cursor: 'default' }}>
-                        <div style={{ position: 'absolute', right: -10, top: -10, width: 60, height: 60, background: 'rgba(255,255,255,0.10)', pointerEvents: 'none' }} />
-                        <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase', letterSpacing: '0.08em', position: 'relative', zIndex: 1 }}>{s.label}</div>
-                        <div style={{ fontSize: 28, fontWeight: 800, color: '#FFFFFF', fontVariantNumeric: 'tabular-nums', lineHeight: 1.05, letterSpacing: '-0.02em', position: 'relative', zIndex: 1 }}>
+                           style={{
+                             background: `linear-gradient(135deg, ${s.accent} 0%, ${s.accent}CC 100%)`,
+                             color: '#FFFFFF', padding: '18px 20px', borderRadius: 14,
+                             display: 'flex', flexDirection: 'column', gap: 6,
+                             position: 'relative', overflow: 'hidden', cursor: 'default',
+                             boxShadow: `0 6px 16px ${s.accent}38, 0 2px 6px rgba(15,23,42,0.08)`,
+                             minHeight: 110,
+                           }}>
+                        <div style={{ position: 'absolute', right: -14, top: -14, width: 80, height: 80, borderRadius: '50%', background: 'rgba(255,255,255,0.12)', pointerEvents: 'none' }} />
+                        <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.82)', textTransform: 'uppercase', letterSpacing: '0.09em', position: 'relative', zIndex: 1 }}>{s.label}</div>
+                        <div style={{ fontSize: 32, fontWeight: 800, color: '#FFFFFF', fontVariantNumeric: 'tabular-nums', lineHeight: 1.05, letterSpacing: '-0.02em', position: 'relative', zIndex: 1 }}>
                           {s.val}
-                          {s.unit && <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.85)', marginLeft: 4 }}>{s.unit}</span>}
+                          {s.unit && <span style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.82)', marginLeft: 5 }}>{s.unit}</span>}
                         </div>
                       </div>
                     ))}
@@ -3542,17 +3610,33 @@ const SectionCard = ({ icon, title, children, style }) => (
 // Color-filled stat card (matches the dashboard / live-stats look). The whole
 // box is the brand color so the value stands out at a glance.
 const StatCard = ({ label, value, color = C.primary, icon }) => (
-  <div style={{ background: color, borderRadius: 0, padding: '18px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', overflow: 'hidden', minHeight: 92 }}>
-    <div style={{ position: 'absolute', right: -18, top: -18, width: 90, height: 90, background: 'rgba(255,255,255,0.10)', pointerEvents: 'none' }} />
-    <div style={{ position: 'relative', zIndex: 1 }}>
-      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700, marginBottom: 6 }}>{label}</div>
-      <div style={{ fontSize: 26, fontWeight: 800, color: '#FFFFFF', lineHeight: 1.05, letterSpacing: '-0.01em', fontVariantNumeric: 'tabular-nums' }}>{value}</div>
-    </div>
+  <div
+    style={{
+      background: `linear-gradient(135deg, ${color} 0%, ${color}CC 100%)`,
+      borderRadius: 14,
+      padding: '20px 22px',
+      display: 'flex', flexDirection: 'column', gap: 8,
+      position: 'relative', overflow: 'hidden',
+      minHeight: 120,
+      boxShadow: `0 6px 18px ${color}44, 0 2px 6px rgba(15,23,42,0.08)`,
+      transition: 'transform 0.16s, box-shadow 0.16s',
+      cursor: 'default',
+    }}
+    onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = `0 12px 24px ${color}55, 0 4px 8px rgba(15,23,42,0.10)`; }}
+    onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = `0 6px 18px ${color}44, 0 2px 6px rgba(15,23,42,0.08)`; }}
+  >
+    {/* decorative bubble */}
+    <div style={{ position: 'absolute', right: -20, top: -20, width: 100, height: 100, borderRadius: '50%', background: 'rgba(255,255,255,0.12)', pointerEvents: 'none' }} />
+    {/* icon badge */}
     {icon && (
-      <div style={{ width: 38, height: 38, background: 'rgba(255,255,255,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', zIndex: 1, flexShrink: 0 }}>
+      <div style={{ position: 'absolute', right: 16, top: 16, width: 40, height: 40, borderRadius: 10, background: 'rgba(255,255,255,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>
         <Ic n={icon} size={20} color="#FFFFFF" sw={1.6} />
       </div>
     )}
+    <div style={{ position: 'relative', zIndex: 1 }}>
+      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.82)', textTransform: 'uppercase', letterSpacing: '0.09em', fontWeight: 700, marginBottom: 8 }}>{label}</div>
+      <div style={{ fontSize: 30, fontWeight: 800, color: '#FFFFFF', lineHeight: 1, letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+    </div>
   </div>
 );
 
@@ -3850,7 +3934,7 @@ const ReportData = ({ type, data, vehicle, reportPage, setReportPage, reportFrom
   if (type === 'summary') {
     const s = data;
     return (
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 0 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
         <StatCard label="Total Distance"  value={`${Number(s.mileage || 0).toFixed(1)} km`}               color={C.primary}  icon="route" />
         <StatCard label="Engine Hours"    value={s.engineHours || '—'}                                     color={C.teal}     icon="clock" />
         <StatCard label="Fuel Consumed"   value={`${Number(s.consumedByFls || 0).toFixed(1)} L`}           color={C.warning}  icon="droplet" />
@@ -3867,7 +3951,7 @@ const ReportData = ({ type, data, vehicle, reportPage, setReportPage, reportFrom
   if (type === 'daily') {
     const rows = Array.isArray(data?.rows) ? data.rows : [];
     return (
-      <div style={{ borderRadius: 0, border: `1px solid ${C.border}`, overflow: 'auto' }}>
+      <div style={{ borderRadius: 12, border: `1px solid ${C.border}`, overflow: 'hidden', boxShadow: '0 2px 8px rgba(15,23,42,0.06)' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--theme-table-body-font-size, 11px)', minWidth: 500 }}>
           <thead>
             <tr style={{ background: 'var(--theme-table-header-bg, #f8fafc)' }}>
@@ -3907,10 +3991,21 @@ const ReportData = ({ type, data, vehicle, reportPage, setReportPage, reportFrom
     const sessions = Array.isArray(data?.rows) ? data.rows : [];
     const total = data?.total ?? sessions.length;
     return (
-      <div style={{ display: 'flex', flexDirection: 'column' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {sessions.map((s, i) => (
-          <div key={i} style={{ display: 'flex', gap: 14, alignItems: 'center', padding: '14px 0', borderBottom: `1px solid ${C.borderLight}` }}>
-            <div style={{ width: 40, height: 40, borderRadius: 0, background: C.teal, color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, flexShrink: 0 }}>
+          <div key={i} style={{
+            display: 'flex', gap: 14, alignItems: 'center',
+            background: '#FFFFFF', borderRadius: 12, padding: '14px 16px',
+            border: `1px solid ${C.border}`,
+            boxShadow: '0 2px 8px rgba(15,23,42,0.05)',
+          }}>
+            <div style={{
+              width: 46, height: 46, borderRadius: 12,
+              background: `linear-gradient(135deg, ${C.teal} 0%, ${C.teal}CC 100%)`,
+              color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 14, fontWeight: 800, flexShrink: 0,
+              boxShadow: `0 4px 10px ${C.teal}44`,
+            }}>
               {s.no || reportPage * REPORT_PAGE_SIZE + i + 1}
             </div>
             <div style={{ flex: 1 }}>
@@ -3918,10 +4013,16 @@ const ReportData = ({ type, data, vehicle, reportPage, setReportPage, reportFrom
                 {s.beginning ? new Date(s.beginning).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
                 {s.end && <span style={{ color: C.textMuted, fontWeight: 500 }}> → {new Date(s.end).toLocaleString('en-IN', { timeStyle: 'short' })}</span>}
               </div>
-              <div style={{ fontSize: 13, color: C.textSub, display: 'flex', gap: 18, flexWrap: 'wrap', marginTop: 5, fontWeight: 600 }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><Ic n="clock" size={13} color={C.teal} /> {s.engineHours || '—'}</span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><Ic n="route" size={13} color={C.primary} /> <strong style={{ color: C.text }}>{Number(s.mileage || 0).toFixed(1)}</strong> km</span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><Ic n="droplet" size={13} color={C.warning} /> <strong style={{ color: C.text }}>{Number(s.consFls || 0).toFixed(2)}</strong> L</span>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 8 }}>
+                {[
+                  { icon: 'clock',   color: C.teal,    val: s.engineHours || '—',                                 unit: '' },
+                  { icon: 'route',   color: C.primary, val: Number(s.mileage || 0).toFixed(1),                    unit: 'km' },
+                  { icon: 'droplet', color: C.warning,  val: Number(s.consFls || 0).toFixed(2),                   unit: 'L' },
+                ].map(({ icon, color, val, unit }, j) => (
+                  <span key={j} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', background: color + '12', borderRadius: 20, fontSize: 12, fontWeight: 700, color }}>
+                    <Ic n={icon} size={12} color={color} /> {val}{unit && <span style={{ fontWeight: 500, color: color + 'AA', marginLeft: 1 }}>{unit}</span>}
+                  </span>
+                ))}
               </div>
             </div>
           </div>
@@ -3940,7 +4041,7 @@ const ReportData = ({ type, data, vehicle, reportPage, setReportPage, reportFrom
   if (type === 'trips') {
     const trips = Array.isArray(data?.rows) ? data.rows : [];
     return (
-      <div style={{ borderRadius: 0, border: `1px solid ${C.border}`, overflow: 'auto' }}>
+      <div style={{ borderRadius: 12, border: `1px solid ${C.border}`, overflow: 'hidden', boxShadow: '0 2px 8px rgba(15,23,42,0.06)' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--theme-table-body-font-size, 11px)', minWidth: 480 }}>
           <thead>
             <tr style={{ background: 'var(--theme-table-header-bg, #f8fafc)' }}>
@@ -3969,19 +4070,33 @@ const ReportData = ({ type, data, vehicle, reportPage, setReportPage, reportFrom
   if (type === 'fuelFillings') {
     const events = Array.isArray(data?.rows) ? data.rows : [];
     return (
-      <div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {events.map((ev, i) => (
-          <div key={i} style={{ display: 'flex', gap: 14, alignItems: 'center', padding: '14px 0', borderBottom: `1px solid ${C.borderLike || C.borderLight}` }}>
-            <div style={{ width: 40, height: 40, borderRadius: 0, background: C.success, color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <Ic n="droplet" size={18} color="#FFFFFF" />
+          <div key={i} style={{
+            display: 'flex', gap: 14, alignItems: 'center',
+            background: '#FFFFFF', borderRadius: 12, padding: '14px 16px',
+            border: `1px solid ${C.border}`,
+            boxShadow: '0 2px 8px rgba(15,23,42,0.05)',
+          }}>
+            <div style={{
+              width: 46, height: 46, borderRadius: 12, flexShrink: 0,
+              background: `linear-gradient(135deg, ${C.success} 0%, ${C.success}CC 100%)`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: `0 4px 10px ${C.success}44`,
+            }}>
+              <Ic n="droplet" size={20} color="#FFFFFF" />
             </div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{ev.time ? new Date(ev.time).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}</div>
-              <div style={{ fontSize: 13, color: C.textSub, marginTop: 5, display: 'flex', gap: 14, fontWeight: 600 }}>
-                <span><strong style={{ color: C.text }}>{ev.fuelBefore}%</strong> → <strong style={{ color: C.text }}>{ev.fuelAfter}%</strong></span>
-                <span style={{ color: C.success, fontWeight: 800 }}>+{ev.filled}% ADDED</span>
+              <div style={{ display: 'flex', gap: 10, marginTop: 7, flexWrap: 'wrap' }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#F1F5F9', padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700, color: C.textSub }}>
+                  {ev.fuelBefore}% → {ev.fuelAfter}%
+                </span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: C.success + '18', padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 800, color: C.success }}>
+                  +{ev.filled}% ADDED
+                </span>
               </div>
-              {ev.location && ev.location !== '—' && <div style={{ fontSize: 12, color: C.textLight, marginTop: 3 }}>{ev.location}</div>}
+              {ev.location && ev.location !== '—' && <div style={{ fontSize: 11.5, color: C.textLight, marginTop: 5 }}>{ev.location}</div>}
             </div>
           </div>
         ))}
@@ -4289,24 +4404,38 @@ const SensorsTab = ({ vehicle, sensors, loadingSensors, showSensorForm, sensorFo
         )}
 
         {sensors.length > 0 && (
-          // Color-filled tiles for each sensor (matches the live-stats row aesthetic).
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 0 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
             {sensors.map(s => {
-              const live = resolveLive(s.mappedParameter);
-              const fill = live !== undefined ? C.primary : '#94A3B8';
+              const live   = resolveLive(s.mappedParameter);
+              const hasVal = live !== undefined && live !== null;
+              const accent = hasVal ? C.primary : '#94A3B8';
+              const grad   = hasVal
+                ? `linear-gradient(135deg, ${C.primary} 0%, #4F46E5 100%)`
+                : 'linear-gradient(135deg, #94A3B8 0%, #64748B 100%)';
               return (
-                <div key={s.id} style={{ background: fill, color: '#FFFFFF', padding: '14px 16px', position: 'relative', minHeight: 88 }}>
-                  <div style={{ position: 'absolute', right: -10, top: -10, width: 60, height: 60, background: 'rgba(255,255,255,0.10)', pointerEvents: 'none' }} />
-                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 700, marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: 38, position: 'relative', zIndex: 1 }}>{s.name}</div>
-                  <div style={{ fontSize: 24, fontWeight: 800, color: '#FFFFFF', fontVariantNumeric: 'tabular-nums', lineHeight: 1.05, letterSpacing: '-0.01em', position: 'relative', zIndex: 1 }}>
-                    {live !== undefined ? String(live) : '—'}
-                    {s.unit && <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.85)', marginLeft: 4 }}>{s.unit}</span>}
+                <div key={s.id} style={{
+                  background: grad,
+                  borderRadius: 14, padding: '18px 20px',
+                  position: 'relative', overflow: 'hidden', minHeight: 110,
+                  boxShadow: hasVal ? `0 6px 16px ${C.primary}44` : '0 2px 8px rgba(15,23,42,0.10)',
+                  transition: 'transform 0.15s',
+                }}
+                  onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
+                  onMouseLeave={e => e.currentTarget.style.transform = ''}
+                >
+                  {/* bubble */}
+                  <div style={{ position: 'absolute', right: -18, top: -18, width: 80, height: 80, borderRadius: '50%', background: 'rgba(255,255,255,0.12)', pointerEvents: 'none' }} />
+                  {/* edit / delete */}
+                  <div style={{ position: 'absolute', top: 10, right: 10, display: 'flex', gap: 3, zIndex: 2 }}>
+                    <button onClick={() => openSensorForm(s)} style={{ background: 'rgba(255,255,255,0.20)', border: 'none', borderRadius: 6, cursor: 'pointer', padding: '4px 5px', display: 'flex' }}><Ic n="edit" size={11} color="#FFFFFF" /></button>
+                    <button onClick={() => handleDeleteSensor(s.id)} style={{ background: 'rgba(255,255,255,0.20)', border: 'none', borderRadius: 6, cursor: 'pointer', padding: '4px 5px', display: 'flex' }}><Ic n="trash" size={11} color="#FFFFFF" /></button>
                   </div>
-                  <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.70)', marginTop: 4, fontFamily: 'monospace', position: 'relative', zIndex: 1 }}>{s.mappedParameter}</div>
-                  <div style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 2, zIndex: 2 }}>
-                    <button onClick={() => openSensorForm(s)} style={{ background: 'rgba(255,255,255,0.18)', border: 'none', cursor: 'pointer', padding: 4, display: 'flex' }}><Ic n="edit" size={12} color="#FFFFFF" /></button>
-                    <button onClick={() => handleDeleteSensor(s.id)} style={{ background: 'rgba(255,255,255,0.18)', border: 'none', cursor: 'pointer', padding: 4, display: 'flex' }}><Ic n="trash" size={12} color="#FFFFFF" /></button>
+                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.80)', textTransform: 'uppercase', letterSpacing: '0.09em', fontWeight: 700, marginBottom: 8, paddingRight: 52, position: 'relative', zIndex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</div>
+                  <div style={{ fontSize: 28, fontWeight: 800, color: '#FFFFFF', fontVariantNumeric: 'tabular-nums', lineHeight: 1, letterSpacing: '-0.01em', position: 'relative', zIndex: 1 }}>
+                    {hasVal ? String(live) : '—'}
+                    {hasVal && s.unit && <span style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.80)', marginLeft: 5 }}>{s.unit}</span>}
                   </div>
+                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)', marginTop: 5, fontFamily: 'monospace', position: 'relative', zIndex: 1 }}>{s.mappedParameter}</div>
                 </div>
               );
             })}
@@ -4317,14 +4446,14 @@ const SensorsTab = ({ vehicle, sensors, loadingSensors, showSensorForm, sensorFo
       {/* ── Raw device data ─────────────────────────────────────────── */}
       {Object.keys(io).length > 0 && (
         <SectionCard icon="radio" title="Raw Device Data">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 0 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8 }}>
             {Object.entries(io).slice(0, 30).map(([k, v]) => {
               const label = typeof v === 'object' && v !== null ? (v.name || k) : k;
               const val   = typeof v === 'object' && v !== null ? v.value : v;
               return (
-                <div key={k} style={{ background: C.surface, borderRadius: 0, padding: '10px 12px', borderRight: `1px solid ${C.borderLight}`, borderBottom: `1px solid ${C.borderLight}` }}>
-                  <div style={{ fontSize: 10.5, color: C.textLight, fontFamily: 'monospace', marginBottom: 4, fontWeight: 600 }}>{label}</div>
-                  <div style={{ fontSize: 14, fontWeight: 800, color: C.text, fontVariantNumeric: 'tabular-nums' }}>{String(val ?? '—')}</div>
+                <div key={k} style={{ background: '#F8FAFC', borderRadius: 10, padding: '10px 14px', border: `1px solid ${C.border}` }}>
+                  <div style={{ fontSize: 10, color: C.textLight, fontFamily: 'monospace', marginBottom: 5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: C.text, fontVariantNumeric: 'tabular-nums' }}>{String(val ?? '—')}</div>
                 </div>
               );
             })}
