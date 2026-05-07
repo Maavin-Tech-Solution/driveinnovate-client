@@ -6,7 +6,7 @@ import Header from './Header';
 const Layout = () => {
   // CLOSED by default (collapsed = true)
   const [collapsed, setCollapsed] = useState(true);
-  const sidebarWidth = collapsed ? 62 : 260;
+  const sidebarWidth = collapsed ? 109 : 260;
 
   useEffect(() => {
     const handler = () => setCollapsed(true);

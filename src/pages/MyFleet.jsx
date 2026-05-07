@@ -1613,7 +1613,14 @@ const MyFleet = () => {
   const toggleFocus = (id) => {
     setFocusedIds(prev => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+        const v = vehicles.find(x => x.id === id);
+        const coords = v && getVehicleCoords(v);
+        if (coords) setMapCenter([coords.lat, coords.lng]);
+      }
       return next;
     });
   };
@@ -1710,34 +1717,63 @@ const MyFleet = () => {
     ].filter(Boolean);
     return (
       <div style={{ position: 'fixed', inset: 0, zIndex: 7000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setDrawerVehicle(null)}>
-        <style>{`@keyframes modalIn { from { opacity: 0; transform: scale(0.97) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }`}</style>
-        <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.5)', backdropFilter: 'blur(4px)' }} />
+        <style>{`
+          @keyframes modalIn { from { opacity: 0; transform: scale(0.96) translateY(14px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+          .dv-tab:hover { background: rgba(37,99,235,0.08) !important; }
+          .dv-action:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(0,0,0,0.12); }
+        `}</style>
+        <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.60)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }} />
 
         <div
-          style={{ position: 'relative', zIndex: 1, width: '96vw', maxWidth: '1176px', height: '88vh', background: '#fff', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 80px rgba(0,0,0,0.28), 0 0 0 1px rgba(0,0,0,0.07)', animation: 'modalIn 0.22s cubic-bezier(0.22,1,0.36,1)', fontFamily: "'Plus Jakarta Sans',sans-serif", overflow: 'hidden' }}
+          style={{ position: 'relative', zIndex: 1, width: '96vw', maxWidth: '1176px', height: '90vh',
+            background: '#F8FAFC', borderRadius: 24,
+            display: 'flex', flexDirection: 'column',
+            boxShadow: '0 32px 80px rgba(0,0,0,0.36), 0 0 0 1px rgba(255,255,255,0.18)',
+            animation: 'modalIn 0.24s cubic-bezier(0.22,1,0.36,1)',
+            fontFamily: "'Plus Jakarta Sans',sans-serif", overflow: 'hidden' }}
           onClick={e => e.stopPropagation()}>
 
-          {/* ── Top header bar ── */}
-          <div style={{ background: '#FFFFFF', borderBottom: `3px solid ${ignColor}`, padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-            <Vehicle3DAvatar icon={dv.vehicleIcon} color={ignColor} size={46} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 15.5, fontWeight: 800, color: '#0F172A', letterSpacing: '-0.02em', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {/* ── Gradient header ── */}
+          <div style={{
+            background: `linear-gradient(135deg, ${ignColor} 0%, ${ignColor}CC 100%)`,
+            padding: '20px 24px', display: 'flex', alignItems: 'center', gap: 16, flexShrink: 0,
+            position: 'relative', overflow: 'hidden',
+          }}>
+            {/* bubble decoration */}
+            <div style={{ position: 'absolute', right: -30, top: -30, width: 160, height: 160, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', pointerEvents: 'none' }} />
+            <div style={{ position: 'absolute', right: 80, bottom: -40, width: 100, height: 100, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', pointerEvents: 'none' }} />
+
+            <Vehicle3DAvatar icon={dv.vehicleIcon} color={ignColor} size={52} />
+
+            <div style={{ flex: 1, minWidth: 0, position: 'relative', zIndex: 1 }}>
+              <div style={{ fontSize: 18, fontWeight: 900, color: '#FFFFFF', letterSpacing: '-0.02em', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {dv.vehicleName || dv.vehicleNumber || 'Vehicle'}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 3, flexWrap: 'wrap' }}>
-                {dv.vehicleName && dv.vehicleNumber && <span style={{ fontSize: 11, fontWeight: 600, color: '#64748B', fontFamily: 'monospace' }}>{dv.vehicleNumber}</span>}
-                {dv.imei && <span style={{ fontSize: 10.5, color: '#94A3B8', fontFamily: 'monospace' }}>IMEI: {dv.imei}</span>}
-                {dv.deviceType && <span title="GPS device type" style={{ fontSize: 9.5, background: '#EFF6FF', color: '#2563EB', padding: '1px 8px', borderRadius: 20, fontWeight: 700, border: '1px solid #BFDBFE' }}>{dv.deviceType}</span>}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 5, flexWrap: 'wrap' }}>
+                {dv.vehicleName && dv.vehicleNumber && (
+                  <span style={{ fontSize: 11.5, fontWeight: 700, color: 'rgba(255,255,255,0.85)', fontFamily: 'monospace', background: 'rgba(255,255,255,0.15)', padding: '2px 9px', borderRadius: 20 }}>{dv.vehicleNumber}</span>
+                )}
+                {dv.imei && (
+                  <span style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.70)', fontFamily: 'monospace' }}>{dv.imei}</span>
+                )}
+                {dv.deviceType && (
+                  <span style={{ fontSize: 10, background: 'rgba(255,255,255,0.20)', color: '#FFFFFF', padding: '2px 9px', borderRadius: 20, fontWeight: 700, letterSpacing: '0.04em' }}>{dv.deviceType}</span>
+                )}
               </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-              <span title={`Vehicle state: ${ignLabel}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 12px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: ignBg, color: ignColor, border: `1.5px solid ${ignColor}35` }}>
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: ignColor, boxShadow: ign === true ? `0 0 5px ${ignColor}` : 'none' }} />
-                {ignLabel}
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, position: 'relative', zIndex: 1 }}>
+              {/* Status pill */}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 800, background: 'rgba(255,255,255,0.22)', color: '#FFFFFF', backdropFilter: 'blur(4px)', letterSpacing: '0.04em' }}>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#FFFFFF', boxShadow: ign === true ? '0 0 8px rgba(255,255,255,0.9)' : 'none' }} />
+                {ignLabel.toUpperCase()}
               </span>
-              <button onClick={() => setDrawerVehicle(null)} title="Close vehicle details"
-                style={{ width: 32, height: 32, background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 7, color: '#94A3B8', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Ic n="x" size={14} color="#94A3B8" />
+              {/* Close */}
+              <button onClick={() => setDrawerVehicle(null)} title="Close"
+                style={{ width: 36, height: 36, background: 'rgba(255,255,255,0.18)', border: 'none', borderRadius: '50%', color: '#FFFFFF', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)', transition: 'background 0.15s', flexShrink: 0 }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.32)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.18)'}>
+                <Ic n="x" size={15} color="#FFFFFF" />
               </button>
             </div>
           </div>
@@ -1746,11 +1782,11 @@ const MyFleet = () => {
           <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
 
             {/* ── Left panel ── */}
-            <div style={{ width: 256, borderRight: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', background: '#f8fafc', flexShrink: 0, overflowY: 'auto' }}>
+            <div style={{ width: 272, borderRight: '1px solid #E8ECF2', display: 'flex', flexDirection: 'column', background: '#FFFFFF', flexShrink: 0, overflowY: 'auto' }}>
 
               {/* Live data grid */}
-              <div style={{ padding: '16px 14px 12px' }}>
-                <div style={{ fontSize: 11, fontWeight: 800, color: '#0F172A', letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 10 }}>Live Data</div>
+              <div style={{ padding: '18px 16px 14px' }}>
+                <div style={{ fontSize: 10.5, fontWeight: 800, color: '#64748B', letterSpacing: '0.10em', textTransform: 'uppercase', marginBottom: 12 }}>Live Data</div>
                 {statItems.length > 0 ? (
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                     {statItems.map((s, i) => (
@@ -1820,43 +1856,45 @@ const MyFleet = () => {
                 )}
               </div>
 
-              {/* Quick actions */}
-              <div style={{ padding: '0 14px 14px' }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>Actions</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 1, border: '1px solid #E2E8F0', overflow: 'hidden' }}>
+              {/* Quick actions — rounded pill buttons */}
+              <div style={{ padding: '0 16px 16px' }}>
+                <div style={{ fontSize: 10.5, fontWeight: 800, color: '#64748B', letterSpacing: '0.10em', textTransform: 'uppercase', marginBottom: 10 }}>Actions</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
                   {[
-                    { label: syncing && syncingId === dv.id ? 'Syncing…' : 'Sync Device Data', icon: 'refresh', color: '#0891B2', bg: '#ECFEFF', onClick: () => handleSync(dv), disabled: syncing && syncingId === dv.id },
-                    { label: 'Play Route',    icon: 'play',    color: '#7C3AED', bg: '#F5F3FF', onClick: () => openPlayer(dv) },
+                    { label: syncing && syncingId === dv.id ? 'Syncing…' : 'Sync Data',  icon: 'refresh', color: '#0891B2', grad: 'linear-gradient(135deg,#0891B2,#06B6D4)', onClick: () => handleSync(dv), disabled: syncing && syncingId === dv.id },
+                    { label: 'Play Route',   icon: 'play',   color: '#7C3AED', grad: 'linear-gradient(135deg,#7C3AED,#8B5CF6)', onClick: () => openPlayer(dv) },
                     ...(liveShareEnabled && (isPapaOrDealer || user?.permissions?.canShareLiveLocation) ? [
-                      { label: 'Share Live',  icon: 'share',   color: '#2563EB', bg: '#EFF6FF', onClick: () => openShareModal('vehicle', dv.id, vehicleDisplayName(dv), dv.vehicleIcon) },
+                      { label: 'Share Live', icon: 'share',  color: '#2563EB', grad: 'linear-gradient(135deg,#1D4ED8,#3B82F6)', onClick: () => openShareModal('vehicle', dv.id, vehicleDisplayName(dv), dv.vehicleIcon) },
                     ] : []),
-                    { label: 'View on Map',   icon: 'map',     color: '#059669', bg: '#F0FDF4', onClick: () => { setDrawerVehicle(null); setViewMode('map'); selectVehicle(dv); } },
-                    { label: 'Remove Vehicle',icon: 'trash',   color: '#DC2626', bg: '#FEF2F2', onClick: () => { setDrawerVehicle(null); handleDelete(dv.id); } },
+                    { label: 'View on Map',  icon: 'map',    color: '#059669', grad: 'linear-gradient(135deg,#047857,#10B981)', onClick: () => { setDrawerVehicle(null); setViewMode('map'); selectVehicle(dv); } },
+                    { label: 'Edit Vehicle', icon: 'edit',   color: '#D97706', grad: 'linear-gradient(135deg,#B45309,#F59E0B)', onClick: () => setActiveTab('edit') },
+                    { label: 'Delete Vehicle',icon: 'trash', color: '#DC2626', grad: 'linear-gradient(135deg,#B91C1C,#EF4444)', onClick: () => { setDrawerVehicle(null); handleDelete(dv.id); } },
                   ].map(a => (
                     <button key={a.label} onClick={a.onClick} disabled={a.disabled}
-                      style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '10px 13px', background: '#fff', border: 'none', borderBottom: '1px solid #F1F5F9', cursor: a.disabled ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 600, color: a.color, fontFamily: 'inherit', textAlign: 'left', transition: 'background 0.1s', opacity: a.disabled ? 0.6 : 1 }}
-                      onMouseEnter={e => { if (!a.disabled) e.currentTarget.style.background = a.bg; }}
-                      onMouseLeave={e => { e.currentTarget.style.background = '#fff'; }}>
-                      <Ic n={a.icon} size={14} color={a.color} />
+                      className="dv-action"
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: a.grad, border: 'none', borderRadius: 12, cursor: a.disabled ? 'not-allowed' : 'pointer', fontSize: 12.5, fontWeight: 700, color: '#FFFFFF', fontFamily: 'inherit', textAlign: 'left', transition: 'transform 0.15s, box-shadow 0.15s', opacity: a.disabled ? 0.5 : 1, boxShadow: `0 3px 8px ${a.color}30` }}>
+                      <div style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(255,255,255,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <Ic n={a.icon} size={14} color="#FFFFFF" />
+                      </div>
                       {a.label}
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Device info */}
-              <div style={{ padding: '0 14px 14px' }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>Device Info</div>
-                <div style={{ background: '#fff', border: '1px solid #E2E8F0' }}>
+              {/* Device info — card style */}
+              <div style={{ padding: '0 16px 20px' }}>
+                <div style={{ fontSize: 10.5, fontWeight: 800, color: '#64748B', letterSpacing: '0.10em', textTransform: 'uppercase', marginBottom: 10 }}>Device Info</div>
+                <div style={{ background: '#F8FAFC', borderRadius: 12, border: '1px solid #E8ECF2', overflow: 'hidden' }}>
                   {[
                     ['Type',   dv.deviceType || '—'],
                     ['IMEI',   dv.imei || '—'],
                     ['Server', dv.serverIp ? `${dv.serverIp}:${dv.serverPort}` : '—'],
                     ['Name',   dv.deviceName || '—'],
                   ].map(([k, v], i, arr) => (
-                    <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderBottom: i < arr.length - 1 ? '1px solid #F1F5F9' : 'none' }}>
-                      <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600, flexShrink: 0 }}>{k}</span>
-                      <span style={{ fontSize: 11, color: '#334155', fontWeight: 600, fontFamily: 'monospace', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right' }}>{v}</span>
+                    <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 13px', borderBottom: i < arr.length - 1 ? '1px solid #EEF0F5' : 'none' }}>
+                      <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 700, letterSpacing: '0.04em', flexShrink: 0 }}>{k}</span>
+                      <span style={{ fontSize: 11, color: '#1E293B', fontWeight: 700, fontFamily: 'monospace', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right' }}>{v}</span>
                     </div>
                   ))}
                 </div>
@@ -1864,10 +1902,10 @@ const MyFleet = () => {
             </div>
 
             {/* ── Right panel: tabs + content ── */}
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, background: '#F8FAFC' }}>
 
-              {/* Tab bar */}
-              <div style={{ display: 'flex', borderBottom: '2px solid #E2E8F0', background: '#f8fafc', flexShrink: 0, overflowX: 'auto' }}>
+              {/* Tab bar — pill style */}
+              <div style={{ padding: '12px 20px 0', background: '#FFFFFF', borderBottom: '1px solid #E8ECF2', flexShrink: 0, display: 'flex', gap: 4, overflowX: 'auto' }}>
                 {[
                   { id: 'overview', label: 'Overview', icon: 'activity' },
                   { id: 'trips',    label: 'Trips',    icon: 'route'    },
@@ -1876,8 +1914,16 @@ const MyFleet = () => {
                   { id: 'edit',     label: 'Edit',     icon: 'edit'     },
                 ].map(t => (
                   <button key={t.id} onClick={() => setActiveTab(t.id)}
-                    className="fv-tab-btn"
-                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '11px 18px', border: 'none', background: activeTab === t.id ? '#FFFFFF' : 'transparent', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: 13, fontWeight: activeTab === t.id ? 700 : 500, color: activeTab === t.id ? '#2563EB' : '#64748B', borderBottom: `2px solid ${activeTab === t.id ? '#2563EB' : 'transparent'}`, marginBottom: -2, fontFamily: 'inherit', transition: 'color 0.15s' }}>
+                    className="dv-tab"
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 7, padding: '9px 16px',
+                      border: 'none', borderRadius: '10px 10px 0 0', cursor: 'pointer',
+                      whiteSpace: 'nowrap', fontSize: 13, fontWeight: activeTab === t.id ? 800 : 500,
+                      color: activeTab === t.id ? '#2563EB' : '#64748B',
+                      background: activeTab === t.id ? '#F0F6FF' : 'transparent',
+                      borderBottom: activeTab === t.id ? '2px solid #2563EB' : '2px solid transparent',
+                      fontFamily: 'inherit', transition: 'all 0.15s', marginBottom: -1,
+                    }}>
                     <Ic n={t.icon} size={13} color={activeTab === t.id ? '#2563EB' : '#94A3B8'} />
                     {t.label}
                   </button>
@@ -1885,8 +1931,8 @@ const MyFleet = () => {
               </div>
 
               {/* Tab content */}
-              <div style={{ flex: 1, overflow: 'auto', background: '#fff' }}>
-                <div style={{ padding: 22 }}>
+              <div style={{ flex: 1, overflow: 'auto', background: '#FFFFFF', borderRadius: '0 0 24px 0' }}>
+                <div style={{ padding: 24 }}>
                   {activeTab === 'overview' && <OverviewTab vehicle={dv} />}
                   {activeTab === 'trips' && (
                     <TripsTab vehicle={dv} reportFrom={reportFrom} reportTo={reportTo}
@@ -1931,13 +1977,13 @@ const MyFleet = () => {
         {/* Stat cards — driven by fleetChips (dynamic from Master-Settings states) */}
         <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
           {fleetChips.map(c => (
-            <div key={c.id} onClick={() => setChipFilter(chipFilter === c.id ? null : c.id)} style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 20px', background: c.gradient, borderRadius: 0, boxShadow: chipFilter === c.id ? `0 0 0 3px #fff, ${c.shadow}` : c.shadow, minWidth: '145px', position: 'relative', overflow: 'hidden', flex: '0 0 auto', cursor: 'pointer', opacity: chipFilter && chipFilter !== c.id ? 0.55 : 1, transition: 'all 0.15s', transform: chipFilter === c.id ? 'scale(1.03)' : 'none' }}>
+            <div key={c.id} onClick={() => setChipFilter(chipFilter === c.id ? null : c.id)} style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 20px', background: c.gradient, borderRadius: 14, boxShadow: chipFilter === c.id ? `0 0 0 3px #fff, ${c.shadow}` : c.shadow, minWidth: '145px', position: 'relative', overflow: 'hidden', flex: '0 0 auto', cursor: 'pointer', opacity: chipFilter && chipFilter !== c.id ? 0.55 : 1, transition: 'all 0.15s', transform: chipFilter === c.id ? 'scale(1.03)' : 'none' }}>
               <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: '40%', background: 'linear-gradient(135deg, transparent 0%, rgba(255,255,255,0.06) 100%)', pointerEvents: 'none' }} />
               <div style={{ flex: 1, position: 'relative' }}>
                 <div style={{ fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.72)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '5px' }}>{c.label}</div>
                 <div style={{ fontSize: '34px', fontWeight: 800, color: '#fff', lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{CHIP_COUNTS[c.id]}</div>
               </div>
-              <div style={{ width: '38px', height: '38px', borderRadius: 0, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', flexShrink: 0, backdropFilter: 'blur(4px)', position: 'relative' }}>{c.icon}</div>
+              <div style={{ width: '38px', height: '38px', borderRadius: 10, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', flexShrink: 0, backdropFilter: 'blur(4px)', position: 'relative' }}>{c.icon}</div>
             </div>
           ))}
         </div>
@@ -2541,13 +2587,13 @@ const MyFleet = () => {
         {/* Stat cards — identical to table view */}
         <div style={{ display: 'flex', gap: '12px', marginBottom: '10px', flexWrap: 'wrap' }}>
           {fleetChips.map(c => (
-            <div key={c.id} onClick={() => setChipFilter(chipFilter === c.id ? null : c.id)} style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 20px', background: c.gradient, borderRadius: 0, boxShadow: chipFilter === c.id ? `0 0 0 3px #fff, ${c.shadow}` : c.shadow, minWidth: '145px', position: 'relative', overflow: 'hidden', flex: '0 0 auto', cursor: 'pointer', opacity: chipFilter && chipFilter !== c.id ? 0.55 : 1, transition: 'all 0.15s', transform: chipFilter === c.id ? 'scale(1.03)' : 'none' }}>
+            <div key={c.id} onClick={() => setChipFilter(chipFilter === c.id ? null : c.id)} style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 20px', background: c.gradient, borderRadius: 14, boxShadow: chipFilter === c.id ? `0 0 0 3px #fff, ${c.shadow}` : c.shadow, minWidth: '145px', position: 'relative', overflow: 'hidden', flex: '0 0 auto', cursor: 'pointer', opacity: chipFilter && chipFilter !== c.id ? 0.55 : 1, transition: 'all 0.15s', transform: chipFilter === c.id ? 'scale(1.03)' : 'none' }}>
               <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: '40%', background: 'linear-gradient(135deg, transparent 0%, rgba(255,255,255,0.06) 100%)', pointerEvents: 'none' }} />
               <div style={{ flex: 1, position: 'relative' }}>
                 <div style={{ fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.72)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '5px' }}>{c.label}</div>
                 <div style={{ fontSize: '34px', fontWeight: 800, color: '#fff', lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{CHIP_COUNTS[c.id]}</div>
               </div>
-              <div style={{ width: '38px', height: '38px', borderRadius: 0, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', flexShrink: 0, backdropFilter: 'blur(4px)', position: 'relative' }}>{c.icon}</div>
+              <div style={{ width: '38px', height: '38px', borderRadius: 10, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', flexShrink: 0, backdropFilter: 'blur(4px)', position: 'relative' }}>{c.icon}</div>
             </div>
           ))}
         </div>
@@ -2747,13 +2793,11 @@ const MyFleet = () => {
             return (
               <div key={v.id}
                 onClick={() => {
-                  // Center map on vehicle + open the same popup as table view.
                   const coords = getVehicleCoords(v);
                   if (coords) setMapCenter([coords.lat, coords.lng]);
-                  selectVehicle(v);       // sets tracking for SmoothMotionController
-                  setDrawerVehicle(v);    // opens the unified popup
+                  selectVehicle(v);
                 }}
-                title={`${vehicleDisplayName(v)} — click to view details`}
+                title={`${vehicleDisplayName(v)} — click to focus on map`}
                 className="fv-card"
                 style={{
                   cursor: 'pointer',
@@ -2842,15 +2886,37 @@ const MyFleet = () => {
 
                   </div>
 
-                  {/* Multi-track checkbox — top-right */}
-                  <input
-                    type="checkbox"
-                    title="Track on map (multi-select)"
-                    checked={focusedIds.has(v.id)}
-                    onClick={e => e.stopPropagation()}
-                    onChange={() => toggleFocus(v.id)}
-                    style={{ flexShrink: 0, width: 16, height: 16, accentColor: '#6366F1', cursor: 'pointer', margin: 0, marginTop: 3 }}
-                  />
+                  {/* Details + multi-track controls — top-right */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                    {/* Vehicle details button — opens popup on Overview tab */}
+                    <button
+                      title="Vehicle details"
+                      onClick={e => {
+                        e.stopPropagation();
+                        selectVehicle(v);
+                        setDrawerVehicle(v);
+                        setActiveTab('overview');
+                      }}
+                      style={{
+                        width: 28, height: 28, borderRadius: 8, border: 'none', cursor: 'pointer',
+                        background: 'linear-gradient(135deg, #2563EB, #3B82F6)',
+                        color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        boxShadow: '0 2px 6px rgba(37,99,235,0.35)', transition: 'transform 0.15s',
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.10)'}
+                      onMouseLeave={e => e.currentTarget.style.transform = ''}>
+                      <Ic n="info" size={12} color="#FFFFFF" />
+                    </button>
+                    {/* Multi-track checkbox */}
+                    <input
+                      type="checkbox"
+                      title="Track on map (multi-select)"
+                      checked={focusedIds.has(v.id)}
+                      onClick={e => e.stopPropagation()}
+                      onChange={() => toggleFocus(v.id)}
+                      style={{ width: 16, height: 16, accentColor: '#6366F1', cursor: 'pointer', margin: 0 }}
+                    />
+                  </div>
                 </div>
 
                 {/* ── Sensor strip ─────────────────────────────────────────
@@ -2958,7 +3024,7 @@ const MyFleet = () => {
           <MapResizer />
           {/* When any vehicles are pinned, disable individual-vehicle tracking so
               FocusBoundsController can handle the view; otherwise normal tracking */}
-          {mapCenter && focusedIds.size === 0 && <MapController center={mapCenter} />}
+          {mapCenter && focusedIds.size <= 1 && <MapController center={mapCenter} />}
           {focusedIds.size === 0 && (
             <SmoothMotionController
               markerRefs={markerRefs}

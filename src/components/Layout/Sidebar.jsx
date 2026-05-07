@@ -63,18 +63,18 @@ const NavItem = ({ item, collapsed, indent = false }) => {
   return (
     <NavLink
       to={item.to}
-      title={collapsed ? item.label : undefined}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={({ isActive }) => ({
         display: 'flex',
+        flexDirection: collapsed ? 'column' : 'row',
         alignItems: 'center',
-        gap: '11px',
-        padding: collapsed ? '11px 0' : indent ? '8px 14px 8px 38px' : '9px 14px',
-        margin: collapsed ? '2px 0' : '2px 10px',
+        gap: collapsed ? '4px' : '11px',
+        padding: collapsed ? '9px 4px' : indent ? '8px 14px 8px 38px' : '9px 14px',
+        margin: collapsed ? '2px 4px' : '2px 10px',
         borderRadius: '8px',
         justifyContent: collapsed ? 'center' : 'flex-start',
-        color: isActive ? '#1D4ED8' : hovered ? '#FFFFFF' : 'rgba(255,255,255,0.72)',
+        color: isActive ? '#1D4ED8' : '#FFFFFF',
         background: isActive ? '#FFFFFF' : hovered ? 'rgba(255,255,255,0.12)' : 'transparent',
         fontWeight: isActive ? 700 : 500,
         fontSize: '13.5px',
@@ -85,8 +85,11 @@ const NavItem = ({ item, collapsed, indent = false }) => {
         letterSpacing: isActive ? '-0.01em' : '0',
       })}
     >
-      <item.Icon style={{ width: '18px', height: '18px', flexShrink: 0 }} />
-      {!collapsed && <span>{item.label}</span>}
+      <item.Icon style={{ width: collapsed ? '22px' : '18px', height: collapsed ? '22px' : '18px', flexShrink: 0 }} />
+      {collapsed
+        ? <span style={{ fontSize: '10px', fontWeight: 600, textAlign: 'center', lineHeight: 1.1, maxWidth: '76px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.label}</span>
+        : <span>{item.label}</span>
+      }
     </NavLink>
   );
 };
@@ -190,7 +193,7 @@ const Sidebar = ({ collapsed }) => {
 
   return (
     <aside style={{
-      width: collapsed ? '62px' : '260px',
+      width: collapsed ? '109px' : '260px',
       background: 'var(--theme-sidebar-bg)',
       height: '100vh',
       position: 'fixed',
@@ -311,24 +314,27 @@ const Sidebar = ({ collapsed }) => {
       <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', flexShrink: 0, position: 'relative', zIndex: 1 }}>
         <button
           onClick={() => { logout(); navigate('/'); }}
-          title={collapsed ? 'Logout' : undefined}
           onMouseEnter={() => setLogoutHover(true)}
           onMouseLeave={() => setLogoutHover(false)}
           style={{
-            display: 'flex', alignItems: 'center', gap: '11px',
-            padding: collapsed ? '14px 0' : '12px 20px',
-            margin: collapsed ? '4px 0' : '4px 10px',
+            display: 'flex', alignItems: 'center', flexDirection: collapsed ? 'column' : 'row',
+            gap: collapsed ? '3px' : '11px',
+            padding: collapsed ? '8px 4px' : '12px 20px',
+            margin: collapsed ? '4px 4px' : '4px 10px',
             borderRadius: '8px',
-            justifyContent: collapsed ? 'center' : 'flex-start',
+            justifyContent: 'center',
             color: logoutHover ? '#FCA5A5' : 'rgba(255,255,255,0.5)',
             background: logoutHover ? 'rgba(239,68,68,0.18)' : 'transparent',
-            border: 'none', width: collapsed ? '100%' : 'calc(100% - 20px)', cursor: 'pointer',
+            border: 'none', width: collapsed ? 'calc(100% - 8px)' : 'calc(100% - 20px)', cursor: 'pointer',
             fontSize: '13.5px', fontWeight: 600,
             transition: 'color 0.15s, background 0.15s',
           }}
         >
-          <ArrowRightOnRectangleIcon style={{ width: '18px', height: '18px', flexShrink: 0 }} />
-          {!collapsed && <span>Logout</span>}
+          <ArrowRightOnRectangleIcon style={{ width: collapsed ? '22px' : '18px', height: collapsed ? '22px' : '18px', flexShrink: 0 }} />
+          {collapsed
+            ? <span style={{ fontSize: '10px', fontWeight: 600, textAlign: 'center', lineHeight: 1.1 }}>Logout</span>
+            : <span>Logout</span>
+          }
         </button>
       </div>
     </aside>
