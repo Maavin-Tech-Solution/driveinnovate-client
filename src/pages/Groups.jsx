@@ -4,11 +4,12 @@ import { getGroups, getGroupById, createGroup, updateGroup, deleteGroup, addVehi
 import { createTripShare } from '../services/share.service';
 import { getVehicles } from '../services/vehicle.service';
 import { getISTToday, getISTDaysAgo } from '../utils/dateFormat';
+import { VehicleIcon, VEHICLE_ICON_LABELS } from '../utils/vehicleIcons';
 import LocationPlayer from '../components/common/LocationPlayer';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const GROUP_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899','#14b8a6','#a855f7','#84cc16','#64748b'];
-const VEHICLE_ICON_MAP = { car:'🚗',suv:'🚙',truck:'🚛',bus:'🚌',bike:'🏍️',auto:'🛺',van:'🚐',ambulance:'🚑',pickup:'🛻',minibus:'🚌',schoolbus:'🚍',tractor:'🚜',crane:'🏗️',jcb:'🏗️',dumper:'🚚',earthmover:'🚜',tanker:'⛽',container:'🚛',fire:'🚒',police:'🚔',sweeper:'🚛',tipper:'🚚' };
+
 const PAGE_SIZE = 50;
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
@@ -383,7 +384,7 @@ const Groups = () => {
                       <div style={{ border: '1px solid #E2E8F0', overflow: 'hidden' }}>
                         {groupDetail.vehicles.map((v, i) => (
                           <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: i < groupDetail.vehicles.length - 1 ? '1px solid #F1F5F9' : 'none', background: '#fff' }}>
-                            <span style={{ fontSize: 20, flexShrink: 0 }}>{VEHICLE_ICON_MAP[v.vehicleIcon] || '🚗'}</span>
+                            <VehicleIcon type={v.vehicleIcon} color="#64748B" size={28} />
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                 {v.vehicleName || v.vehicleNumber || `Vehicle #${v.id}`}
@@ -426,7 +427,7 @@ const Groups = () => {
                           const inGroup = groupVehicleIds.has(v.id);
                           return (
                             <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', borderBottom: i < filteredAllVehicles.length - 1 ? '1px solid #F1F5F9' : 'none', background: inGroup ? '#F0FDF4' : '#fff' }}>
-                              <span style={{ fontSize: 18, flexShrink: 0 }}>{VEHICLE_ICON_MAP[v.vehicleIcon] || '🚗'}</span>
+                              <VehicleIcon type={v.vehicleIcon} color="#64748B" size={26} />
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={{ fontSize: 13, fontWeight: 600, color: '#0F172A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                   {v.vehicleName || v.vehicleNumber || `Vehicle #${v.id}`}
@@ -523,7 +524,7 @@ const Groups = () => {
                                 <tr key={pv.vehicleId}>
                                   <td>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                      <span style={{ fontSize: 16 }}>{VEHICLE_ICON_MAP[pv.vehicleIcon] || '🚗'}</span>
+                                      <VehicleIcon type={pv.vehicleIcon} color="#64748B" size={24} />
                                       <div>
                                         <div style={{ fontWeight: 700, color: '#0F172A' }}>{pv.vehicleName || pv.vehicleNumber || `#${pv.vehicleId}`}</div>
                                         {pv.vehicleName && pv.vehicleNumber && <div style={{ fontSize: 11, color: '#94A3B8', fontFamily: 'monospace' }}>{pv.vehicleNumber}</div>}
@@ -599,7 +600,7 @@ const Groups = () => {
                                 <tr key={t.id}>
                                   <td>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                                      <span style={{ fontSize: 15 }}>{VEHICLE_ICON_MAP[t.vehicle?.vehicleIcon] || '🚗'}</span>
+                                      <VehicleIcon type={t.vehicle?.vehicleIcon} color="#64748B" size={22} />
                                       <div>
                                         <div style={{ fontWeight: 700, color: '#0F172A', whiteSpace: 'nowrap' }}>{t.vehicle?.vehicleName || t.vehicle?.vehicleNumber || `#${t.vehicleId}`}</div>
                                         {t.vehicle?.vehicleName && t.vehicle?.vehicleNumber && (

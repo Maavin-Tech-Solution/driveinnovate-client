@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { VehicleIcon, VEHICLE_ICONS, VEHICLE_ICON_LABELS } from '../utils/vehicleIcons';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import {
@@ -464,41 +465,7 @@ const AddVehicle = () => {
 
             <div style={{ padding: '0 24px 24px' }}>
               <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                {[
-                  { value: 'car',          emoji: '🚗', label: 'Car' },
-                  { value: 'suv',          emoji: '🚙', label: 'SUV' },
-                  { value: 'truck',        emoji: '🚛', label: 'Truck' },
-                  { value: 'bus',          emoji: '🚌', label: 'Bus' },
-                  { value: 'bike',         emoji: '🏍️', label: 'Bike' },
-                  { value: 'auto',         emoji: '🛺', label: 'Auto' },
-                  { value: 'van',          emoji: '🚐', label: 'Van' },
-                  { value: 'ambulance',    emoji: '🚑', label: 'Ambulance' },
-                  { value: 'pickup',       emoji: '🛻', label: 'Pickup' },
-                  { value: 'minibus',      emoji: '🚌', label: 'Minibus' },
-                  { value: 'schoolbus',    emoji: '🚍', label: 'School Bus' },
-                  { value: 'tractor',      emoji: '🚜', label: 'Tractor' },
-                  { value: 'crane',        emoji: '🏗️', label: 'Crane' },
-                  { value: 'jcb',          emoji: '🏗️', label: 'JCB' },
-                  { value: 'dumper',       emoji: '🚚', label: 'Dumper' },
-                  { value: 'earthmover',   emoji: '🚜', label: 'Earth Mover' },
-                  { value: 'tanker',       emoji: '⛽', label: 'Tanker' },
-                  { value: 'container',    emoji: '🚛', label: 'Container' },
-                  { value: 'fire',         emoji: '🚒', label: 'Fire' },
-                  { value: 'police',       emoji: '🚔', label: 'Police' },
-                  { value: 'sweeper',      emoji: '🚛', label: 'Sweeper' },
-                  { value: 'tipper',       emoji: '🚚', label: 'Tipper' },
-                  { value: 'excavator',    emoji: '🚜', label: 'Excavator' },
-                  { value: 'mixer',        emoji: '🛻', label: 'Transit Mixer' },
-                  { value: 'concretepump', emoji: '🏗️', label: 'Concrete Pump' },
-                  { value: 'paver',        emoji: '🛣️', label: 'Paver' },
-                  { value: 'fury',         emoji: '🚚', label: 'Fury' },
-                  { value: 'ajax',         emoji: '🛻', label: 'Ajax' },
-                  { value: 'roadroller',   emoji: '🚧', label: 'Road Roller' },
-                  { value: 'wheelloader',  emoji: '🚜', label: 'Wheel Loader' },
-                  { value: 'watertanker',  emoji: '💧', label: 'Water Tanker' },
-                  { value: 'garbagevan',   emoji: '🗑️', label: 'Garbage Van' },
-                  { value: 'mortuaryvan',  emoji: '⚰️', label: 'Mortuary Van' },
-                ].map(({ value, emoji, label }) => (
+                {VEHICLE_ICONS.map(value => (
                   <button
                     key={value}
                     type="button"
@@ -511,8 +478,8 @@ const AddVehicle = () => {
                       transition: 'all 0.15s',
                     }}
                   >
-                    <span style={{ fontSize: '24px' }}>{emoji}</span>
-                    <span style={{ fontSize: '11px', fontWeight: 600, color: form.vehicleIcon === value ? '#2563eb' : '#94a3b8' }}>{label}</span>
+                    <VehicleIcon type={value} color={form.vehicleIcon === value ? "#2563EB" : "#94A3B8"} size={28} />
+                    <span style={{ fontSize: "11px", fontWeight: 600, color: form.vehicleIcon === value ? "#2563eb" : "#94a3b8" }}>{VEHICLE_ICON_LABELS[value] || value}</span>
                   </button>
                 ))}
               </div>

@@ -4,6 +4,7 @@ import api from '../services/api';
 import { toast } from 'react-toastify';
 import { useAuth } from '../context/AuthContext';
 import { upgradeClient, extendClientTrial } from '../services/user.service';
+import { VehicleIcon } from '../utils/vehicleIcons';
 import {
   ArrowLeftIcon,
   BuildingOfficeIcon,
@@ -233,11 +234,6 @@ const UpgradeModal = ({ client, onClose, onDone }) => {
       </div>
     </div>
   );
-};
-
-const VehicleIcon = ({ type }) => {
-  const icons = { truck: '🚛', car: '🚗', bike: '🏍️', bus: '🚌', auto: '🛺' };
-  return <span style={{ fontSize: '16px' }}>{icons[type] || '🚗'}</span>;
 };
 
 /* ─── Main component ───────────────────────────────────────────────────── */

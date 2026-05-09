@@ -15,6 +15,7 @@ import { useParams } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from 'react-leaflet';
 import { getShareData } from '../services/share.service';
 import { toISTString } from '../utils/dateFormat';
+import { vehicleMarkerHtml, VehicleIcon } from '../utils/vehicleIcons';
 import SpeedChart from '../components/common/SpeedChart';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
@@ -26,7 +27,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 });
 
-const VEHICLE_ICON_MAP = { car:'🚗',suv:'🚙',truck:'🚛',bus:'🚌',bike:'🏍️',auto:'🛺',van:'🚐',ambulance:'🚑',pickup:'🛻',minibus:'🚌',schoolbus:'🚍',tractor:'🚜',crane:'🏗️',jcb:'🏗️',dumper:'🚚',earthmover:'🚜',tanker:'⛽',container:'🚛',fire:'🚒',police:'🚔',sweeper:'🚛',tipper:'🚚' };
+
 
 const SPEED_RANGES = [
   { min: 0, max: 10, color: '#22c55e', label: 'Idle' },
@@ -166,14 +167,13 @@ const SharePlayer = () => {
     );
   }
 
-  const vehicleEmoji = VEHICLE_ICON_MAP[vehicle?.vehicleIcon] || '🚗';
   const vehicleLabel = vehicle?.vehicleName || vehicle?.vehicleNumber || 'Vehicle';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: "'Plus Jakarta Sans', sans-serif", background: '#0f172a' }}>
       {/* Header */}
       <div style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #2563eb 60%, #3b82f6 100%)', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 14, flexShrink: 0, boxShadow: '0 2px 8px rgba(0,0,0,0.18)' }}>
-        <div style={{ fontSize: 28 }}>{vehicleEmoji}</div>
+        <VehicleIcon type={vehicle?.vehicleIcon} color="#3B82F6" size={36} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 16, fontWeight: 800, color: '#fff', letterSpacing: '-0.01em' }}>
             {vehicleLabel}

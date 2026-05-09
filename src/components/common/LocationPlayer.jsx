@@ -310,12 +310,12 @@ const LocationPlayer = ({ vehicle, onClose, initialFrom, initialTo }) => {
               📅 {fromDate ? fromDate.slice(0, 10) : '—'} → {toDate ? toDate.slice(0, 10) : '—'}
             </button>
 
-            {/* Date picker popover */}
+            {/* Date picker popover — position:fixed escapes the modal's overflow:hidden */}
             {showDatePop && (
               <div style={{
-                position: 'absolute', top: 'calc(100% + 8px)', right: 0,
+                position: 'fixed', top: 60, right: 24,
                 background: '#fff', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.25)',
-                border: '1px solid #e2e8f0', padding: 14, width: 360, zIndex: 10,
+                border: '1px solid #e2e8f0', padding: 14, width: 360, zIndex: 10001,
                 display: 'flex', flexDirection: 'column', gap: 10,
               }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Date Range</div>

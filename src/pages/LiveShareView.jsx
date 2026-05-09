@@ -11,21 +11,14 @@ import { MapContainer, TileLayer, Marker, Tooltip } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { getLiveShareData } from '../services/share.service';
-
-const VEHICLE_ICON_MAP = {
-  car: '🚗', suv: '🚙', truck: '🚛', bus: '🚌', bike: '🏍️', auto: '🛺',
-  van: '🚐', ambulance: '🚑', pickup: '🛻', motorcycle: '🏍️', minibus: '🚌',
-  schoolbus: '🚍', tractor: '🚜', crane: '🏗️', jcb: '🏗️',
-  dumper: '🚚', earthmover: '🚜', tanker: '⛽', container: '🚛',
-  fire: '🚒', police: '🚔', sweeper: '🚛', tipper: '🚚',
-};
+import { vehicleMarkerHtml, VEHICLE_ICON_LABELS } from '../utils/vehicleIcons';
 
 const INDIA_CENTER = [22.9734, 78.6569];
 
 const makeIcon = (pos) => {
   const running = pos.engineOn;
   const bg = running ? '#16a34a' : '#dc2626';
-  const emoji = VEHICLE_ICON_MAP[pos.vehicleIcon] || '🚗';
+  
   return L.divIcon({
     className: '',
     html: `<div style="display:flex;flex-direction:column;align-items:center;">
@@ -227,7 +220,7 @@ export default function LiveShareView() {
             </div>
             {positions.map(pos => (
               <div key={pos.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderBottom: '1px solid #F8FAFC' }}>
-                <span style={{ fontSize: 16 }}>{VEHICLE_ICON_MAP[pos.vehicleIcon] || '🚗'}</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "#64748B" }}>{VEHICLE_ICON_LABELS[pos.vehicleIcon] || "Vehicle"}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pos.vehicleName || pos.vehicleNumber || `Vehicle ${pos.id}`}</div>
                   {pos.speed > 0 && <div style={{ fontSize: 10, color: '#64748B' }}>{Math.round(pos.speed)} km/h</div>}

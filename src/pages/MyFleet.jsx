@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
+import { VehicleIcon, VEHICLE_ICONS, VEHICLE_ICON_LABELS, vehicleMarkerHtml } from '../utils/vehicleIcons';
 import { toast } from 'react-toastify';
 import { MapContainer, TileLayer, Marker, Tooltip, useMap } from 'react-leaflet';
 import MarkerClusterGroup from 'react-leaflet-cluster';
@@ -32,267 +33,9 @@ import { getISTToday, getISTDaysAgo, getISTNow, getISTDaysAgoDatetime } from '..
 // ─── Constants ────────────────────────────────────────────────────────────────
 const INDIA_CENTER = [22.9734, 78.6569];
 
-// ─── 3D Vehicle Icon URLs (Microsoft Fluent Emoji 3D, MIT licence) ───────────
-// Source: https://github.com/microsoft/fluentui-emoji
-// CDN:    https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji@main/assets/
-// These are the same style of pre-rendered 3D PNG icons as iconscout's
-// premium set, but fully free and open-source.
-const _CDN = 'https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji@main/assets';
-const VEHICLE_ICON_3D = {
-  car:          `${_CDN}/Automobile/3D/automobile_3d.png`,
-  suv:          `${_CDN}/Sport%20Utility%20Vehicle/3D/sport_utility_vehicle_3d.png`,
-  pickup:       `${_CDN}/Pickup%20Truck/3D/pickup_truck_3d.png`,
-  truck:        `${_CDN}/Articulated%20Lorry/3D/articulated_lorry_3d.png`,
-  bus:          `${_CDN}/Bus/3D/bus_3d.png`,
-  minibus:      `${_CDN}/Minibus/3D/minibus_3d.png`,
-  schoolbus:    `${_CDN}/Bus/3D/bus_3d.png`,
-  motorcycle:   `${_CDN}/Motorcycle/3D/motorcycle_3d.png`,
-  bike:         `${_CDN}/Motorcycle/3D/motorcycle_3d.png`,
-  auto:         `${_CDN}/Auto%20Rickshaw/3D/auto_rickshaw_3d.png`,
-  van:          `${_CDN}/Minibus/3D/minibus_3d.png`,
-  ambulance:    `${_CDN}/Ambulance/3D/ambulance_3d.png`,
-  fire:         `${_CDN}/Fire%20Engine/3D/fire_engine_3d.png`,
-  police:       `${_CDN}/Police%20Car/3D/police_car_3d.png`,
-  tractor:      `${_CDN}/Tractor/3D/tractor_3d.png`,
-  earthmover:   `${_CDN}/Tractor/3D/tractor_3d.png`,
-  dumper:       `${_CDN}/Delivery%20Truck/3D/delivery_truck_3d.png`,
-  tipper:       `${_CDN}/Delivery%20Truck/3D/delivery_truck_3d.png`,
-  sweeper:      `${_CDN}/Delivery%20Truck/3D/delivery_truck_3d.png`,
-  container:    `${_CDN}/Articulated%20Lorry/3D/articulated_lorry_3d.png`,
-  tanker:       `${_CDN}/Articulated%20Lorry/3D/articulated_lorry_3d.png`,
-  watertanker:  `${_CDN}/Delivery%20Truck/3D/delivery_truck_3d.png`,
-  garbagevan:   `${_CDN}/Delivery%20Truck/3D/delivery_truck_3d.png`,
-  mortuaryvan:  `${_CDN}/Ambulance/3D/ambulance_3d.png`,
-  crane:        `${_CDN}/Building%20Construction/3D/building_construction_3d.png`,
-  jcb:          `${_CDN}/Building%20Construction/3D/building_construction_3d.png`,
-  excavator:    `${_CDN}/Building%20Construction/3D/building_construction_3d.png`,
-  concretepump: `${_CDN}/Building%20Construction/3D/building_construction_3d.png`,
-  paver:        `${_CDN}/Building%20Construction/3D/building_construction_3d.png`,
-  roadroller:   `${_CDN}/Building%20Construction/3D/building_construction_3d.png`,
-  wheelloader:  `${_CDN}/Tractor/3D/tractor_3d.png`,
-  mixer:        `${_CDN}/Pickup%20Truck/3D/pickup_truck_3d.png`,
-  fury:         `${_CDN}/Delivery%20Truck/3D/delivery_truck_3d.png`,
-  ajax:         `${_CDN}/Delivery%20Truck/3D/delivery_truck_3d.png`,
-};
-const _DEFAULT_3D = `${_CDN}/Automobile/3D/automobile_3d.png`;
-
-// ─── Now keep the old SVG fallbacks in case of CDN failure ───────────────────
-const _SVGCar = ({ c }) => (
-  <svg viewBox="0 0 100 62" fill="none" xmlns="http://www.w3.org/2000/svg">
-    {/* Body side */}
-    <path d="M6 34 L78 34 L86 46 L6 46 Z" fill={c} />
-    {/* Body top */}
-    <path d="M6 34 L78 34 L84 26 L12 26 Z" fill={c+'EE'} />
-    {/* Cabin side */}
-    <path d="M22 26 L68 26 L64 16 L26 16 Z" fill="#FFFFFF44" />
-    <path d="M22 26 L22 34 L68 34 L68 26 Z" fill={c+'CC'} />
-    {/* Cabin top */}
-    <path d="M26 16 L64 16 L68 26 L22 26 Z" fill="#FFFFFF66" />
-    {/* Windshield */}
-    <path d="M26 18 L48 18 L48 25 L26 25 Z" fill="#A8D8F8CC" rx="1"/>
-    <path d="M50 18 L64 18 L68 25 L50 25 Z" fill="#A8D8F8CC"/>
-    {/* Wheels */}
-    <ellipse cx="24" cy="46" rx="11" ry="6" fill="#1A1A2E" />
-    <ellipse cx="24" cy="46" rx="6" ry="3" fill="#374151" />
-    <ellipse cx="66" cy="46" rx="11" ry="6" fill="#1A1A2E" />
-    <ellipse cx="66" cy="46" rx="6" ry="3" fill="#374151" />
-    {/* Ground shadow */}
-    <ellipse cx="46" cy="56" rx="40" ry="5" fill="rgba(0,0,0,0.14)" />
-  </svg>
-);
-
-const _SVGSuv = ({ c }) => (
-  <svg viewBox="0 0 100 64" fill="none">
-    <path d="M4 36 L82 36 L90 50 L4 50 Z" fill={c} />
-    <path d="M4 36 L82 36 L86 26 L8 26 Z" fill={c+'EE'} />
-    <path d="M14 14 L74 14 L82 26 L8 26 Z" fill={c+'CC'} />
-    <path d="M14 14 L74 14 L74 26 L14 26 Z" fill="#FFFFFF44" />
-    <path d="M16 16 L44 16 L44 24 L16 24 Z" fill="#A8D8F8CC" />
-    <path d="M46 16 L74 16 L78 24 L46 24 Z" fill="#A8D8F8CC" />
-    <ellipse cx="24" cy="50" rx="12" ry="7" fill="#1A1A2E" />
-    <ellipse cx="24" cy="50" rx="7" ry="4" fill="#374151" />
-    <ellipse cx="70" cy="50" rx="12" ry="7" fill="#1A1A2E" />
-    <ellipse cx="70" cy="50" rx="7" ry="4" fill="#374151" />
-    <ellipse cx="46" cy="58" rx="42" ry="5" fill="rgba(0,0,0,0.14)" />
-  </svg>
-);
-
-const _SVGTruck = ({ c }) => (
-  <svg viewBox="0 0 110 68" fill="none">
-    {/* Trailer */}
-    <path d="M34 18 L104 18 L110 50 L34 50 Z" fill={c+'DD'} />
-    <path d="M34 18 L104 18 L104 28 L34 28 Z" fill={c+'FF'} />
-    {/* Cab */}
-    <path d="M6 28 L34 28 L34 50 L6 50 Z" fill={c} />
-    <path d="M6 28 L34 28 L34 18 L12 18 Z" fill={c+'CC'} />
-    <path d="M8 20 L28 20 L28 27 L8 27 Z" fill="#A8D8F8CC" />
-    {/* Wheels */}
-    <ellipse cx="20" cy="50" rx="10" ry="6" fill="#1A1A2E" />
-    <ellipse cx="20" cy="50" rx="5" ry="3" fill="#374151" />
-    <ellipse cx="52" cy="50" rx="10" ry="6" fill="#1A1A2E" />
-    <ellipse cx="52" cy="50" rx="5" ry="3" fill="#374151" />
-    <ellipse cx="82" cy="50" rx="10" ry="6" fill="#1A1A2E" />
-    <ellipse cx="82" cy="50" rx="5" ry="3" fill="#374151" />
-    <ellipse cx="55" cy="60" rx="50" ry="6" fill="rgba(0,0,0,0.12)" />
-  </svg>
-);
-
-const _SVGBus = ({ c }) => (
-  <svg viewBox="0 0 110 66" fill="none">
-    <path d="M6 14 L98 14 L106 50 L6 50 Z" fill={c} />
-    <path d="M6 14 L98 14 L98 24 L6 24 Z" fill={c+'EE'} />
-    {/* Windows row */}
-    {[16,32,48,64,80].map((x,i) => (
-      <rect key={i} x={x} y={16} width={12} height={7} rx={1} fill="#A8D8F8CC" />
-    ))}
-    {/* Destination board */}
-    <rect x={14} y={26} width={72} height={8} rx={1} fill="#1E293B" />
-    <rect x={16} y={27} width={40} height={5} rx={1} fill="#FBBF24" opacity={0.7} />
-    {/* Wheels */}
-    <ellipse cx="24" cy="50" rx="12" ry="7" fill="#1A1A2E" />
-    <ellipse cx="24" cy="50" rx="6" ry="3.5" fill="#374151" />
-    <ellipse cx="76" cy="50" rx="12" ry="7" fill="#1A1A2E" />
-    <ellipse cx="76" cy="50" rx="6" ry="3.5" fill="#374151" />
-    <ellipse cx="56" cy="60" rx="50" ry="5" fill="rgba(0,0,0,0.12)" />
-  </svg>
-);
-
-const _SVGBike = ({ c }) => (
-  <svg viewBox="0 0 80 60" fill="none">
-    {/* Frame */}
-    <path d="M20 36 L52 24 L60 36 Z" fill={c} />
-    <path d="M20 36 L28 18 L52 18 L52 24 L20 36 Z" fill={c+'DD'} />
-    {/* Handlebars */}
-    <rect x={46} y={14} width={18} height={4} rx={2} fill="#374151" />
-    {/* Seat */}
-    <rect x={24} y={16} width={22} height={5} rx={2} fill="#1E293B" />
-    {/* Engine block */}
-    <rect x={32} y={24} width={18} height={12} rx={2} fill={c+'BB'} />
-    {/* Wheels */}
-    <circle cx="18" cy="40" r="12" stroke="#1A1A2E" strokeWidth="4" fill="none" />
-    <circle cx="18" cy="40" r="4" fill="#374151" />
-    <circle cx="62" cy="40" r="12" stroke="#1A1A2E" strokeWidth="4" fill="none" />
-    <circle cx="62" cy="40" r="4" fill="#374151" />
-    <ellipse cx="40" cy="54" rx="28" ry="4" fill="rgba(0,0,0,0.12)" />
-  </svg>
-);
-
-const _SVGVan = ({ c }) => (
-  <svg viewBox="0 0 100 62" fill="none">
-    <path d="M4 22 L88 22 L96 46 L4 46 Z" fill={c} />
-    <path d="M4 22 L88 22 L88 14 L10 14 Z" fill={c+'EE'} />
-    <path d="M10 14 L88 14 L88 22 L10 22 Z" fill="#FFFFFF44" />
-    {[12,34,56,74].map((x,i) => (
-      <rect key={i} x={x} y={16} width={16} height={5} rx={1} fill="#A8D8F8CC" />
-    ))}
-    <ellipse cx="22" cy="46" rx="11" ry="6" fill="#1A1A2E" />
-    <ellipse cx="22" cy="46" rx="6" ry="3" fill="#374151" />
-    <ellipse cx="72" cy="46" rx="11" ry="6" fill="#1A1A2E" />
-    <ellipse cx="72" cy="46" rx="6" ry="3" fill="#374151" />
-    <ellipse cx="48" cy="56" rx="44" ry="5" fill="rgba(0,0,0,0.12)" />
-  </svg>
-);
-
-const _SVGAuto = ({ c }) => (
-  <svg viewBox="0 0 80 58" fill="none">
-    <path d="M8 30 L66 30 L72 44 L8 44 Z" fill={c} />
-    <path d="M8 30 L66 30 L62 18 L14 18 Z" fill={c+'EE'} />
-    <path d="M18 20 L54 20 L54 29 L18 29 Z" fill="#FFFFFF44" />
-    <path d="M20 21 L38 21 L38 28 L20 28 Z" fill="#A8D8F8CC" />
-    <path d="M54 30 L72 30 L72 44 L60 44 Z" fill={c+'88'} />
-    <rect x={56} y={22} width={10} height={2} rx={1} fill="#374151" />
-    <ellipse cx="20" cy="44" rx="10" ry="6" fill="#1A1A2E" />
-    <ellipse cx="20" cy="44" rx="5" ry="3" fill="#374151" />
-    <ellipse cx="58" cy="44" rx="10" ry="6" fill="#1A1A2E" />
-    <ellipse cx="58" cy="44" rx="5" ry="3" fill="#374151" />
-    <ellipse cx="40" cy="52" rx="32" ry="4" fill="rgba(0,0,0,0.12)" />
-  </svg>
-);
-
-const _SVGConstruction = ({ c }) => (
-  <svg viewBox="0 0 100 68" fill="none">
-    {/* Cabin */}
-    <path d="M6 28 L36 28 L36 50 L6 50 Z" fill={c} />
-    <path d="M6 28 L36 28 L36 18 L12 18 Z" fill={c+'CC'} />
-    <path d="M8 20 L30 20 L30 27 L8 27 Z" fill="#A8D8F8CC" />
-    {/* Body/Tipper */}
-    <path d="M36 20 L98 20 L98 50 L36 50 Z" fill={c+'DD'} />
-    <path d="M36 20 L98 20 L98 12 L42 12 Z" fill="#F59E0B" opacity={0.85} />
-    <rect x={38} y={22} width={56} height={4} rx={1} fill="#FFFFFF22" />
-    {/* Wheels (large) */}
-    <ellipse cx="20" cy="50" rx="12" ry="8" fill="#1A1A2E" />
-    <ellipse cx="20" cy="50" rx="6" ry="4" fill="#374151" />
-    <ellipse cx="56" cy="50" rx="12" ry="8" fill="#1A1A2E" />
-    <ellipse cx="56" cy="50" rx="6" ry="4" fill="#374151" />
-    <ellipse cx="84" cy="50" rx="12" ry="8" fill="#1A1A2E" />
-    <ellipse cx="84" cy="50" rx="6" ry="4" fill="#374151" />
-    <ellipse cx="52" cy="62" rx="48" ry="5" fill="rgba(0,0,0,0.12)" />
-  </svg>
-);
-
-const _SVGTractor = ({ c }) => (
-  <svg viewBox="0 0 90 66" fill="none">
-    <path d="M8 26 L50 26 L50 48 L8 48 Z" fill={c} />
-    <path d="M8 26 L50 26 L44 14 L14 14 Z" fill={c+'CC'} />
-    <path d="M14 16 L38 16 L38 25 L14 25 Z" fill="#A8D8F8CC" />
-    <path d="M50 34 L80 34 L80 48 L50 48 Z" fill={c+'BB'} />
-    <path d="M50 34 L80 34 L76 26 L54 26 Z" fill="#F59E0B" opacity={0.8} />
-    <ellipse cx="24" cy="48" rx="16" ry="10" fill="#1A1A2E" />
-    <ellipse cx="24" cy="48" rx="9" ry="5.5" fill="#374151" />
-    <ellipse cx="24" cy="48" rx="4" ry="2.5" fill="#1A1A2E" />
-    <ellipse cx="66" cy="48" rx="10" ry="6" fill="#1A1A2E" />
-    <ellipse cx="66" cy="48" rx="5" ry="3" fill="#374151" />
-    <ellipse cx="44" cy="60" rx="36" ry="5" fill="rgba(0,0,0,0.12)" />
-  </svg>
-);
-
-// Map from icon key → shape category
-const _ICON_SHAPE_MAP = {
-  car: _SVGCar, suv: _SVGSuv, pickup: _SVGSuv, motorcycle: _SVGBike, bike: _SVGBike,
-  truck: _SVGTruck, container: _SVGTruck, tipper: _SVGTruck, fury: _SVGTruck,
-  bus: _SVGBus, schoolbus: _SVGBus, minibus: _SVGBus,
-  van: _SVGVan, ambulance: _SVGVan, fire: _SVGVan, police: _SVGVan, mortuaryvan: _SVGVan, garbagevan: _SVGVan,
-  auto: _SVGAuto,
-  tractor: _SVGTractor, earthmover: _SVGTractor,
-  dumper: _SVGConstruction, jcb: _SVGConstruction, excavator: _SVGConstruction,
-  mixer: _SVGConstruction, concretepump: _SVGConstruction, paver: _SVGConstruction,
-  roadroller: _SVGConstruction, wheelloader: _SVGConstruction, ajax: _SVGConstruction,
-  crane: _SVGConstruction, sweeper: _SVGConstruction,
-  tanker: _SVGTruck, watertanker: _SVGTruck,
-};
-
-// Keep the emoji map for fallback / non-map uses
-const VEHICLE_ICON_MAP = {
-  car: '🚗', suv: '🚙', truck: '🚛', bus: '🚌', bike: '🏍️', auto: '🛺',
-  van: '🚐', ambulance: '🚑', pickup: '🛻', motorcycle: '🏍️', minibus: '🚌',
-  schoolbus: '🚍', tractor: '🚜', crane: '🏗️', jcb: '🏗️',
-  dumper: '🚚', earthmover: '🚜', tanker: '⛽', container: '🚛',
-  fire: '🚒', police: '🚔', sweeper: '🚛', tipper: '🚚',
-  excavator: '🚜', mixer: '🛻', concretepump: '🏗️', paver: '🛣️',
-  fury: '🚚', ajax: '🛻', roadroller: '🚧', wheelloader: '🚜',
-  watertanker: '💧', garbagevan: '🗑️', mortuaryvan: '⚰️',
-};
 const REPORT_PAGE_SIZE = 20;
 const GROUP_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899'];
 const DEVICE_TYPES = ['GT06', 'GT06N', 'FMB125', 'FMB130', 'FMB920', 'FMB140', 'AIS140', 'WeTrack2', 'TK103'];
-const VEHICLE_ICONS = [
-  'car','suv','truck','bus','bike','auto','van','ambulance',
-  'pickup','minibus','schoolbus','tractor','crane','jcb',
-  'dumper','earthmover','tanker','container','fire','police','sweeper','tipper',
-  'excavator','mixer','concretepump','paver','fury','ajax','roadroller',
-  'wheelloader','watertanker','garbagevan','mortuaryvan',
-];
-const VEHICLE_ICON_LABELS = {
-  car: 'Car', suv: 'SUV', truck: 'Truck', bus: 'Bus', bike: 'Bike', auto: 'Auto',
-  van: 'Van', ambulance: 'Ambulance', pickup: 'Pickup', motorcycle: 'Motorcycle',
-  minibus: 'Minibus', schoolbus: 'School Bus', tractor: 'Tractor', crane: 'Crane',
-  jcb: 'JCB', dumper: 'Dumper', earthmover: 'Earth Mover', tanker: 'Tanker',
-  container: 'Container', fire: 'Fire', police: 'Police', sweeper: 'Sweeper',
-  tipper: 'Tipper', excavator: 'Excavator', mixer: 'Transit Mixer',
-  concretepump: 'Concrete Pump', paver: 'Paver', fury: 'Fury', ajax: 'Ajax',
-  roadroller: 'Road Roller', wheelloader: 'Wheel Loader',
-  watertanker: 'Water Tanker', garbagevan: 'Garbage Van', mortuaryvan: 'Mortuary Van',
-};
 const SENSOR_TYPES = ['number', 'boolean', 'text'];
 const PANEL_W = 513;   // 446 +15% per user request
 
@@ -429,8 +172,14 @@ const getVehicleCoords = (v) => {
 const getIgnition  = (v) => v.deviceStatus?.status?.ignition ?? null;
 const getSpeed     = (v) => Number(v.deviceStatus?.gpsData?.speed || v.deviceStatus?.gpsData?.spd || 0);
 
-// Evaluates vehicle state via DB-defined conditions; falls back to ignition-based logic
-const getVState = (v, statesMap) => {
+// State stickiness — keyed by vehicleId, tracks { state, since }.
+// Prevents rapid Offline↔Running↔Stopped flicker by requiring a different
+// state to be sustained for STATE_MIN_DWELL_MS before transitioning.
+const STATE_MIN_DWELL_MS = 30_000; // 30 s — a state must hold this long to transition
+const _stateStickiness   = new Map();
+const _pendingState      = new Map(); // vehicleId → { state, firstSeen } for transition candidates
+
+const _rawGetVState = (v, statesMap) => {
   const states = statesMap?.[v.deviceType?.toUpperCase()];
   if (states?.length) {
     const result = getVehicleState(v.deviceStatus, states);
@@ -441,18 +190,55 @@ const getVState = (v, statesMap) => {
   if (ign === false) return { stateName: 'Stopped',  stateColor: '#ef4444', stateIcon: '🔴' };
   return { stateName: 'Unknown', stateColor: '#94a3b8', stateIcon: '' };
 };
+
+// Evaluates vehicle state with stickiness applied.
+// First evaluation: state is locked in immediately.
+// Subsequent evaluations: a different state must hold for STATE_MIN_DWELL_MS
+// before being applied — this absorbs evaluation-to-evaluation flicker.
+const getVState = (v, statesMap) => {
+  const fresh = _rawGetVState(v, statesMap);
+  if (!v?.id) return fresh;
+
+  const now    = Date.now();
+  const sticky = _stateStickiness.get(v.id);
+
+  if (!sticky) {
+    _stateStickiness.set(v.id, { state: fresh, since: now });
+    _pendingState.delete(v.id);
+    return fresh;
+  }
+
+  if (fresh.stateName === sticky.state.stateName) {
+    // Same state confirmed — discard any pending transition.
+    _pendingState.delete(v.id);
+    return sticky.state;
+  }
+
+  // Different state — track when we first saw it; only apply once it has
+  // persisted for STATE_MIN_DWELL_MS.
+  const pending = _pendingState.get(v.id);
+  if (!pending || pending.state.stateName !== fresh.stateName) {
+    _pendingState.set(v.id, { state: fresh, firstSeen: now });
+    return sticky.state; // hold previous state during the dwell window
+  }
+  if (now - pending.firstSeen >= STATE_MIN_DWELL_MS) {
+    _stateStickiness.set(v.id, { state: fresh, since: now });
+    _pendingState.delete(v.id);
+    return fresh;
+  }
+  return sticky.state; // still within dwell window
+};
 const vehicleDisplayName = (v) => v.vehicleName || v.vehicleNumber || `Vehicle #${v.id}`;
 
 // ─── Configurable fleet stat chips ───────────────────────────────────────────
 const ALL_FLEET_CHIPS = [
-  { id: 'total',     label: 'Total',         dot: '#64748b', gradient: 'linear-gradient(135deg, #1D4ED8 0%, #3B82F6 100%)', shadow: '0 4px 14px rgba(37,99,235,0.28)',  icon: '🚗' },
-  { id: 'running',   label: 'Running',        dot: '#22c55e', gradient: 'linear-gradient(135deg, #047857 0%, #10B981 100%)', shadow: '0 4px 14px rgba(5,150,105,0.28)',   icon: '🟢' },
-  { id: 'stopped',   label: 'Stopped',        dot: '#ef4444', gradient: 'linear-gradient(135deg, #B91C1C 0%, #EF4444 100%)', shadow: '0 4px 14px rgba(220,38,38,0.28)',   icon: '🔴' },
-  { id: 'no_gps',    label: 'No GPS',         dot: '#f59e0b', gradient: 'linear-gradient(135deg, #92400E 0%, #F59E0B 100%)', shadow: '0 4px 14px rgba(217,119,6,0.28)',   icon: '📡' },
-  { id: 'idle',      label: 'Idle',           dot: '#8b5cf6', gradient: 'linear-gradient(135deg, #6D28D9 0%, #8B5CF6 100%)', shadow: '0 4px 14px rgba(109,40,217,0.28)',  icon: '⏸️' },
-  { id: 'overspeed', label: 'Overspeed',      dot: '#dc2626', gradient: 'linear-gradient(135deg, #991B1B 0%, #DC2626 100%)', shadow: '0 4px 14px rgba(153,27,27,0.28)',   icon: '🏎️' },
+  { id: 'total',     label: 'Total',     dot: '#64748b', gradient: 'linear-gradient(135deg, #1D4ED8 0%, #3B82F6 100%)', shadow: '0 4px 14px rgba(37,99,235,0.28)',  icon: '🚗' },
+  { id: 'running',   label: 'Running',   dot: '#22c55e', gradient: 'linear-gradient(135deg, #047857 0%, #10B981 100%)', shadow: '0 4px 14px rgba(5,150,105,0.28)',   icon: '🟢' },
+  { id: 'stopped',   label: 'Stopped',   dot: '#ef4444', gradient: 'linear-gradient(135deg, #B91C1C 0%, #EF4444 100%)', shadow: '0 4px 14px rgba(220,38,38,0.28)',   icon: '🔴' },
+  { id: 'idle',      label: 'Idle',      dot: '#8b5cf6', gradient: 'linear-gradient(135deg, #6D28D9 0%, #8B5CF6 100%)', shadow: '0 4px 14px rgba(109,40,217,0.28)',  icon: '⏸️' },
+  { id: 'overspeed', label: 'Overspeed', dot: '#dc2626', gradient: 'linear-gradient(135deg, #991B1B 0%, #DC2626 100%)', shadow: '0 4px 14px rgba(153,27,27,0.28)',   icon: '🏎️' },
 ];
-const DEFAULT_FLEET_CHIPS = ['total', 'running', 'stopped', 'no_gps'];
+const DEFAULT_FLEET_CHIPS = ['total', 'running', 'stopped'];
 
 function getVisibleFleetChips() {
   try {
@@ -483,97 +269,25 @@ const getMapSubdomains = () => {
 };
 
 // ─── Map Marker Icon ──────────────────────────────────────────────────────────
-// Accepts an optional stateColor so it can reflect DB-defined vehicle states
+// Uses vehicleMarkerHtml: 3D Fluent Emoji icon inside a coloured circle badge
+// with a triangular pin below pointing to the exact GPS coordinate.
+// iconAnchor = centre-bottom of the pin tip so Leaflet places it precisely.
 const makeVehicleIcon = (vehicle, isSelected, stateColor) => {
-  const ign = getIgnition(vehicle);
-  const bg  = stateColor || (ign === true ? '#16a34a' : ign === false ? '#dc2626' : '#475569');
-  const cls = isSelected ? 'fv-sel' : ign === true ? 'fv-run' : 'fv-stop';
-  const W   = isSelected ? 50 : 42;   // (original 46/38 × 1.5 × 0.7)
-  const H   = Math.round(W * 0.72);
-  // Build the same SVG paths inline — pick the right shape for this vehicle type
-  // and inject the accent colour. We use a minimal SVG string for each shape
-  // family so the marker HTML stays compact.
-  const key = (vehicle.vehicleIcon || '').toLowerCase();
-  const isBike   = ['bike','motorcycle'].includes(key);
-  const isBus    = ['bus','schoolbus','minibus'].includes(key);
-  const isTruck  = ['truck','container','tipper','fury','tanker','watertanker','sweeper'].includes(key);
-  const isConstr = ['jcb','dumper','excavator','mixer','concretepump','paver','roadroller','wheelloader','ajax','crane','earthmover'].includes(key);
-  const isVan    = ['van','ambulance','fire','police','mortuaryvan','garbagevan'].includes(key);
-  const isTractor= ['tractor'].includes(key);
-  const isSuv    = ['suv','pickup'].includes(key);
-
-  let svgBody;
-  if (isBike) {
-    svgBody = `<path d="M20 36 L52 24 L60 36 Z" fill="${bg}"/><path d="M20 36 L28 18 L52 18 L52 24 L20 36 Z" fill="${bg}DD"/><rect x="24" y="16" width="22" height="5" rx="2" fill="#1E293B"/><circle cx="18" cy="40" r="10" stroke="#1A1A2E" stroke-width="3" fill="none"/><circle cx="62" cy="40" r="10" stroke="#1A1A2E" stroke-width="3" fill="none"/>`;
-  } else if (isBus) {
-    svgBody = `<path d="M6 16 L94 16 L100 46 L6 46 Z" fill="${bg}"/><path d="M6 16 L94 16 L94 24 L6 24 Z" fill="${bg}EE"/>${[14,30,46,62,78].map(x=>`<rect x="${x}" y="17" width="12" height="6" rx="1" fill="#A8D8F8CC"/>`).join('')}<ellipse cx="22" cy="46" rx="11" ry="6" fill="#1A1A2E"/><ellipse cx="72" cy="46" rx="11" ry="6" fill="#1A1A2E"/>`;
-  } else if (isTruck) {
-    svgBody = `<path d="M32 18 L100 18 L100 46 L32 46 Z" fill="${bg}DD"/><path d="M32 18 L100 18 L100 12 L38 12 Z" fill="${bg}"/><path d="M6 28 L32 28 L32 46 L6 46 Z" fill="${bg}"/><path d="M6 28 L32 28 L32 20 L10 20 Z" fill="${bg}CC"/><rect x="8" y="21" width="20" height="6" rx="1" fill="#A8D8F8CC"/><ellipse cx="18" cy="46" rx="10" ry="6" fill="#1A1A2E"/><ellipse cx="50" cy="46" rx="10" ry="6" fill="#1A1A2E"/><ellipse cx="80" cy="46" rx="10" ry="6" fill="#1A1A2E"/>`;
-  } else if (isConstr) {
-    svgBody = `<path d="M6 28 L36 28 L36 48 L6 48 Z" fill="${bg}"/><path d="M6 28 L36 28 L36 18 L12 18 Z" fill="${bg}CC"/><rect x="8" y="20" width="20" height="7" rx="1" fill="#A8D8F8CC"/><path d="M36 20 L96 20 L96 48 L36 48 Z" fill="${bg}DD"/><path d="M36 20 L96 20 L96 12 L42 12 Z" fill="#F59E0B" opacity="0.9"/><ellipse cx="18" cy="48" rx="12" ry="7" fill="#1A1A2E"/><ellipse cx="54" cy="48" rx="12" ry="7" fill="#1A1A2E"/><ellipse cx="82" cy="48" rx="12" ry="7" fill="#1A1A2E"/>`;
-  } else if (isVan) {
-    svgBody = `<path d="M4 22 L88 22 L94 46 L4 46 Z" fill="${bg}"/><path d="M4 22 L88 22 L88 14 L10 14 Z" fill="${bg}EE"/>${[10,30,52,70].map(x=>`<rect x="${x}" y="15" width="15" height="6" rx="1" fill="#A8D8F8CC"/>`).join('')}<ellipse cx="22" cy="46" rx="11" ry="6" fill="#1A1A2E"/><ellipse cx="70" cy="46" rx="11" ry="6" fill="#1A1A2E"/>`;
-  } else if (isTractor) {
-    svgBody = `<path d="M8 26 L50 26 L50 48 L8 48 Z" fill="${bg}"/><path d="M8 26 L50 26 L44 14 L14 14 Z" fill="${bg}CC"/><rect x="14" y="16" width="24" height="9" rx="1" fill="#A8D8F8CC"/><path d="M50 34 L80 34 L80 48 L50 48 Z" fill="${bg}BB"/><path d="M50 34 L80 34 L76 26 L54 26 Z" fill="#F59E0B" opacity="0.8"/><ellipse cx="24" cy="48" rx="15" ry="9" fill="#1A1A2E"/><ellipse cx="24" cy="48" rx="8" ry="5" fill="#374151"/><ellipse cx="65" cy="48" rx="10" ry="6" fill="#1A1A2E"/>`;
-  } else if (isSuv) {
-    svgBody = `<path d="M4 36 L84 36 L90 50 L4 50 Z" fill="${bg}"/><path d="M4 36 L84 36 L86 26 L8 26 Z" fill="${bg}EE"/><path d="M14 14 L76 14 L84 26 L8 26 Z" fill="${bg}CC"/><rect x="16" y="16" width="28" height="9" rx="1" fill="#A8D8F8CC"/><rect x="46" y="16" width="28" height="9" rx="1" fill="#A8D8F8CC"/><ellipse cx="24" cy="50" rx="12" ry="7" fill="#1A1A2E"/><ellipse cx="70" cy="50" rx="12" ry="7" fill="#1A1A2E"/>`;
-  } else {
-    // Default: car
-    svgBody = `<path d="M6 34 L78 34 L86 46 L6 46 Z" fill="${bg}"/><path d="M6 34 L78 34 L84 26 L12 26 Z" fill="${bg}EE"/><path d="M22 26 L68 26 L64 16 L26 16 Z" fill="${bg}CC"/><rect x="26" y="18" width="22" height="7" rx="1" fill="#A8D8F8CC"/><rect x="50" y="18" width="14" height="7" rx="1" fill="#A8D8F8CC"/><ellipse cx="24" cy="46" rx="11" ry="6" fill="#1A1A2E"/><ellipse cx="66" cy="46" rx="11" ry="6" fill="#1A1A2E"/>`;
-  }
-
-  const imgSrc = VEHICLE_ICON_3D[vehicle.vehicleIcon] || _DEFAULT_3D;
+  const ign  = getIgnition(vehicle);
+  const bg   = stateColor || (ign === true ? '#16a34a' : ign === false ? '#dc2626' : '#475569');
+  const size = isSelected ? 50 : 42;
+  const pinH = 10;
+  const badge = isSelected ? size + 8 : size;
+  const totalW = badge;
+  const totalH = badge + pinH;
   return L.divIcon({
-    className: '',
-    html: `<div class="${cls}" style="display:flex;flex-direction:column;align-items:center;cursor:pointer;">
-      <img
-        src="${imgSrc}"
-        width="${W}" height="${W}"
-        style="object-fit:contain;display:block;filter:drop-shadow(0 6px 14px rgba(0,0,0,0.28)) drop-shadow(0 2px 4px rgba(0,0,0,0.16));"
-        onerror="this.style.display='none'"
-      />
-      <div style="
-        width:${isSelected ? 18 : 12}px;height:${isSelected ? 7 : 5}px;
-        background:${bg};border-radius:50%;opacity:0.50;
-        filter:blur(2px);margin-top:-4px;
-      "></div>
-    </div>`,
-    iconSize: [W, W + 10],
-    iconAnchor: [W / 2, W + 10],
+    className: '',          // empty = suppress Leaflet's default white-box style
+    html: vehicleMarkerHtml(vehicle.vehicleIcon, bg, size, isSelected),
+    iconSize:   [totalW, totalH],
+    iconAnchor: [totalW / 2, totalH],  // pin tip = exact GPS point
   });
 };
 
-// ─── Vehicle3DAvatar — Fluent Emoji 3D PNG icons ─────────────────────────────
-// Uses Microsoft's open-source Fluent Emoji 3D pre-rendered PNGs from CDN.
-// Falls back to SVG on load error.  `size` is the width; height auto-scales.
-const Vehicle3DAvatar = ({ icon, color = '#3B82F6', size = 78 }) => {
-  const src = VEHICLE_ICON_3D[icon] || _DEFAULT_3D;
-  const ShapeComp = _ICON_SHAPE_MAP[icon] || _SVGCar;
-  const [imgErr, setImgErr] = React.useState(false);
-  return (
-    <div style={{
-      width: size, height: size, flexShrink: 0,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      filter: 'drop-shadow(0 6px 12px rgba(0,0,0,0.24)) drop-shadow(0 2px 4px rgba(0,0,0,0.14))',
-      userSelect: 'none',
-    }}>
-      {imgErr ? (
-        <div style={{ width: size, height: Math.round(size * 0.72) }}>
-          <ShapeComp c={color} />
-        </div>
-      ) : (
-        <img
-          src={src}
-          alt={icon || 'vehicle'}
-          width={size}
-          height={size}
-          style={{ objectFit: 'contain', display: 'block' }}
-          onError={() => setImgErr(true)}
-        />
-      )}
-    </div>
-  );
-};
 
 // ─── Cluster Icon ────────────────────────────────────────────────────────────
 const createClusterCustomIcon = (cluster) => {
@@ -759,9 +473,10 @@ const FocusBoundsController = ({ bounds }) => {
 // the marker to "now", undoing RAF's smoother lagged-interpolated position.
 // Passing the stable initial value keeps RAF as the sole driver of motion.
 //
-// The marker key includes selection + state, so when those flip, this
-// component unmounts and a fresh one captures a new initialPos — RAF picks
-// up from there within one frame.
+// The marker key is {vehicleId}-{isSelected}.  State/colour changes update
+// the icon prop in-place without remounting so the RAF position buffer is
+// never lost.  Only selection toggle causes a remount (intentional — it
+// resizes the icon and re-anchors the position).
 const SmoothMarker = ({ vehicleId, markerRefs, position, icon, eventHandlers, children }) => {
   const initialPos = useRef(position);
   const markerRef = useRef(null);
@@ -821,7 +536,7 @@ const VehicleTooltip = ({ vehicle }) => {
       {/* Header */}
       <div style={{ background: '#FFFFFF', borderRadius: '8px 8px 0 0', padding: '12px 14px', borderBottom: `3px solid ${ignColor}`, marginBottom: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Vehicle3DAvatar icon={vehicle.vehicleIcon} color={ignColor} size={42} />
+          <VehicleIcon icon={vehicle.vehicleIcon} color={ignColor} size={42} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 800, fontSize: 13.5, color: '#0F172A', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{vehicleDisplayName(vehicle)}</div>
             {vehicle.vehicleName && vehicle.vehicleNumber && (
@@ -841,7 +556,7 @@ const VehicleTooltip = ({ vehicle }) => {
         {fuel?.level !== undefined && <TRow label="Fuel" value={`${Math.round(fuel.level)}%`} valueColor={fuel.level < 20 ? '#DC2626' : fuel.level < 40 ? '#D97706' : '#059669'} />}
         {status?.battery !== undefined && <TRow label="Battery" value={`${status.battery}%`} valueColor={status.battery < 20 ? '#DC2626' : '#0F172A'} />}
         {status?.voltage !== undefined && <TRow label="Voltage" value={`${status.voltage} V`} />}
-        {gps?.satellites !== undefined && <TRow label="Satellites" value={gps.satellites} valueColor={gps.satellites < 4 ? '#D97706' : '#059669'} />}
+        {/* {gps?.satellites !== undefined && <TRow label="Satellites" value={gps.satellites} valueColor={gps.satellites < 4 ? '#D97706' : '#059669'} />} */}
         {status?.gsmSignal !== undefined && <TRow label="GSM Signal" value={status.gsmSignal} />}
         {trip?.odometer !== undefined && <TRow label="Odometer" value={`${Number(trip.odometer).toFixed(1)} km`} />}
         {engine?.speed !== undefined && <TRow label="RPM" value={engine.speed} />}
@@ -1097,10 +812,13 @@ const MyFleet = () => {
         // Empty means nothing changed since last poll — skip re-render entirely
         if (!positions.length) return;
 
-        // Advance the cursor to the max packet time in this batch
+        // Advance the cursor strictly on lastSeenAt (matching the server
+        // filter).  Never use updatedAt as a fallback — reconcile bumps it
+        // without a real packet, which would prematurely advance the cursor
+        // and exclude genuinely silent vehicles from future polls.
         const maxTime = positions.reduce((m, p) => {
-          if (!p.lastPacketTime) return m;
-          return m === null || new Date(p.lastPacketTime) > new Date(m) ? p.lastPacketTime : m;
+          if (!p.lastSeenAt) return m;
+          return m === null || new Date(p.lastSeenAt) > new Date(m) ? p.lastSeenAt : m;
         }, lastSince);
         if (maxTime) lastSince = maxTime;
 
@@ -1124,12 +842,29 @@ const MyFleet = () => {
             ...v,
             deviceStatus: {
               ...v.deviceStatus,
-              status: { ...(v.deviceStatus?.status || {}), ignition: p.engineOn },
+              status: {
+                ...(v.deviceStatus?.status || {}),
+                ignition:       p.engineOn,
+                // Duration-tracker timestamps — vehicleState.js computes
+                // speedZeroSeconds / ignitionOffSeconds from these live so they
+                // auto-increment with the 30-second stateTick.
+                speedZeroSince: p.speedZeroSince  ?? (v.deviceStatus?.status?.speedZeroSince  ?? null),
+                engineOffSince: p.engineOffSince  ?? (v.deviceStatus?.status?.engineOffSince  ?? null),
+                runningStreak:  p.runningStreak   ?? (v.deviceStatus?.status?.runningStreak   ?? 0),
+              },
               gpsData: {
                 ...(v.deviceStatus?.gpsData || {}),
-                latitude: p.lat, longitude: p.lng, speed: p.speed, timestamp: p.lastPacketTime,
+                latitude:  p.lat,
+                longitude: p.lng,
+                speed:     p.speed,
+                timestamp: p.lastPacketTime,
               },
-              lastUpdate: p.lastPacketTime,
+              // lastSeenAt only — never fall back to updatedAt (bumped by
+              // reconcile) or lastPacketTime (device-time, possibly wrong TZ).
+              // If null, we genuinely don't know when the device was last seen
+              // and the existing v.deviceStatus.lastUpdate (from initial load)
+              // is preserved by the spread above.
+              ...(p.lastSeenAt ? { lastUpdate: p.lastSeenAt } : {}),
             },
           };
         }));
@@ -1639,7 +1374,6 @@ const MyFleet = () => {
 
   const runningCount   = chipScopedVehicles.filter(v => getVState(v, deviceStatesByType).stateName === 'Running').length;
   const stoppedCount   = chipScopedVehicles.filter(v => getVState(v, deviceStatesByType).stateName === 'Stopped').length;
-  const noGpsCount     = chipScopedVehicles.filter(v => !getVehicleCoords(v)).length;
   const fleetSpeedThresh = parseInt(localStorage.getItem('fleet-speed-threshold') || '80');
   const overspeedCount = chipScopedVehicles.filter(v => getSpeed(v) > fleetSpeedThresh).length;
 
@@ -1677,16 +1411,26 @@ const MyFleet = () => {
   const fleetChips = [
     { id: 'total', label: 'Total', dot: '#64748b', gradient: 'linear-gradient(135deg, #1D4ED8 0%, #3B82F6 100%)', shadow: '0 4px 14px rgba(37,99,235,0.28)', icon: '🚗' },
     ...stateChipList,
-    ...(configuredLabels.has('nogps') ? [] : [{ id: 'no_gps',    label: 'No GPS',    dot: '#f59e0b', gradient: 'linear-gradient(135deg, #92400E 0%, #F59E0B 100%)', shadow: '0 4px 14px rgba(217,119,6,0.28)', icon: '📡' }]),
     ...(configuredLabels.has('overspeed') ? [] : [{ id: 'overspeed', label: 'Overspeed', dot: '#dc2626', gradient: 'linear-gradient(135deg, #991B1B 0%, #DC2626 100%)', shadow: '0 4px 14px rgba(153,27,27,0.28)', icon: '🏎️' }]),
   ];
   const CHIP_COUNTS = {
     total:     chipScopedVehicles.length,
-    no_gps:    noGpsCount,
     overspeed: overspeedCount,
   };
   stateChipList.forEach(c => {
     CHIP_COUNTS[c.id] = chipScopedVehicles.filter(v => getVState(v, deviceStatesByType).stateName === c.stateName).length;
+  });
+
+  // Filter fleetChips by the user's visibility settings.
+  // Static chips (total, overspeed) are toggled by their exact id.
+  // Dynamic state chips (id = 'state:Running') map to the lowercase stateName
+  // so 'state:Running' respects the 'running' toggle from settings.
+  // Custom states that have no matching static toggle are always shown.
+  const staticToggleIds = new Set(ALL_FLEET_CHIPS.map(c => c.id));
+  const visibleFleetChips = fleetChips.filter(c => {
+    if (!c.id.startsWith('state:')) return visibleChips.includes(c.id);
+    const normalized = c.id.slice(6).toLowerCase(); // 'state:Running' → 'running'
+    return staticToggleIds.has(normalized) ? visibleChips.includes(normalized) : true;
   });
 
   // panel z-index shorthand
@@ -1743,7 +1487,7 @@ const MyFleet = () => {
             <div style={{ position: 'absolute', right: -30, top: -30, width: 160, height: 160, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', pointerEvents: 'none' }} />
             <div style={{ position: 'absolute', right: 80, bottom: -40, width: 100, height: 100, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', pointerEvents: 'none' }} />
 
-            <Vehicle3DAvatar icon={dv.vehicleIcon} color={ignColor} size={52} />
+            <VehicleIcon icon={dv.vehicleIcon} color={ignColor} size={52} />
 
             <div style={{ flex: 1, minWidth: 0, position: 'relative', zIndex: 1 }}>
               <div style={{ fontSize: 18, fontWeight: 900, color: '#FFFFFF', letterSpacing: '-0.02em', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1976,14 +1720,11 @@ const MyFleet = () => {
 
         {/* Stat cards — driven by fleetChips (dynamic from Master-Settings states) */}
         <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
-          {fleetChips.map(c => (
-            <div key={c.id} onClick={() => setChipFilter(chipFilter === c.id ? null : c.id)} style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 20px', background: c.gradient, borderRadius: 14, boxShadow: chipFilter === c.id ? `0 0 0 3px #fff, ${c.shadow}` : c.shadow, minWidth: '145px', position: 'relative', overflow: 'hidden', flex: '0 0 auto', cursor: 'pointer', opacity: chipFilter && chipFilter !== c.id ? 0.55 : 1, transition: 'all 0.15s', transform: chipFilter === c.id ? 'scale(1.03)' : 'none' }}>
-              <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: '40%', background: 'linear-gradient(135deg, transparent 0%, rgba(255,255,255,0.06) 100%)', pointerEvents: 'none' }} />
-              <div style={{ flex: 1, position: 'relative' }}>
-                <div style={{ fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.72)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '5px' }}>{c.label}</div>
-                <div style={{ fontSize: '34px', fontWeight: 800, color: '#fff', lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{CHIP_COUNTS[c.id]}</div>
-              </div>
-              <div style={{ width: '38px', height: '38px', borderRadius: 10, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', flexShrink: 0, backdropFilter: 'blur(4px)', position: 'relative' }}>{c.icon}</div>
+          {visibleFleetChips.map(c => (
+            <div key={c.id} onClick={() => setChipFilter(chipFilter === c.id ? null : c.id)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '11px 17px', background: c.gradient, borderRadius: 10, boxShadow: chipFilter === c.id ? `0 0 0 2px #fff, ${c.shadow}` : c.shadow, position: 'relative', overflow: 'hidden', flex: '0 0 auto', cursor: 'pointer', opacity: chipFilter && chipFilter !== c.id ? 0.55 : 1, transition: 'all 0.15s', transform: chipFilter === c.id ? 'scale(1.03)' : 'none' }}>
+              <span style={{ fontSize: '18px', lineHeight: 1, flexShrink: 0 }}>{c.icon}</span>
+              <span style={{ fontSize: '22px', fontWeight: 800, color: '#fff', lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.01em' }}>{CHIP_COUNTS[c.id]}</span>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: 'rgba(255,255,255,0.82)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>{c.label}</span>
             </div>
           ))}
         </div>
@@ -2298,7 +2039,7 @@ const MyFleet = () => {
                       vehicle: (
                         <td key="vehicle">
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <Vehicle3DAvatar icon={v.vehicleIcon} color={getVState(v, deviceStatesByType).stateColor || '#64748B'} size={29} />
+                            <VehicleIcon icon={v.vehicleIcon} color={getVState(v, deviceStatesByType).stateColor || '#64748B'} size={29} />
                             <span style={{ fontWeight: 600, color: '#1e3a5f', whiteSpace: 'nowrap' }}>{vehicleDisplayName(v)}</span>
                           </div>
                         </td>
@@ -2489,7 +2230,7 @@ const MyFleet = () => {
               onClick={e => e.stopPropagation()}>
               <div style={{ background: 'linear-gradient(135deg,#1D4ED8,#3B82F6)', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
-                  {shareTarget.type === 'vehicle' ? (VEHICLE_ICON_MAP[shareTarget.icon] || '🚗') : '📦'}
+                  {shareTarget.type === 'vehicle' ? (VEHICLE_ICON_LABELS[shareTarget.icon] || 'Vehicle') : '📦'}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 15, fontWeight: 800, color: '#fff' }}>Share Live Tracking</div>
@@ -2582,18 +2323,15 @@ const MyFleet = () => {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', margin: '-24px', width: 'calc(100% + 48px)', fontFamily: "'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" }}>
 
       {/* ══════ MAP TOP SECTION — same stat cards + toolbar as table view ══════ */}
-      <div style={{ flexShrink: 0, background: '#FFFFFF', borderBottom: '1px solid #E2E8F0', padding: '14px 16px 10px', zIndex: 100, position: 'relative' }}>
+      <div style={{ flexShrink: 0, background: '#FFFFFF', borderBottom: '1px solid #E2E8F0', padding: '14px 16px 10px', zIndex: 1000, position: 'relative' }}>
         {/* Panel toggle */}
         {/* Stat cards — identical to table view */}
         <div style={{ display: 'flex', gap: '12px', marginBottom: '10px', flexWrap: 'wrap' }}>
-          {fleetChips.map(c => (
-            <div key={c.id} onClick={() => setChipFilter(chipFilter === c.id ? null : c.id)} style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 20px', background: c.gradient, borderRadius: 14, boxShadow: chipFilter === c.id ? `0 0 0 3px #fff, ${c.shadow}` : c.shadow, minWidth: '145px', position: 'relative', overflow: 'hidden', flex: '0 0 auto', cursor: 'pointer', opacity: chipFilter && chipFilter !== c.id ? 0.55 : 1, transition: 'all 0.15s', transform: chipFilter === c.id ? 'scale(1.03)' : 'none' }}>
-              <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: '40%', background: 'linear-gradient(135deg, transparent 0%, rgba(255,255,255,0.06) 100%)', pointerEvents: 'none' }} />
-              <div style={{ flex: 1, position: 'relative' }}>
-                <div style={{ fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.72)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '5px' }}>{c.label}</div>
-                <div style={{ fontSize: '34px', fontWeight: 800, color: '#fff', lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{CHIP_COUNTS[c.id]}</div>
-              </div>
-              <div style={{ width: '38px', height: '38px', borderRadius: 10, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', flexShrink: 0, backdropFilter: 'blur(4px)', position: 'relative' }}>{c.icon}</div>
+          {visibleFleetChips.map(c => (
+            <div key={c.id} onClick={() => setChipFilter(chipFilter === c.id ? null : c.id)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '11px 17px', background: c.gradient, borderRadius: 10, boxShadow: chipFilter === c.id ? `0 0 0 2px #fff, ${c.shadow}` : c.shadow, position: 'relative', overflow: 'hidden', flex: '0 0 auto', cursor: 'pointer', opacity: chipFilter && chipFilter !== c.id ? 0.55 : 1, transition: 'all 0.15s', transform: chipFilter === c.id ? 'scale(1.03)' : 'none' }}>
+              <span style={{ fontSize: '18px', lineHeight: 1, flexShrink: 0 }}>{c.icon}</span>
+              <span style={{ fontSize: '22px', fontWeight: 800, color: '#fff', lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.01em' }}>{CHIP_COUNTS[c.id]}</span>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: 'rgba(255,255,255,0.82)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>{c.label}</span>
             </div>
           ))}
         </div>
@@ -2610,6 +2348,30 @@ const MyFleet = () => {
             <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8', fontSize: '15px', pointerEvents: 'none' }}>⌕</span>
             <input className="form-control" style={{ paddingLeft: '32px', width: '200px' }} placeholder="Search vehicles…" value={search} onChange={e => setSearch(e.target.value)} />
           </div>
+
+          {/* Group filter */}
+          {groups.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <select
+                title="Filter by vehicle group"
+                value={selectedGroupId ?? ''}
+                onChange={e => setSelectedGroupId(e.target.value ? Number(e.target.value) : null)}
+                className="form-control"
+                style={{ minWidth: 130, background: selectedGroupId ? '#EFF6FF' : undefined, borderColor: selectedGroupId ? (groups.find(g => g.id === selectedGroupId)?.color || '#6366F1') : undefined, color: selectedGroupId ? '#1D4ED8' : undefined, fontWeight: selectedGroupId ? 600 : undefined }}>
+                <option value="">All Groups</option>
+                {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+              {liveShareEnabled && selectedGroupId && (isPapaOrDealer || user?.permissions?.canShareLiveLocation) && (
+                <button
+                  title="Share live tracking for this group"
+                  onClick={() => { const g = groups.find(x => x.id === selectedGroupId); if (g) openShareModal('group', g.id, g.name); }}
+                  className="btn btn-outline"
+                  style={{ padding: '6px 8px' }}>
+                  <Ic n="share" size={12} color="#64748B" />
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Client Picker */}
           {isPapaOrDealer && clientNodes.length > 0 && (
@@ -2677,89 +2439,16 @@ const MyFleet = () => {
       {/* Inner fixed-width wrapper so content doesn't reflow during transition */}
       <div style={{ width: PANEL_W, flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-        {/* Search + group filter */}
-        <div style={{ padding: '14px 14px 12px', flexShrink: 0, borderBottom: '1px solid #E2E8F0', background: '#FFFFFF' }}>
-          <div style={{ position: 'relative', marginBottom: groups.length > 0 ? 10 : 0 }}>
-            <span style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
-              <Ic n="search" size={16} color="#94A3B8" />
-            </span>
-            <input
-              title="Filter vehicles"
-              style={{
-                width: '100%', boxSizing: 'border-box',
-                paddingLeft: 40, paddingRight: 14, paddingTop: 11, paddingBottom: 11,
-                background: '#F8FAFC',
-                border: '1.5px solid #E2E8F0',
-                borderRadius: 12,
-                color: '#0F172A', fontSize: 14, fontWeight: 500, outline: 'none',
-                fontFamily: 'inherit',
-                transition: 'border-color 0.15s, box-shadow 0.15s',
-              }}
-              placeholder="Search vehicles…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              onFocus={e => { e.target.style.borderColor = '#6366F1'; e.target.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.12)'; e.target.style.background = '#FFFFFF'; }}
-              onBlur={e => { e.target.style.borderColor = '#E2E8F0'; e.target.style.boxShadow = 'none'; e.target.style.background = '#F8FAFC'; }}
-            />
-          </div>
-          {/* Group filter — pills when 0–1 groups exist, dropdown when multiple */}
-          {groups.length > 1 ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <select
-                title="Filter by vehicle group"
-                value={selectedGroupId ?? ''}
-                onChange={e => setSelectedGroupId(e.target.value ? Number(e.target.value) : null)}
-                style={{ flex: 1, minWidth: 0, background: '#F8FAFC', border: `1.5px solid ${selectedGroupId ? (groups.find(g => g.id === selectedGroupId)?.color || '#6366F1') : '#E2E8F0'}`, borderRadius: 10, color: '#0F172A', fontSize: 12, fontWeight: 600, padding: '8px 10px', outline: 'none', fontFamily: 'inherit', cursor: 'pointer' }}>
-                <option value="">All groups ({vehicles.length})</option>
-                {groups.map(g => (
-                  <option key={g.id} value={g.id}>{g.name}</option>
-                ))}
-              </select>
-              {liveShareEnabled && selectedGroupId && (isPapaOrDealer || user?.permissions?.canShareLiveLocation) && (
-                <button
-                  title={`Share live tracking for selected group`}
-                  onClick={() => { const g = groups.find(x => x.id === selectedGroupId); if (g) openShareModal('group', g.id, g.name); }}
-                  style={{ flexShrink: 0, padding: '6px 8px', borderRadius: 7, border: '1px solid #E2E8F0', background: '#FFFFFF', color: '#64748B', cursor: 'pointer', display: 'flex', alignItems: 'center', lineHeight: 1 }}>
-                  <Ic n="share" size={11} color="#64748B" />
-                </button>
-              )}
-            </div>
-          ) : groups.length === 1 ? (
-            <div style={{ display: 'flex', gap: 4 }}>
-              <button
-                title="Show all vehicles"
-                onClick={() => setSelectedGroupId(null)}
-                className="fv-grp-pill"
-                style={{ flexShrink: 0, padding: '3px 9px', borderRadius: 20, border: `1px solid ${selectedGroupId === null ? '#3B82F6' : '#E2E8F0'}`, background: selectedGroupId === null ? '#2563EB' : '#FFFFFF', color: selectedGroupId === null ? '#fff' : '#374151', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s' }}>
-                All {vehicles.length}
-              </button>
-              {groups.map(g => (
-                <button
-                  key={g.id}
-                  title={`Filter to "${g.name}" group`}
-                  onClick={() => setSelectedGroupId(selectedGroupId === g.id ? null : g.id)}
-                  className="fv-grp-pill"
-                  style={{ flexShrink: 0, padding: '3px 9px', borderRadius: 20, border: `1px solid ${selectedGroupId === g.id ? (g.color || '#3B82F6') : '#E2E8F0'}`, background: selectedGroupId === g.id ? (g.color || '#3B82F6') + '18' : '#FFFFFF', color: selectedGroupId === g.id ? (g.color || '#2563EB') : '#374151', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4, transition: 'all 0.15s' }}>
-                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: g.color || '#3B82F6', flexShrink: 0 }} />
-                  {g.name}
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </div>
 
-        {/* Vehicle count + multi-select */}
-        <div style={{ padding: '8px 16px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #EEF0F5', background: '#F1F5F9' }}>
-          <span style={{ fontSize: 11.5, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-            {filteredVehicles.length} vehicles
-          </span>
-          {focusedIds.size > 0 && (
+        {/* Multi-select clear — only shown when vehicles are selected */}
+        {focusedIds.size > 0 && (
+          <div style={{ padding: '6px 12px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', borderBottom: '1px solid #EEF0F5', background: '#F1F5F9' }}>
             <button onClick={() => setFocusedIds(new Set())}
               style={{ background: '#6366F1', border: 'none', color: '#FFFFFF', fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 20, cursor: 'pointer', fontFamily: 'inherit', letterSpacing: '0.04em' }}>
               {focusedIds.size} selected · Clear
             </button>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Vehicle cards list */}
         <div style={{ flex: 1, overflow: 'auto', padding: '10px 10px 24px' }}>
@@ -2819,7 +2508,7 @@ const MyFleet = () => {
                 <div style={{ padding: '12px 14px 10px', display: 'flex', alignItems: 'flex-start', gap: 12 }}>
 
                   {/* 3D icon — left column */}
-                  <Vehicle3DAvatar icon={v.vehicleIcon} color={stColor} size={52} />
+                  <VehicleIcon icon={v.vehicleIcon} color={stColor} size={52} />
 
                   {/* Info column — all content goes here */}
                   <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -3038,7 +2727,7 @@ const MyFleet = () => {
               const vState = getVState(v, deviceStatesByType);
               return (
                 <SmoothMarker
-                  key={`${v.id}-${isSel}-${vState.stateName}`}
+                  key={`${v.id}-${isSel ? 1 : 0}`}
                   vehicleId={v.id}
                   markerRefs={markerRefs}
                   position={[v.coords.lat, v.coords.lng]}
@@ -3105,7 +2794,7 @@ const MyFleet = () => {
 
                   {/* Identity */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 240, flex: '0 1 auto' }}>
-                    <Vehicle3DAvatar icon={sv.vehicleIcon} color={stColor} size={61} />
+                    <VehicleIcon icon={sv.vehicleIcon} color={stColor} size={61} />
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontSize: 19, fontWeight: 800, color: '#0F172A', lineHeight: 1.15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', letterSpacing: '-0.01em' }}>
                         {vehicleDisplayName(sv)}
@@ -3428,7 +3117,7 @@ const MyFleet = () => {
               return (
                 <label key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 0', cursor: 'pointer', borderBottom: `1px solid ${C.borderLight}` }}>
                   <input type="checkbox" checked={inGroup} onChange={() => handleToggleVehicleInGroup(showManageVehicles, v.id, inGroup)} style={{ width: 16, height: 16, accentColor: C.primary }} />
-                  <Vehicle3DAvatar icon={v.vehicleIcon} color={C.primary} size={34} />
+                  <VehicleIcon icon={v.vehicleIcon} color={C.primary} size={34} />
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{vehicleDisplayName(v)}</div>
                     {v.vehicleNumber && v.vehicleName && <div style={{ fontSize: 11, color: C.textMuted, fontFamily: 'monospace' }}>{v.vehicleNumber}</div>}
@@ -3458,7 +3147,7 @@ const MyFleet = () => {
             {/* Header */}
             <div style={{ background: 'linear-gradient(135deg,#1D4ED8,#3B82F6)', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
               <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
-                {shareTarget.type === 'vehicle' ? (VEHICLE_ICON_MAP[shareTarget.icon] || '🚗') : '📦'}
+                {shareTarget.type === 'vehicle' ? (VEHICLE_ICON_LABELS[shareTarget.icon] || 'Vehicle') : '📦'}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 15, fontWeight: 800, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Share Live Tracking</div>
@@ -3905,7 +3594,20 @@ const TripsTab = ({ vehicle, reportFrom, reportTo, reportData, reportLoading, re
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
                     <span style={{ fontSize: 14, fontWeight: 700, color: C.text }}>
                       {start ? new Date(start).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
-                      {end && trip.status !== 'in_progress' && <span style={{ color: C.textMuted, fontWeight: 500 }}> → {new Date(end).toLocaleString('en-IN', { timeStyle: 'short' })}</span>}
+                      {end && trip.status !== 'in_progress' && (() => {
+                        const s = new Date(start), e = new Date(end);
+                        const corrupted = e < s;
+                        const crossDay = !corrupted && e.toDateString() !== s.toDateString();
+                        return (
+                          <span style={{ color: corrupted ? '#ef4444' : C.textMuted, fontWeight: 500 }}>
+                            {' → '}
+                            {crossDay
+                              ? e.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })
+                              : e.toLocaleString('en-IN', { timeStyle: 'short' })}
+                            {corrupted && <span title="End time is before start — data corrupted, please reprocess" style={{ marginLeft: 5, fontSize: 11, fontWeight: 800, color: '#ef4444' }}>⚠ corrupted</span>}
+                          </span>
+                        );
+                      })()}
                     </span>
                     {trip.status === 'in_progress' && (
                       <span style={{ fontSize: 10.5, fontWeight: 800, padding: '3px 10px', borderRadius: 0, background: '#16A34A', color: '#FFFFFF', letterSpacing: '0.05em' }}>
@@ -4593,14 +4295,14 @@ const EditTab = ({ editForm, setEditForm, saving, handleSaveEdit, currentImei = 
             <button key={ic} type="button" title={VEHICLE_ICON_LABELS[ic] || ic}
               onClick={() => setEditForm({ ...editForm, vehicleIcon: ic })}
               style={{
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
-                padding: '8px 5px', width: 84, borderRadius: 0,
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                padding: '10px 5px', width: 84, borderRadius: 8,
                 border: `2px solid ${editForm.vehicleIcon === ic ? C.primary : '#CBD5E1'}`,
                 background: editForm.vehicleIcon === ic ? C.primary : '#FFFFFF',
                 cursor: 'pointer', fontFamily: 'inherit',
                 transition: 'border-color 0.15s, background 0.15s',
               }}>
-              <span style={{ fontSize: 22, lineHeight: 1 }}>{VEHICLE_ICON_MAP[ic]}</span>
+              <VehicleIcon type={ic} color={editForm.vehicleIcon === ic ? '#2563EB' : '#64748B'} size={32} />
               <span style={{ fontSize: 10, fontWeight: 700, color: editForm.vehicleIcon === ic ? '#FFFFFF' : '#475569', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>
                 {VEHICLE_ICON_LABELS[ic] || ic}
               </span>

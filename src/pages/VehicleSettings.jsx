@@ -32,11 +32,10 @@ const ALL_FLEET_CHIPS_DEF = [
   { id: 'total',     label: 'Total',     icon: '🚗', dot: '#64748b' },
   { id: 'running',   label: 'Running',   icon: '🟢', dot: '#22c55e' },
   { id: 'stopped',   label: 'Stopped',   icon: '🔴', dot: '#ef4444' },
-  { id: 'no_gps',    label: 'No GPS',    icon: '📡', dot: '#f59e0b' },
   { id: 'idle',      label: 'Idle',      icon: '⏸️', dot: '#8b5cf6' },
   { id: 'overspeed', label: 'Overspeed', icon: '🏎️', dot: '#dc2626' },
 ];
-const DEFAULT_FLEET_CHIPS = ['total','running','stopped','no_gps'];
+const DEFAULT_FLEET_CHIPS = ['total','running','stopped'];
 
 const inputStyle = {
   width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0',

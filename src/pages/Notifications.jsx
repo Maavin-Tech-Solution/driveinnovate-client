@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { toast } from 'react-toastify';
 import { getNotifications, markAsRead, markAllAsRead, deleteNotification } from '../services/notification.service';
+import { VehicleIcon } from '../utils/vehicleIcons';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const TYPE_META = {
@@ -8,7 +9,7 @@ const TYPE_META = {
   NOT_MOVING:     { icon: '🅿️', color: '#d97706', label: 'Not Moving' },
   IDLE_ENGINE:    { icon: '⏸️', color: '#7c3aed', label: 'Engine Idle' },
 };
-const VEHICLE_ICON_MAP = { car:'🚗',suv:'🚙',truck:'🚛',bus:'🚌',bike:'🏍️',auto:'🛺',van:'🚐',ambulance:'🚑',pickup:'🛻' };
+
 const PAGE_SIZE = 30;
 
 const fmtDate = (d) => {
@@ -41,7 +42,7 @@ const StatCard = ({ icon, label, value, accent, sub }) => (
 // ─── Notification Card ────────────────────────────────────────────────────────
 const NotifCard = ({ n, onRead, onDelete }) => {
   const meta = TYPE_META[n.alertType] || { icon: '🔔', color: '#2563eb', label: n.alertType || 'Alert' };
-  const vehicleEmoji = VEHICLE_ICON_MAP[n.vehicle?.vehicleIcon] || '🚗';
+  
 
   return (
     <div style={{
@@ -74,7 +75,7 @@ const NotifCard = ({ n, onRead, onDelete }) => {
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 11, color: '#64748b' }}>
           {n.vehicle && (
             <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-              {vehicleEmoji} {n.vehicle.vehicleName || n.vehicle.vehicleNumber || `Vehicle #${n.vehicleId}`}
+              <VehicleIcon type={n.vehicle?.vehicleIcon} color="#64748B" size={20} /> {n.vehicle.vehicleName || n.vehicle.vehicleNumber || `Vehicle #${n.vehicleId}`}
             </span>
           )}
           {n.metadata?.speed != null && (

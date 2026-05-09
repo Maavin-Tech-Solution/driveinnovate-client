@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { VehicleIcon, VEHICLE_ICON_LABELS } from '../utils/vehicleIcons';
 import { toast } from 'react-toastify';
 import { createTicket, getTickets, getTicketById, updateTicketStatus } from '../services/support.service';
 import { getVehicles } from '../services/vehicle.service';
@@ -30,7 +31,7 @@ const STATUS_META = {
   CLOSED:      { label: 'Closed',      color: '#94a3b8', bg: '#f8fafc' },
 };
 
-const VEHICLE_ICONS = { car:'🚗',suv:'🚙',truck:'🚛',bus:'🚌',bike:'🏍️',auto:'🛺',van:'🚐',ambulance:'🚑',pickup:'🛻' };
+
 const ALLOWED_EXTS  = '.jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx,.txt,.xlsx,.csv';
 const API_BASE      = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
 
@@ -365,7 +366,7 @@ const NewTicketForm = ({ vehicles, groups, user, onSuccess }) => {
                     <option value="">— Choose a vehicle —</option>
                     {vehicles.map(v => (
                       <option key={v.id} value={v.id}>
-                        {VEHICLE_ICONS[v.vehicleIcon] || '🚗'} {v.vehicleName || v.vehicleNumber}{v.vehicleName && v.vehicleNumber ? ` (${v.vehicleNumber})` : ''}
+                        <VehicleIcon type={v.vehicleIcon} color="#64748B" size={20} />{" "}{v.vehicleName || v.vehicleNumber}{v.vehicleName && v.vehicleNumber ? ` (${v.vehicleNumber})` : ''}
                       </option>
                     ))}
                   </select>
