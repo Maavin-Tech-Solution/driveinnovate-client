@@ -740,8 +740,9 @@ export default function Geofence() {
         geoId = editTarget.id;
         toast.success('Geofence updated');
       } else {
+        // Interceptor already unwraps axios → res is { success, data:{id,...} }
         const res = await createGeofence(payload);
-        geoId = res.data.data?.id;
+        geoId = res.data?.id;
         toast.success('Geofence created');
       }
       // Create any assignments added in the modal

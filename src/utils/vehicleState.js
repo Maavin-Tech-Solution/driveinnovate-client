@@ -112,8 +112,24 @@ export function getVehicleState(deviceStatus, stateDefinitions) {
   if (!stateDefinitions || stateDefinitions.length === 0) return null;
   const sorted = [...stateDefinitions].sort((a, b) => a.priority - b.priority);
   const match = sorted.find(s => !s.isDefault && evaluateState(deviceStatus, s));
-  if (match) return { stateName: match.stateName, stateColor: match.stateColor, stateIcon: match.stateIcon };
+  if (match) return {
+    stateName:  match.stateName,
+    stateColor: match.stateColor,
+    stateIcon:  match.stateIcon,
+    // Debug: matched conditions with their live values
+    matchedConditions: (match.conditions || []).map(c => ({
+      field:    c.field,
+      operator: c.operator,
+      expected: c.value,
+      actual:   getFieldValue(deviceStatus, c.field),
+    })),
+  };
   const fallback = sorted.find(s => s.isDefault);
-  if (fallback) return { stateName: fallback.stateName, stateColor: fallback.stateColor, stateIcon: fallback.stateIcon };
+  if (fallback) return {
+    stateName:  fallback.stateName,
+    stateColor: fallback.stateColor,
+    stateIcon:  fallback.stateIcon,
+    matchedConditions: [],
+  };
   return null;
 }

@@ -186,9 +186,9 @@ const _rawGetVState = (v, statesMap) => {
     if (result) return result;
   }
   const ign = getIgnition(v);
-  if (ign === true)  return { stateName: 'Running',  stateColor: '#059669', stateIcon: '🟢' };
-  if (ign === false) return { stateName: 'Stopped',  stateColor: '#ef4444', stateIcon: '🔴' };
-  return { stateName: 'Unknown', stateColor: '#94a3b8', stateIcon: '' };
+  if (ign === true)  return { stateName: 'Running',  stateColor: '#059669', stateIcon: '🟢', matchedConditions: [{ field: 'ignition', operator: 'eq', expected: true, actual: true }] };
+  if (ign === false) return { stateName: 'Stopped',  stateColor: '#ef4444', stateIcon: '🔴', matchedConditions: [{ field: 'ignition', operator: 'eq', expected: false, actual: false }] };
+  return { stateName: 'Unknown', stateColor: '#94a3b8', stateIcon: '', matchedConditions: [] };
 };
 
 // Evaluates vehicle state with stickiness applied.
@@ -228,7 +228,17 @@ const getVState = (v, statesMap) => {
   }
   return sticky.state; // still within dwell window
 };
-const vehicleDisplayName = (v) => v.vehicleName || v.vehicleNumber || `Vehicle #${v.id}`;
+const vehicleDisplayName = (v) => (v.vehicleName || v.vehicleNumber || `Vehicle #${v.id}`).toUpperCase();
+
+// Builds a debug tooltip string from matched state conditions.
+const stateConditionTooltip = (state) => {
+  if (!state?.matchedConditions?.length) return state?.stateName || '';
+  const lines = state.matchedConditions.map(c => {
+    const actual = c.actual === null || c.actual === undefined ? 'null' : String(c.actual);
+    return `${c.field} ${c.operator} ${c.expected}  →  actual: ${actual}`;
+  });
+  return `State: ${state.stateName}\n${lines.join('\n')}`;
+};
 
 // ─── Configurable fleet stat chips ───────────────────────────────────────────
 const ALL_FLEET_CHIPS = [
@@ -750,6 +760,20 @@ const MyFleet = () => {
     return () => clearInterval(id);
   }, []);
 
+  // Refresh state definitions every 5 minutes so Master Settings changes and
+  // server-side migration updates (e.g. runningStreak threshold) propagate to
+  // the client without a full page reload.
+  useEffect(() => {
+    const id = setInterval(() => {
+      getDeviceConfigs().then(r => {
+        const m = {};
+        (r.data || []).forEach(d => { if (d.states?.length) m[d.type] = d.states; });
+        setDeviceStatesByType(m);
+      }).catch(() => {});
+    }, 5 * 60_000);
+    return () => clearInterval(id);
+  }, []);
+
   // Re-read chip visibility when settings change
   useEffect(() => {
     const refresh = () => setVisibleChips(getVisibleFleetChips());
@@ -764,7 +788,20 @@ const MyFleet = () => {
   // ─── Fetching ───────────────────────────────────────────────────────────────
   const fetchVehicles = () => {
     setLoading(true);
-    getVehicles(viewClientId || undefined).then(r => setVehicles(r.data || [])).catch(console.error).finally(() => setLoading(false));
+    // Always reload state definitions alongside vehicles so the client picks up
+    // any condition changes made via Master Settings or server migration without
+    // requiring a full page reload.
+    Promise.allSettled([
+      getVehicles(viewClientId || undefined),
+      getDeviceConfigs(),
+    ]).then(([vResult, cResult]) => {
+      if (cResult.status === 'fulfilled') {
+        const m = {};
+        (cResult.value.data || []).forEach(d => { if (d.states?.length) m[d.type] = d.states; });
+        setDeviceStatesByType(m);
+      }
+      if (vResult.status === 'fulfilled') setVehicles(vResult.value.data || []);
+    }).catch(console.error).finally(() => setLoading(false));
   };
   const fetchGroups = () => {
     getGroups().then(r => setGroups(r.data || [])).catch(() => {});
@@ -824,10 +861,16 @@ const MyFleet = () => {
 
         // Push every position with valid lat/lng into the per-vehicle buffer
         // so the smooth-animation RAF loop has packets to interpolate between.
+        // Use lastSeenAt (real server UTC) not lastPacketTime (device-reported,
+        // can be 5.5 h ahead for GT06 with no timezone correction) — the RAF
+        // loop compares packetTime against Date.now()-25s, so a future timestamp
+        // means getInterpolated() never finds a straddling pair → no animation.
         positions.forEach(p => {
           if (p.lat != null && p.lng != null) {
             pushPosition(p.id, {
-              packetTime: p.lastPacketTime ? new Date(p.lastPacketTime).getTime() : Date.now(),
+              packetTime: p.lastSeenAt
+                ? new Date(p.lastSeenAt).getTime()
+                : Date.now(),
               lat:   p.lat,
               lng:   p.lng,
               speed: p.speed || 0,
@@ -2518,14 +2561,17 @@ const MyFleet = () => {
                       <span style={{ fontSize: 15, fontWeight: 800, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', letterSpacing: '-0.01em', maxWidth: '52%' }}>
                         {vehicleDisplayName(v)}
                       </span>
-                      {/* Status pill */}
-                      <span style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0,
-                        padding: '2px 9px', borderRadius: 20,
-                        background: `linear-gradient(135deg, ${stColor}35 0%, ${stColor}18 100%)`,
-                        border: `1px solid ${stColor}45`,
-                        fontSize: 10, fontWeight: 800, color: stColor, letterSpacing: '0.07em',
-                      }}>
+                      {/* Status pill — hover shows matched conditions (debug) */}
+                      <span
+                        title={stateConditionTooltip(lvs)}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0,
+                          padding: '2px 9px', borderRadius: 20,
+                          background: `linear-gradient(135deg, ${stColor}35 0%, ${stColor}18 100%)`,
+                          border: `1px solid ${stColor}45`,
+                          fontSize: 10, fontWeight: 800, color: stColor, letterSpacing: '0.07em',
+                          cursor: 'help',
+                        }}>
                         <span style={{ width: 5, height: 5, borderRadius: '50%', background: stColor, boxShadow: ign === true ? `0 0 6px ${stColor}` : 'none' }} />
                         {stLabel.toUpperCase()}
                       </span>
