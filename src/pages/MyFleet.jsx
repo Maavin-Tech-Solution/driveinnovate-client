@@ -2533,116 +2533,97 @@ const MyFleet = () => {
                 className="fv-card"
                 style={{
                   cursor: 'pointer',
-                  borderRadius: 16,
+                  borderRadius: 14,
                   marginBottom: 10,
                   overflow: 'hidden',
-                  background: isSel
-                    ? `linear-gradient(145deg, #FFFFFF 0%, ${stColor}10 100%)`
-                    : '#FFFFFF',
-                  border: isSel
-                    ? `1.5px solid ${stColor}60`
-                    : '1.5px solid #EEF0F6',
-                  boxShadow: isSel
-                    ? `0 6px 24px ${stColor}28, 0 2px 6px rgba(15,23,42,0.08), 0 0 0 1px ${stColor}20`
-                    : '0 2px 8px rgba(15,23,42,0.06), 0 0 0 1px rgba(15,23,42,0.03)',
+                  background: '#FFFFFF',
+                  borderLeft: `4px solid ${stColor}`,
+                  border: isSel ? `1.5px solid ${stColor}60` : '1.5px solid #E2E8F0',
+                  borderLeft: `4px solid ${stColor}`,
+                  boxShadow: isSel ? `0 4px 18px ${stColor}25` : '0 2px 6px rgba(0,0,0,0.07)',
                 }}>
 
-                {/* ── Card body — horizontal two-row layout ── */}
-                <div style={{ padding: '12px 14px 10px', display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                {/* ── Card body: icon | text | actions ── */}
+                <div style={{ display: 'flex', alignItems: 'center', padding: '14px 12px 14px 12px', gap: 12 }}>
 
-                  {/* 3D icon — left column */}
-                  <VehicleIcon icon={v.vehicleIcon} color={stColor} size={52} />
+                  {/* Vehicle icon — inline with text */}
+                  <div style={{ flexShrink: 0 }}>
+                    <VehicleIcon type={v.vehicleIcon} color={stColor} size={52} />
+                  </div>
 
-                  {/* Info column — all content goes here */}
+                  {/* Text block */}
                   <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
 
-                    {/* ROW 1: Name + Status pill + Age — all on one line */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 15, fontWeight: 800, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', letterSpacing: '-0.01em', maxWidth: '52%' }}>
+                    {/* Row 1: name + state badge */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: 800, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {vehicleDisplayName(v)}
                       </span>
-                      {/* Status pill — hover shows matched conditions (debug) */}
                       <span
                         title={stateConditionTooltip(lvs)}
                         style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0,
-                          padding: '2px 9px', borderRadius: 20,
-                          background: `linear-gradient(135deg, ${stColor}35 0%, ${stColor}18 100%)`,
-                          border: `1px solid ${stColor}45`,
-                          fontSize: 10, fontWeight: 800, color: stColor, letterSpacing: '0.07em',
-                          cursor: 'help',
+                          flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 5,
+                          padding: '4px 10px', borderRadius: 20,
+                          background: `${stColor}20`, border: `1.5px solid ${stColor}60`,
+                          fontSize: 12, fontWeight: 800, color: stColor, letterSpacing: '0.05em', cursor: 'help',
                         }}>
-                        <span style={{ width: 5, height: 5, borderRadius: '50%', background: stColor, boxShadow: ign === true ? `0 0 6px ${stColor}` : 'none' }} />
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: stColor, flexShrink: 0, boxShadow: stLabel === 'Running' ? `0 0 6px ${stColor}` : 'none' }} />
                         {stLabel.toUpperCase()}
                       </span>
-                      {/* Age */}
+                    </div>
+
+                    {/* Row 2: reg number + age */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {v.vehicleNumber && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                          <span style={{ fontSize: 14, fontWeight: 700, color: '#1D4ED8', fontFamily: 'monospace', letterSpacing: '0.04em' }}>{v.vehicleNumber}</span>
+                          <button onClick={e => copyToClip(e, v.vehicleNumber, `${v.id}-reg`)} title="Copy reg"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: copiedKey === `${v.id}-reg` ? '#10B981' : '#CBD5E1', fontSize: 13, lineHeight: 1 }}>
+                            {copiedKey === `${v.id}-reg` ? '✓' : '⎘'}
+                          </button>
+                        </span>
+                      )}
                       {ageLabel && (
-                        <span style={{ fontSize: 10, fontWeight: 700, color: ageColor, background: `${ageColor}18`, border: `1px solid ${ageColor}38`, padding: '2px 8px', borderRadius: 20, flexShrink: 0 }}>
+                        <span style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 12, fontWeight: 700, color: ageColor, background: `${ageColor}18`, padding: '2px 8px', borderRadius: 20, border: `1px solid ${ageColor}40` }}>
                           {ageLabel}
                         </span>
                       )}
                     </div>
 
-                    {/* ROW 2: Reg | IMEI | SIM1 | SIM2 — all inline chips, wrap if needed */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-                      {v.vehicleNumber && (
-                        <>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 5, padding: '2px 7px', fontSize: 11, fontWeight: 700, color: '#1D4ED8', fontFamily: 'monospace', letterSpacing: '0.04em' }}>
-                            🪪 {v.vehicleNumber}
-                          </span>
-                          <button onClick={e => copyToClip(e, v.vehicleNumber, `${v.id}-reg`)} title="Copy reg"
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', color: copiedKey === `${v.id}-reg` ? '#10B981' : '#CBD5E1', fontSize: 11, lineHeight: 1, transition: 'color 0.15s' }}>
-                            {copiedKey === `${v.id}-reg` ? '✓' : '⎘'}
-                          </button>
-                        </>
-                      )}
-                      {v.imei && (
-                        <>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 5, padding: '2px 7px', fontSize: 10.5, fontWeight: 600, color: '#64748B', fontFamily: 'monospace', letterSpacing: '0.03em' }}>
-                            📡 {v.imei}
-                          </span>
-                          <button onClick={e => copyToClip(e, v.imei, `${v.id}-imei`)} title="Copy IMEI"
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', color: copiedKey === `${v.id}-imei` ? '#10B981' : '#CBD5E1', fontSize: 11, lineHeight: 1, transition: 'color 0.15s' }}>
-                            {copiedKey === `${v.id}-imei` ? '✓' : '⎘'}
-                          </button>
-                        </>
-                      )}
-                      {v.sim1 && (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 5, padding: '2px 7px', fontSize: 10.5, fontWeight: 600, color: '#16A34A', fontFamily: 'monospace', letterSpacing: '0.02em' }}>
-                          SIM1 {v.sim1}
-                        </span>
-                      )}
-                      {v.sim2 && (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 5, padding: '2px 7px', fontSize: 10.5, fontWeight: 600, color: '#2563EB', fontFamily: 'monospace', letterSpacing: '0.02em' }}>
-                          SIM2 {v.sim2}
-                        </span>
-                      )}
-                    </div>
+                    {/* Row 3: IMEI */}
+                    {v.imei && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontSize: 13, fontWeight: 500, color: '#6B7280', fontFamily: 'monospace' }}>{v.imei}</span>
+                        <button onClick={e => copyToClip(e, v.imei, `${v.id}-imei`)} title="Copy IMEI"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: copiedKey === `${v.id}-imei` ? '#10B981' : '#D1D5DB', fontSize: 13, lineHeight: 1 }}>
+                          {copiedKey === `${v.id}-imei` ? '✓' : '⎘'}
+                        </button>
+                      </div>
+                    )}
 
+                    {/* Row 4: SIM numbers */}
+                    {(v.sim1 || v.sim2) && (
+                      <div style={{ display: 'flex', gap: 14 }}>
+                        {v.sim1 && <span style={{ fontSize: 13, color: '#374151' }}>SIM1 <span style={{ fontWeight: 700, color: '#16A34A', fontFamily: 'monospace' }}>{v.sim1}</span></span>}
+                        {v.sim2 && <span style={{ fontSize: 13, color: '#374151' }}>SIM2 <span style={{ fontWeight: 700, color: '#2563EB', fontFamily: 'monospace' }}>{v.sim2}</span></span>}
+                      </div>
+                    )}
                   </div>
 
-                  {/* Details + multi-track controls — top-right */}
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                    {/* Vehicle details button — opens popup on Overview tab */}
+                  {/* Right: actions */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, flexShrink: 0 }}>
                     <button
                       title="Vehicle details"
-                      onClick={e => {
-                        e.stopPropagation();
-                        selectVehicle(v);
-                        setDrawerVehicle(v);
-                        setActiveTab('overview');
-                      }}
+                      onClick={e => { e.stopPropagation(); selectVehicle(v); setDrawerVehicle(v); setActiveTab('overview'); }}
                       style={{
-                        width: 28, height: 28, borderRadius: 8, border: 'none', cursor: 'pointer',
-                        background: 'linear-gradient(135deg, #2563EB, #3B82F6)',
-                        color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        boxShadow: '0 2px 6px rgba(37,99,235,0.35)', transition: 'transform 0.15s',
+                        width: 30, height: 30, borderRadius: 8,
+                        border: '1.5px solid #E2E8F0', cursor: 'pointer', background: '#F8FAFC',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s',
                       }}
-                      onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.10)'}
-                      onMouseLeave={e => e.currentTarget.style.transform = ''}>
-                      <Ic n="info" size={12} color="#FFFFFF" />
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = '#3B82F6'; e.currentTarget.style.background = '#EFF6FF'; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = '#F8FAFC'; }}>
+                      <Ic n="info" size={14} color="#374151" />
                     </button>
-                    {/* Multi-track checkbox */}
                     <input
                       type="checkbox"
                       title="Track on map (multi-select)"

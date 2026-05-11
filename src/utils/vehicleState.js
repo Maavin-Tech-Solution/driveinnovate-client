@@ -49,10 +49,13 @@ function getFieldValue(deviceStatus, field) {
     case 'hasLocation': return !!((g.latitude || s.latitude) && (g.longitude || s.longitude));
 
     case 'lastSeenSeconds': {
-      // Use real server updatedAt (set by live poll) — not device lastPacketTime which
-      // may be in wrong timezone. Negative means device clock is ahead → treat as "live".
       const ts = deviceStatus.lastUpdate ?? null;
-      return secsSince(ts);
+      if (!ts) return null;         // no timestamp yet → can't determine → Offline won't fire
+      const secs = secsSince(ts);
+      // secsSince returns null for future timestamps (GT06 with wrong timezone).
+      // A future lastUpdate means the clock is ahead, so the device IS "live" —
+      // returning null means Offline won't fire which is the safest assumption.
+      return secs;
     }
 
     case 'speedZeroSeconds': {
@@ -70,17 +73,22 @@ function getFieldValue(deviceStatus, field) {
     }
 
     case 'runningStreak': {
-      // runningStreak is a persistent DB counter reset only when a new packet
-      // is processed.  Treat it as 0 if no live data has arrived in 90 s so a
-      // stale high-streak value doesn't keep a parked vehicle in Running.
-      // Use lastUpdate (= lastSeenAt from server when available, else updatedAt).
+      // runningStreak is a persistent DB counter that only resets when a new
+      // packet is processed.  If no reliable timestamp is available or the last
+      // update is older than 90 s, treat the streak as 0 so a vehicle that has
+      // been silent for hours cannot stay stuck in Running.
+      //
+      // Conservative rule: when in doubt, clear the streak.
+      // - No timestamp (lastSeenAt not yet populated)  → 0  (safe: can't confirm recent)
+      // - Future timestamp (GT06 timezone issue)        → 0  (safe: can't trust clock)
+      // - Age > 90 s                                    → 0  (genuinely stale)
+      // - Age ≤ 90 s                                    → actual DB value
       const streak = s.runningStreak ?? 0;
       if (streak === 0) return 0;
       const ts = deviceStatus.lastUpdate;
-      if (!ts) return streak; // no timestamp at all — trust the DB value
+      if (!ts) return 0;                              // no anchor → assume stale
       const staleSecs = secsSince(ts);
-      if (staleSecs === null) return streak; // future timestamp (tz issue) — trust DB
-      if (staleSecs > 90) return 0;          // genuinely stale — clear it
+      if (staleSecs === null || staleSecs > 90) return 0; // future ts or stale → clear
       return streak;
     }
 
