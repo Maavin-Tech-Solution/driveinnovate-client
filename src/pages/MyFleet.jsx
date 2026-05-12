@@ -698,6 +698,11 @@ const MyFleet = () => {
 
   const [mapCenter, setMapCenter] = useState(null);
   const [panelOpen, setPanelOpen] = useState(true);
+  const [hoveredCardId, setHoveredCardId] = useState(null);
+  const [hoverPos, setHoverPos] = useState({ top: 0, left: 0 });
+  const [geoAddress, setGeoAddress]   = useState(null);   // resolved address for hovered card
+  const [geoLoading, setGeoLoading]   = useState(false);
+  const geoCache = useRef(new Map());                      // key: "lat,lng" → address string
 
   // Delete confirmation modal state
   const [deleteConfirm, setDeleteConfirm] = useState(null); // { vehicleId, vehicleName, phrase }
@@ -784,6 +789,38 @@ const MyFleet = () => {
       window.removeEventListener('fleet-chips-updated', refresh);
     };
   }, []);
+
+  // ─── Reverse geocoding for hover popover ────────────────────────────────────
+  useEffect(() => {
+    if (!hoveredCardId) { setGeoAddress(null); return; }
+    const v = filteredVehicles.find(x => x.id === hoveredCardId);
+    const coords = v && getVehicleCoords(v);
+    if (!coords) { setGeoAddress(null); return; }
+
+    const key = `${coords.lat.toFixed(5)},${coords.lng.toFixed(5)}`;
+    if (geoCache.current.has(key)) {
+      setGeoAddress(geoCache.current.get(key));
+      return;
+    }
+
+    setGeoAddress(null);
+    setGeoLoading(true);
+    const controller = new AbortController();
+    fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${coords.lat}&lon=${coords.lng}&zoom=16&addressdetails=0`,
+      { signal: controller.signal, headers: { 'Accept-Language': 'en' } }
+    )
+      .then(r => r.json())
+      .then(data => {
+        const addr = data?.display_name || null;
+        geoCache.current.set(key, addr);
+        setGeoAddress(addr);
+      })
+      .catch(() => setGeoAddress(null))
+      .finally(() => setGeoLoading(false));
+
+    return () => controller.abort();
+  }, [hoveredCardId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Fetching ───────────────────────────────────────────────────────────────
   const fetchVehicles = () => {
@@ -894,6 +931,7 @@ const MyFleet = () => {
                 speedZeroSince: p.speedZeroSince  ?? (v.deviceStatus?.status?.speedZeroSince  ?? null),
                 engineOffSince: p.engineOffSince  ?? (v.deviceStatus?.status?.engineOffSince  ?? null),
                 runningStreak:  p.runningStreak   ?? (v.deviceStatus?.status?.runningStreak   ?? 0),
+                movement:       p.movement        ?? (v.deviceStatus?.status?.movement        ?? null),
               },
               gpsData: {
                 ...(v.deviceStatus?.gpsData || {}),
@@ -2529,202 +2567,282 @@ const MyFleet = () => {
                   if (coords) setMapCenter([coords.lat, coords.lng]);
                   selectVehicle(v);
                 }}
-                title={`${vehicleDisplayName(v)} — click to focus on map`}
+                onMouseEnter={e => {
+                  setHoveredCardId(v.id);
+                  const r = e.currentTarget.getBoundingClientRect();
+                  setHoverPos({ top: r.top, left: r.right + 8 });
+                }}
+                onMouseLeave={() => setHoveredCardId(null)}
                 className="fv-card"
                 style={{
-                  cursor: 'pointer',
-                  borderRadius: 14,
-                  marginBottom: 10,
-                  overflow: 'hidden',
+                  cursor: 'pointer', borderRadius: 10, marginBottom: 7, overflow: 'hidden',
                   background: '#FFFFFF',
                   borderLeft: `4px solid ${stColor}`,
                   border: isSel ? `1.5px solid ${stColor}60` : '1.5px solid #E2E8F0',
                   borderLeft: `4px solid ${stColor}`,
-                  boxShadow: isSel ? `0 4px 18px ${stColor}25` : '0 2px 6px rgba(0,0,0,0.07)',
+                  boxShadow: isSel ? `0 3px 14px ${stColor}22` : '0 1px 4px rgba(0,0,0,0.06)',
                 }}>
 
-                {/* ── Card body: icon | text | actions ── */}
-                <div style={{ display: 'flex', alignItems: 'center', padding: '14px 12px 14px 12px', gap: 12 }}>
+                {/* ── Compact card body ── */}
+                <div style={{ display: 'flex', alignItems: 'center', padding: '10px 10px 10px 10px', gap: 10 }}>
 
-                  {/* Vehicle icon — inline with text */}
+                  {/* Icon */}
                   <div style={{ flexShrink: 0 }}>
-                    <VehicleIcon type={v.vehicleIcon} color={stColor} size={52} />
+                    <VehicleIcon type={v.vehicleIcon} color={stColor} size={40} />
                   </div>
 
-                  {/* Text block */}
-                  <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {/* Name + reg + sensor icons */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
 
-                    {/* Row 1: name + state badge */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: 800, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {/* Row 1: name + state */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 800, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {vehicleDisplayName(v)}
                       </span>
                       <span
                         title={stateConditionTooltip(lvs)}
                         style={{
-                          flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 5,
-                          padding: '4px 10px', borderRadius: 20,
-                          background: `${stColor}20`, border: `1.5px solid ${stColor}60`,
-                          fontSize: 12, fontWeight: 800, color: stColor, letterSpacing: '0.05em', cursor: 'help',
+                          flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4,
+                          padding: '3px 8px', borderRadius: 20,
+                          background: `${stColor}20`, border: `1px solid ${stColor}50`,
+                          fontSize: 10.5, fontWeight: 800, color: stColor, letterSpacing: '0.05em', cursor: 'help',
                         }}>
-                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: stColor, flexShrink: 0, boxShadow: stLabel === 'Running' ? `0 0 6px ${stColor}` : 'none' }} />
+                        <span style={{ width: 5, height: 5, borderRadius: '50%', background: stColor, flexShrink: 0, boxShadow: stLabel === 'Running' ? `0 0 5px ${stColor}` : 'none' }} />
                         {stLabel.toUpperCase()}
                       </span>
                     </div>
 
-                    {/* Row 2: reg number + age */}
+                    {/* Row 2: reg (with copy) + sensor icon strip */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       {v.vehicleNumber && (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                          <span style={{ fontSize: 14, fontWeight: 700, color: '#1D4ED8', fontFamily: 'monospace', letterSpacing: '0.04em' }}>{v.vehicleNumber}</span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: '#1D4ED8', fontFamily: 'monospace' }}>
+                            {v.vehicleNumber}
+                          </span>
                           <button onClick={e => copyToClip(e, v.vehicleNumber, `${v.id}-reg`)} title="Copy reg"
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: copiedKey === `${v.id}-reg` ? '#10B981' : '#CBD5E1', fontSize: 13, lineHeight: 1 }}>
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: copiedKey === `${v.id}-reg` ? '#10B981' : '#CBD5E1', fontSize: 11, lineHeight: 1 }}>
                             {copiedKey === `${v.id}-reg` ? '✓' : '⎘'}
                           </button>
                         </span>
                       )}
-                      {ageLabel && (
-                        <span style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 12, fontWeight: 700, color: ageColor, background: `${ageColor}18`, padding: '2px 8px', borderRadius: 20, border: `1px solid ${ageColor}40` }}>
-                          {ageLabel}
-                        </span>
-                      )}
+
+                      {/* Sensor indicator icons ─────────────────────────────────
+                          5 default icons always present. Custom sensors are added
+                          only if their mappedParameter doesn't already correspond
+                          to one of the defaults — avoids duplicate icons.       */}
+                      {(() => {
+                        // Parameters covered by the 5 default icons
+                        const COVERED = new Set([
+                          'ignition','status.ignition','engineOn',           // 🔑
+                          'latitude','longitude','hasLocation',               // 📍
+                          'satellites','gpsData.satellites',                  // 🛰️
+                          'gsmSignal','status.gsmSignal','rssi',              // 📶
+                          'battery','status.battery','batteryLevel',          // 🔋
+                        ]);
+                        const customSensors = (vehicleSensorsCache.get(v.id) || [])
+                          .filter(s => !s.mappedParameter || !COVERED.has(s.mappedParameter));
+
+                        return (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+                            {/* Ignition */}
+                            <span title={`Ignition: ${ign === true ? 'ON' : ign === false ? 'OFF' : 'Unknown'}`}
+                              style={{ fontSize: 14, opacity: ign === true ? 1 : 0.22 }}>🔑</span>
+                            {/* GPS */}
+                            <span title={hasCoords ? 'GPS: Active' : 'GPS: No fix'}
+                              style={{ fontSize: 14, opacity: hasCoords ? 1 : 0.22 }}>📍</span>
+                            {/* Satellites */}
+                            <span title={`Satellites: ${v.deviceStatus?.gpsData?.satellites ?? 'N/A'}`}
+                              style={{ fontSize: 14, opacity: (v.deviceStatus?.gpsData?.satellites ?? 0) >= 4 ? 1 : 0.22 }}>🛰️</span>
+                            {/* GSM */}
+                            <span title={`GSM: ${v.deviceStatus?.status?.gsmSignal ?? 'N/A'}`}
+                              style={{ fontSize: 14, opacity: (v.deviceStatus?.status?.gsmSignal ?? 0) > 0 ? 1 : 0.22 }}>📶</span>
+                            {/* Battery */}
+                            <span title={`Battery: ${battery != null ? battery + 'V' : 'N/A'}`}
+                              style={{ fontSize: 14, opacity: battery != null ? (battery > 11 ? 1 : 0.5) : 0.22 }}>🔋</span>
+
+                            {/* Extra custom sensors (only those not already shown above) */}
+                            {customSensors.map(s => {
+                              const ds = v.deviceStatus || {};
+                              const st = ds.status || {};
+                              const g  = ds.gpsData || {};
+                              const io = g.ioElements || {};
+                              const pm = s.mappedParameter;
+                              let val = undefined;
+                              if (pm) {
+                                if (pm.startsWith('status.')) val = st[pm.slice(7)];
+                                else if (pm.startsWith('fuel.')) val = (ds.fuel || {})[pm.slice(5)];
+                                else if (['speed','latitude','longitude','altitude','satellites'].includes(pm)) val = g[pm];
+                                else { const r = io[pm]; val = r !== undefined ? (typeof r === 'object' && r !== null ? r.value : r) : undefined; }
+                              }
+                              return (
+                                <span key={s.id} title={`${s.name}: ${val !== undefined ? val : 'No data'}`}
+                                  style={{ fontSize: 14, opacity: val !== undefined ? 1 : 0.22 }}>
+                                  {sensorIcon(s.name, s.mappedParameter)}
+                                </span>
+                              );
+                            })}
+
+                            {/* Age */}
+                            {ageLabel && (
+                              <span style={{ fontSize: 10.5, fontWeight: 700, color: ageColor, marginLeft: 2 }}>
+                                {ageLabel}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
-
-                    {/* Row 3: IMEI */}
-                    {v.imei && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontSize: 13, fontWeight: 500, color: '#6B7280', fontFamily: 'monospace' }}>{v.imei}</span>
-                        <button onClick={e => copyToClip(e, v.imei, `${v.id}-imei`)} title="Copy IMEI"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: copiedKey === `${v.id}-imei` ? '#10B981' : '#D1D5DB', fontSize: 13, lineHeight: 1 }}>
-                          {copiedKey === `${v.id}-imei` ? '✓' : '⎘'}
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Row 4: SIM numbers */}
-                    {(v.sim1 || v.sim2) && (
-                      <div style={{ display: 'flex', gap: 14 }}>
-                        {v.sim1 && <span style={{ fontSize: 13, color: '#374151' }}>SIM1 <span style={{ fontWeight: 700, color: '#16A34A', fontFamily: 'monospace' }}>{v.sim1}</span></span>}
-                        {v.sim2 && <span style={{ fontSize: 13, color: '#374151' }}>SIM2 <span style={{ fontWeight: 700, color: '#2563EB', fontFamily: 'monospace' }}>{v.sim2}</span></span>}
-                      </div>
-                    )}
                   </div>
 
-                  {/* Right: actions */}
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                  {/* Actions */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                     <button
                       title="Vehicle details"
                       onClick={e => { e.stopPropagation(); selectVehicle(v); setDrawerVehicle(v); setActiveTab('overview'); }}
                       style={{
-                        width: 30, height: 30, borderRadius: 8,
-                        border: '1.5px solid #E2E8F0', cursor: 'pointer', background: '#F8FAFC',
+                        width: 26, height: 26, borderRadius: 7, border: '1px solid #E2E8F0',
+                        cursor: 'pointer', background: '#F8FAFC',
                         display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s',
                       }}
                       onMouseEnter={e => { e.currentTarget.style.borderColor = '#3B82F6'; e.currentTarget.style.background = '#EFF6FF'; }}
                       onMouseLeave={e => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = '#F8FAFC'; }}>
-                      <Ic n="info" size={14} color="#374151" />
+                      <Ic n="info" size={12} color="#374151" />
                     </button>
-                    <input
-                      type="checkbox"
-                      title="Track on map (multi-select)"
-                      checked={focusedIds.has(v.id)}
-                      onClick={e => e.stopPropagation()}
-                      onChange={() => toggleFocus(v.id)}
-                      style={{ width: 16, height: 16, accentColor: '#6366F1', cursor: 'pointer', margin: 0 }}
-                    />
+                    <input type="checkbox" title="Track on map"
+                      checked={focusedIds.has(v.id)} onClick={e => e.stopPropagation()} onChange={() => toggleFocus(v.id)}
+                      style={{ width: 14, height: 14, accentColor: '#6366F1', cursor: 'pointer', margin: 0 }} />
                   </div>
                 </div>
 
-                {/* ── Sensor strip ─────────────────────────────────────────
-                    Shows the custom sensors configured for this vehicle.
-                    Default: icon-only chips in the sidebar theme colour.
-                    Click the strip to expand and see live values.         ── */}
-                {(() => {
-                  const cardSensors = vehicleSensorsCache.get(v.id) || [];
-                  if (!cardSensors.length) return null;
-                  const expanded = expandedSensorId === v.id;
-                  // Resolve live value from deviceStatus using the same logic as SensorsTab
-                  const resolveVal = (param) => {
-                    if (!param) return undefined;
-                    const ds = v.deviceStatus || {};
-                    const s  = ds.status || {};
-                    const g  = ds.gpsData || {};
-                    const f  = ds.fuel || {};
-                    const io = g.ioElements || {};
-                    if (param.startsWith('status.')) return s[param.slice(7)];
-                    if (param.startsWith('fuel.'))   return f[param.slice(5)];
-                    if (['speed','latitude','longitude','altitude','satellites','course','heading','hdop'].includes(param)) return g[param];
-                    const raw = io[param];
-                    return raw !== undefined ? (typeof raw === 'object' && raw !== null ? raw.value : raw) : undefined;
-                  };
-                  return (
-                    <div
-                      onClick={e => { e.stopPropagation(); setExpandedSensorId(expanded ? null : v.id); }}
-                      title={expanded ? 'Collapse sensors' : 'Click to expand sensor values'}
-                      style={{
-                        background: 'var(--theme-sidebar-bg, #1A2F6B)',
-                        borderTop: '1px solid rgba(255,255,255,0.06)',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s',
-                      }}>
-                      {/* Collapsed — icon row */}
-                      {!expanded && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', flexWrap: 'wrap' }}>
-                          {cardSensors.map(s => {
-                            const val = resolveVal(s.mappedParameter);
-                            return (
-                              <span key={s.id} title={s.name}
-                                style={{
-                                  display: 'inline-flex', alignItems: 'center', gap: 4,
-                                  padding: '3px 8px', borderRadius: 20,
-                                  background: val !== undefined ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.06)',
-                                  border: '1px solid rgba(255,255,255,0.12)',
-                                  fontSize: 13,
-                                }}>
-                                {sensorIcon(s.name, s.mappedParameter)}
-                                {val !== undefined && (
-                                  <span style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.85)' }}>
-                                    {String(val)}{s.unit ? <span style={{ color: 'rgba(255,255,255,0.45)', marginLeft: 1 }}>{s.unit}</span> : null}
-                                  </span>
-                                )}
-                              </span>
-                            );
-                          })}
-                          <span style={{ marginLeft: 'auto', fontSize: 9, color: 'rgba(255,255,255,0.30)', letterSpacing: '0.05em' }}>▼</span>
-                        </div>
-                      )}
-                      {/* Expanded — grid of sensor tiles */}
-                      {expanded && (
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: 0 }}>
-                          {cardSensors.map((s, i) => {
-                            const val = resolveVal(s.mappedParameter);
-                            return (
-                              <div key={s.id}
-                                style={{
-                                  padding: '9px 10px',
-                                  borderRight: i < cardSensors.length - 1 ? '1px solid rgba(255,255,255,0.07)' : 'none',
-                                  display: 'flex', flexDirection: 'column', gap: 3,
-                                }}>
-                                <span style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: 3 }}>
-                                  {sensorIcon(s.name, s.mappedParameter)} {s.name}
-                                </span>
-                                <span style={{ fontSize: 15, fontWeight: 800, color: val !== undefined ? '#F1F5F9' : 'rgba(255,255,255,0.25)', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
-                                  {val !== undefined ? String(val) : '—'}
-                                  {val !== undefined && s.unit && <span style={{ fontSize: 9, fontWeight: 500, color: 'rgba(255,255,255,0.40)', marginLeft: 2 }}>{s.unit}</span>}
-                                </span>
-                              </div>
-                            );
-                          })}
-                          <div style={{ gridColumn: '1 / -1', padding: '4px 10px', textAlign: 'right', fontSize: 9, color: 'rgba(255,255,255,0.30)', letterSpacing: '0.05em', borderTop: '1px solid rgba(255,255,255,0.06)' }}>▲ collapse</div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
               </div>
             );
           })}
         </div>{/* /vehicle cards */}
+
+        {/* ── Hover detail popover ─────────────────────────────────────────────
+            Rendered at fixed position so it escapes the panel's overflow:hidden.
+            Shows full vehicle details + sensor values on card hover.          ── */}
+        {hoveredCardId && (() => {
+          const hv = filteredVehicles.find(x => x.id === hoveredCardId);
+          if (!hv) return null;
+          const hvs      = getVState(hv, deviceStatesByType);
+          const hvColor  = hvs.stateColor;
+          const hvIgn    = getIgnition(hv);
+          const hvSpeed  = hv.deviceStatus?.gpsData?.speed;
+          const hvBat    = hv.deviceStatus?.status?.battery;
+          const hvVolt   = hv.deviceStatus?.status?.externalVoltage;
+          const hvGsm    = hv.deviceStatus?.status?.gsmSignal;
+          const hvSat    = hv.deviceStatus?.gpsData?.satellites;
+          const hvFuel   = hv.deviceStatus?.fuel?.level;
+          const hvOdo    = hv.deviceStatus?.status?.odometer ?? hv.deviceStatus?.status?.lastOdometerReading;
+          const hvLastTs = hv.deviceStatus?.gpsData?.timestamp || hv.deviceStatus?.lastUpdate;
+          const hvMinsAgo = hvLastTs ? Math.round((Date.now() - new Date(hvLastTs).getTime()) / 60000) : null;
+          const hvAge    = hvMinsAgo === null ? '—' : hvMinsAgo < 2 ? 'Live' : hvMinsAgo < 60 ? `${hvMinsAgo}m ago` : hvMinsAgo < 1440 ? `${Math.floor(hvMinsAgo/60)}h ago` : `${Math.floor(hvMinsAgo/1440)}d ago`;
+          const hvCoords = getVehicleCoords(hv);
+          const hvSensors = vehicleSensorsCache.get(hv.id) || [];
+          const row = (label, value, color = '#0F172A') => value != null && value !== '' ? (
+            <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid #F1F5F9' }}>
+              <span style={{ fontSize: 12, color: '#64748B', fontWeight: 500 }}>{label}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color, fontFamily: typeof value === 'number' || /^\d/.test(String(value)) ? 'monospace' : 'inherit' }}>{value}</span>
+            </div>
+          ) : null;
+          // Clamp popover so it doesn't go off-screen
+          const popH = 420;
+          const topClamped = Math.min(hoverPos.top, window.innerHeight - popH - 16);
+          return (
+            <div
+              onMouseEnter={() => setHoveredCardId(hoveredCardId)}
+              onMouseLeave={() => setHoveredCardId(null)}
+              style={{
+                position: 'fixed', top: topClamped, left: hoverPos.left,
+                width: 280, maxHeight: popH, overflowY: 'auto',
+                background: '#FFFFFF', borderRadius: 14,
+                boxShadow: '0 8px 40px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.1)',
+                border: `1px solid ${hvColor}40`,
+                zIndex: 9999, pointerEvents: 'auto',
+              }}>
+              {/* Header */}
+              <div style={{ background: `linear-gradient(135deg, ${hvColor}22, ${hvColor}08)`, padding: '12px 14px 10px', borderBottom: `2px solid ${hvColor}30` }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                  <VehicleIcon type={hv.vehicleIcon} color={hvColor} size={36} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{vehicleDisplayName(hv)}</div>
+                    <div style={{ fontSize: 11, color: '#64748B', marginTop: 1 }}>{hvAge}</div>
+                  </div>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 9px', borderRadius: 20, background: `${hvColor}20`, border: `1px solid ${hvColor}50`, fontSize: 10, fontWeight: 800, color: hvColor }}>
+                    <span style={{ width: 5, height: 5, borderRadius: '50%', background: hvColor }} />
+                    {hvs.stateName.toUpperCase()}
+                  </span>
+                </div>
+              </div>
+              {/* Details */}
+              <div style={{ padding: '8px 14px 12px' }}>
+                {row('Reg No.', hv.vehicleNumber, '#1D4ED8')}
+                {row('IMEI', hv.imei, '#374151')}
+                {hv.sim1 && row('SIM 1', hv.sim1, '#16A34A')}
+                {hv.sim2 && row('SIM 2', hv.sim2, '#2563EB')}
+                {row('Ignition', hvIgn === true ? '● ON' : hvIgn === false ? '○ OFF' : null, hvIgn === true ? '#16A34A' : '#EF4444')}
+                {row('Speed', hvSpeed != null ? `${Math.round(hvSpeed)} km/h` : null, '#0EA5E9')}
+                {hvCoords && row('Coordinates', `${parseFloat(hvCoords.lat).toFixed(5)}, ${parseFloat(hvCoords.lng).toFixed(5)}`, '#6366F1')}
+                {/* Reverse geocoded address */}
+                {hvCoords && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '5px 0', borderBottom: '1px solid #F1F5F9', gap: 8 }}>
+                    <span style={{ fontSize: 12, color: '#64748B', fontWeight: 500, flexShrink: 0 }}>Address</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#374151', textAlign: 'right', lineHeight: 1.4 }}>
+                      {geoLoading
+                        ? <span style={{ color: '#94A3B8', fontStyle: 'italic' }}>Locating…</span>
+                        : geoAddress
+                          ? geoAddress
+                          : <span style={{ color: '#CBD5E1' }}>—</span>
+                      }
+                    </span>
+                  </div>
+                )}
+                {row('Satellites', hvSat != null ? `${hvSat}` : null)}
+                {row('Battery', hvBat != null ? `${hvBat} V` : null, '#D97706')}
+                {row('Ext. Voltage', hvVolt != null ? `${hvVolt} V` : null)}
+                {row('GSM Signal', hvGsm != null ? `${hvGsm}/5` : null)}
+                {row('Fuel', hvFuel != null ? `${hvFuel}%` : null, '#F59E0B')}
+                {row('Odometer', hvOdo != null ? `${parseFloat(hvOdo).toFixed(1)} km` : null)}
+                {/* Custom sensors */}
+                {hvSensors.length > 0 && (
+                  <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px dashed #E2E8F0' }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>Sensors</div>
+                    {hvSensors.map(s => {
+                      const ds = hv.deviceStatus || {};
+                      const st = ds.status || {}; const g = ds.gpsData || {};
+                      const io = g.ioElements || {}; const pm = s.mappedParameter;
+                      let val = undefined;
+                      if (pm) {
+                        if (pm.startsWith('status.')) val = st[pm.slice(7)];
+                        else if (pm.startsWith('fuel.')) val = (ds.fuel || {})[pm.slice(5)];
+                        else if (['speed','latitude','longitude','altitude','satellites'].includes(pm)) val = g[pm];
+                        else { const r = io[pm]; val = r !== undefined ? (typeof r === 'object' && r !== null ? r.value : r) : undefined; }
+                      }
+                      return row(`${sensorIcon(s.name, s.mappedParameter)} ${s.name}`, val !== undefined ? `${val}${s.unit ? ' ' + s.unit : ''}` : null, '#0F172A');
+                    })}
+                  </div>
+                )}
+
+                {/* Last packet received */}
+                {hvLastTs && (
+                  <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid #F1F5F9', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 11, color: '#94A3B8' }}>🕐</span>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Last Packet</div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>
+                        {new Date(hvLastTs).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                      </div>
+                    </div>
+                    <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, color: (() => { const m = hvMinsAgo; return m === null ? '#94A3B8' : m < 5 ? '#16a34a' : m < 30 ? '#d97706' : '#ef4444'; })() }}>
+                      {hvAge}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
       </div>{/* /inner wrapper */}
       </div>{/* /outer left panel */}
 

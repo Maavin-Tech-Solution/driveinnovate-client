@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import { getProfile, updateProfile, updatePassword, updateNotifications } from '../services/user.service';
+import { getScSettings, saveScSettings, testScCredentials } from '../services/smartchallan.service';
 import { useAuth } from '../context/AuthContext';
 import { toISTMonthYear } from '../utils/dateFormat';
 
@@ -47,8 +48,14 @@ const Profile = () => {
   const [profile, setProfile] = useState({ name: '', phone: '' });
   const [pwForm, setPwForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [notifs, setNotifs] = useState({ emailNotifications: true, smsNotifications: false, marketingNotifications: false });
-  const [loading, setLoading] = useState({ profile: false, password: false, notifs: false });
+  const [loading, setLoading] = useState({ profile: false, password: false, notifs: false, sc: false, scTest: false });
   const [tab, setTab] = useState('info');
+
+  // SmartChallan settings
+  const [sc, setSc] = useState({
+    scEnabled: false, scUsername: '', scPassword: '',
+    scRtoEnabled: false, scChallanEnabled: false, scDlEnabled: false,
+  });
 
   useEffect(() => {
     getProfile()
@@ -62,6 +69,9 @@ const Profile = () => {
         });
       })
       .catch(console.error);
+    getScSettings()
+      .then(res => { if (res.data) setSc(s => ({ ...s, ...res.data })); })
+      .catch(() => {});
   }, []);
 
   const handleProfileSave = async (e) => {
@@ -132,9 +142,10 @@ const Profile = () => {
       {/* ── Tab bar ── */}
       <div style={{ display: 'flex', gap: '4px', background: '#fff', borderBottom: '1px solid #e2e8f0', paddingLeft: '8px' }}>
         {[
-          { key: 'info', icon: '👤', label: 'Personal Info' },
-          { key: 'password', icon: '🔒', label: 'Security' },
+          { key: 'info',          icon: '👤', label: 'Personal Info' },
+          { key: 'password',      icon: '🔒', label: 'Security' },
           { key: 'notifications', icon: '🔔', label: 'Notifications' },
+          { key: 'rto-challan',   icon: '🚗', label: 'RTO & Challan' },
         ].map(({ key, icon, label }) => (
           <button
             key={key}
@@ -341,6 +352,135 @@ const Profile = () => {
               <div style={{ fontSize: '13px', color: '#92400e', lineHeight: 1.6 }}>
                 We recommend keeping email notifications enabled to receive important challan and RTO expiry alerts for your fleet vehicles.
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === 'rto-challan' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+          {/* Left: settings form */}
+          <div style={{ background: '#fff', borderRadius: '14px', border: '1px solid #e2e8f0', padding: '28px' }}>
+            <div style={{ fontSize: '15px', fontWeight: 700, color: '#1e293b', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ background: '#eff6ff', borderRadius: '8px', padding: '6px 8px', fontSize: '16px' }}>🚗</span>
+              Smart Challan Services
+            </div>
+            <p style={{ fontSize: '13px', color: '#94a3b8', margin: '0 0 20px' }}>
+              Connect your SmartChallan account to automatically fetch RTO, challan and DL data for your fleet.
+            </p>
+
+            {/* Master toggle */}
+            <Toggle
+              checked={sc.scEnabled}
+              onChange={() => setSc(s => ({ ...s, scEnabled: !s.scEnabled }))}
+              label="⚡ Smart Challan Services"
+              description="Enable integration with SmartChallan API"
+            />
+
+            {/* Credentials — only visible when enabled */}
+            {sc.scEnabled && (
+              <div style={{ background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0', padding: '20px', marginBottom: '10px' }}>
+                <div style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '14px' }}>
+                  SmartChallan Login
+                </div>
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>Username / Email</label>
+                  <input style={inputStyle} type="email" placeholder="your@email.com"
+                    value={sc.scUsername} onChange={e => setSc(s => ({ ...s, scUsername: e.target.value }))} />
+                </div>
+                <div style={{ ...fieldStyle, marginBottom: 0 }}>
+                  <label style={labelStyle}>Password</label>
+                  <input style={inputStyle} type="password" placeholder="••••••••"
+                    value={sc.scPassword} onChange={e => setSc(s => ({ ...s, scPassword: e.target.value }))} />
+                </div>
+              </div>
+            )}
+
+            {/* Sub-toggles */}
+            {sc.scEnabled && (
+              <>
+                <Toggle
+                  checked={sc.scRtoEnabled}
+                  onChange={() => setSc(s => ({ ...s, scRtoEnabled: !s.scRtoEnabled }))}
+                  label="📋 Enable RTO Services"
+                  description="Fetch insurance, fitness, pollution and road tax data"
+                />
+                <Toggle
+                  checked={sc.scChallanEnabled}
+                  onChange={() => setSc(s => ({ ...s, scChallanEnabled: !s.scChallanEnabled }))}
+                  label="🚦 Enable Challan Services"
+                  description="Fetch pending and disposed challan records"
+                />
+                <Toggle
+                  checked={sc.scDlEnabled}
+                  onChange={() => setSc(s => ({ ...s, scDlEnabled: !s.scDlEnabled }))}
+                  label="🪪 Enable DL Verification"
+                  description="Verify driving licence details for your drivers"
+                />
+              </>
+            )}
+
+            <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+              {sc.scEnabled && (
+                <button
+                  className="btn btn-outline"
+                  disabled={loading.scTest || !sc.scUsername || !sc.scPassword}
+                  onClick={async () => {
+                    setLoading(l => ({ ...l, scTest: true }));
+                    try {
+                      await testScCredentials({ scUsername: sc.scUsername, scPassword: sc.scPassword });
+                      toast.success('✅ Credentials verified successfully');
+                    } catch (e) {
+                      toast.error(e.response?.data?.message || 'Invalid credentials');
+                    } finally { setLoading(l => ({ ...l, scTest: false })); }
+                  }}>
+                  {loading.scTest ? 'Testing…' : '🔍 Test Connection'}
+                </button>
+              )}
+              <button
+                className="btn btn-primary"
+                disabled={loading.sc}
+                style={{ flex: 1 }}
+                onClick={async () => {
+                  setLoading(l => ({ ...l, sc: true }));
+                  try {
+                    await saveScSettings(sc);
+                    toast.success('SmartChallan settings saved');
+                  } catch (e) {
+                    toast.error(e.response?.data?.message || 'Failed to save');
+                  } finally { setLoading(l => ({ ...l, sc: false })); }
+                }}>
+                {loading.sc ? 'Saving…' : '💾 Save Settings'}
+              </button>
+            </div>
+          </div>
+
+          {/* Right: status summary */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div style={{ background: '#fff', borderRadius: '14px', border: '1px solid #e2e8f0', padding: '24px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '14px' }}>Service Status</div>
+              {[
+                { label: '⚡ SmartChallan',   value: sc.scEnabled },
+                { label: '📋 RTO Services',   value: sc.scEnabled && sc.scRtoEnabled },
+                { label: '🚦 Challan Services', value: sc.scEnabled && sc.scChallanEnabled },
+                { label: '🪪 DL Verification', value: sc.scEnabled && sc.scDlEnabled },
+              ].map(({ label, value }) => (
+                <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
+                  <span style={{ fontSize: '13px', color: '#475569' }}>{label}</span>
+                  <span style={{ fontSize: '12px', fontWeight: 600, padding: '3px 10px', borderRadius: '20px', background: value ? '#dcfce7' : '#f1f5f9', color: value ? '#16a34a' : '#94a3b8' }}>
+                    {value ? 'Active' : 'Off'}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ background: 'linear-gradient(135deg, #eff6ff, #dbeafe)', borderRadius: '14px', border: '1px solid #bfdbfe', padding: '20px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: '#1d4ed8', marginBottom: '8px' }}>ℹ️ How it works</div>
+              <ul style={{ fontSize: '13px', color: '#1e40af', lineHeight: 1.8, paddingLeft: '16px', margin: 0 }}>
+                <li>Your credentials are stored securely on our server</li>
+                <li>Login tokens are cached and refreshed automatically</li>
+                <li>RTO and Challan pages will show SmartChallan data when services are active</li>
+              </ul>
             </div>
           </div>
         </div>

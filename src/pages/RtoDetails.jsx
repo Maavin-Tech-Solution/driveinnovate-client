@@ -1,65 +1,185 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { toast } from 'react-toastify';
-import { getRtoDetails } from '../services/rto.service';
+import { getScRtoData } from '../services/smartchallan.service';
 import { toISTDateString } from '../utils/dateFormat';
-import ServiceGate from '../components/common/ServiceGate';
-
-const RTO_ENABLED = import.meta.env.VITE_RTO_SERVICE_ENABLED !== 'false';
-const RTO_MSG     = import.meta.env.VITE_RTO_UNAVAILABLE_MSG;
 
 const isExpiringSoon = (d) => { if (!d) return false; const diff = new Date(d) - new Date(); return diff > 0 && diff < 30 * 86400000; };
-const isExpired = (d) => { if (!d) return false; return new Date(d) < new Date(); };
+const isExpired      = (d) => { if (!d) return false; return new Date(d) < new Date(); };
+const dateMs         = (d) => d ? new Date(d).getTime() : 0;
 
 const DateCell = ({ date }) => {
   if (!date) return <span style={{ color: '#CBD5E1' }}>—</span>;
-  const expired = isExpired(date);
+  const expired  = isExpired(date);
   const expiring = isExpiringSoon(date);
   const color = expired ? '#DC2626' : expiring ? '#D97706' : '#059669';
   return (
     <div>
-      <div style={{ fontWeight: 700, color, fontSize: '14px' }}>{toISTDateString(date)}</div>
-      {expired  && <div style={{ fontSize: '11px', background: '#FEF2F2', color: '#DC2626', display: 'inline-block', padding: '1px 6px', borderRadius: '2px', marginTop: '3px', fontWeight: 700 }}>EXPIRED</div>}
-      {expiring && <div style={{ fontSize: '11px', background: '#FEF3C7', color: '#D97706', display: 'inline-block', padding: '1px 6px', borderRadius: '2px', marginTop: '3px', fontWeight: 700 }}>EXPIRING SOON</div>}
+      <div style={{ fontWeight: 700, color, fontSize: '13px' }}>{toISTDateString(date)}</div>
+      {expired  && <span style={{ fontSize: '10px', background: '#FEF2F2', color: '#DC2626', padding: '1px 5px', borderRadius: '2px', fontWeight: 700 }}>EXPIRED</span>}
+      {expiring && <span style={{ fontSize: '10px', background: '#FEF3C7', color: '#D97706', padding: '1px 5px', borderRadius: '2px', fontWeight: 700 }}>SOON</span>}
     </div>
   );
 };
 
+const normalise = (r) => ({
+  _raw:                 r,
+  id:                   r.id,
+  vehicleNumber:        r.vehicle_number || r.vehicleNumber || '—',
+  insuranceExpiry:      r.insurance_exp  || r.insuranceExpiry      || null,
+  roadTaxExpiry:        r.road_tax_exp   || r.roadTaxExpiry         || null,
+  fitnessExpiry:        r.fitness_exp    || r.fitnessExpiry         || null,
+  pollutionExpiry:      r.pollution_exp  || r.pollutionExpiry       || null,
+  nationalPermitExpiry: r.rto_data?.permit_exp || r.nationalPermitExpiry || null,
+  statePermit:          r.rto_data?.state_permit || r.rto_data?.statePermit || r.state_permit || null,
+});
+
+const EXPIRY_KEYS = ['insuranceExpiry','roadTaxExpiry','fitnessExpiry','pollutionExpiry','nationalPermitExpiry','statePermit'];
+const SORT_COLS   = ['vehicleNumber','insuranceExpiry','roadTaxExpiry','fitnessExpiry','pollutionExpiry','nationalPermitExpiry','statePermit'];
+
+const SortIcon = ({ col, sortCol, sortDir }) => {
+  if (sortCol !== col) return <span style={{ color: '#CBD5E1', marginLeft: 4 }}>⇅</span>;
+  return <span style={{ color: '#2563EB', marginLeft: 4 }}>{sortDir === 'asc' ? '↑' : '↓'}</span>;
+};
+
+// Detail modal showing full raw API response
+const DetailModal = ({ row, onClose }) => {
+  if (!row) return null;
+  const data = row._raw || row;
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 700, maxHeight: '85vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 80px rgba(0,0,0,0.25)' }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: 17, fontWeight: 800, color: '#0F172A' }}>{row.vehicleNumber}</div>
+            <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 2 }}>Full RTO Record</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#94A3B8', lineHeight: 1 }}>✕</button>
+        </div>
+        <div style={{ flex: 1, overflow: 'auto', padding: '20px 24px' }}>
+          {/* Key expiry fields */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10, marginBottom: 20 }}>
+            {[
+              { label: 'Insurance',      val: row.insuranceExpiry },
+              { label: 'Road Tax',       val: row.roadTaxExpiry },
+              { label: 'Fitness',        val: row.fitnessExpiry },
+              { label: 'Pollution',      val: row.pollutionExpiry },
+              { label: 'Nat. Permit',    val: row.nationalPermitExpiry },
+              { label: 'State Permit',   val: row.statePermit },
+            ].map(({ label, val }) => (
+              <div key={label} style={{ background: '#F8FAFC', borderRadius: 8, padding: '10px 14px', border: '1px solid #E2E8F0' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>{label}</div>
+                <DateCell date={val} />
+              </div>
+            ))}
+          </div>
+          {/* Raw rto_data JSON */}
+          {data.rto_data && (
+            <>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Raw RTO Data</div>
+              <div style={{ background: '#F1F5F9', borderRadius: 8, padding: '14px', fontSize: 12, fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 300, overflow: 'auto', color: '#334155', border: '1px solid #E2E8F0' }}>
+                {JSON.stringify(data.rto_data, null, 2)}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const FILTERS = [
+  { key: 'all',      label: 'All' },
+  { key: 'expired',  label: '⚠ Expired' },
+  { key: 'expiring', label: '🔔 Expiring Soon' },
+  { key: 'ok',       label: '✅ Valid' },
+];
+
 const RtoDetails = () => {
-  const [rtoList, setRtoList] = useState([]);
+  const [rows,    setRows]    = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState(null);
+  const [search,  setSearch]  = useState('');
+  const [sortCol, setSortCol] = useState('vehicleNumber');
+  const [sortDir, setSortDir] = useState('asc');
+  const [filter,  setFilter]  = useState('all');
+  const [detail,  setDetail]  = useState(null);
 
   useEffect(() => {
-    getRtoDetails()
-      .then((res) => setRtoList(res.data || []))
-      .catch((err) => toast.error(err.message || 'Failed to load RTO details'))
+    getScRtoData()
+      .then(res => {
+        if (res?.success === false) throw new Error(res.message || 'API error');
+        setRows((Array.isArray(res?.data) ? res.data : []).map(normalise));
+      })
+      .catch(err => {
+        const msg = err?.response?.data?.message || err?.message || 'Failed to load RTO data';
+        setError(msg); toast.error(msg);
+      })
       .finally(() => setLoading(false));
   }, []);
 
-  const expired  = rtoList.filter(r => ['insuranceExpiry','roadTaxExpiry','fitnessExpiry','pollutionExpiry','nationalPermitExpiry'].some(k => isExpired(r[k]))).length;
-  const expiring = rtoList.filter(r => ['insuranceExpiry','roadTaxExpiry','fitnessExpiry','pollutionExpiry','nationalPermitExpiry'].some(k => isExpiringSoon(r[k]))).length;
+  const handleSort = (col) => {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortCol(col); setSortDir('asc'); }
+  };
+
+  const displayed = useMemo(() => {
+    let list = rows;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter(r => r.vehicleNumber.toLowerCase().includes(q));
+    }
+    if (filter === 'expired')  list = list.filter(r => EXPIRY_KEYS.some(k => isExpired(r[k])));
+    if (filter === 'expiring') list = list.filter(r => !EXPIRY_KEYS.some(k => isExpired(r[k])) && EXPIRY_KEYS.some(k => isExpiringSoon(r[k])));
+    if (filter === 'ok')       list = list.filter(r => !EXPIRY_KEYS.some(k => isExpired(r[k])) && !EXPIRY_KEYS.some(k => isExpiringSoon(r[k])));
+    list = [...list].sort((a, b) => {
+      let va = SORT_COLS.includes(sortCol) && sortCol !== 'vehicleNumber' ? dateMs(a[sortCol]) : (a[sortCol] || '');
+      let vb = SORT_COLS.includes(sortCol) && sortCol !== 'vehicleNumber' ? dateMs(b[sortCol]) : (b[sortCol] || '');
+      if (va < vb) return sortDir === 'asc' ? -1 : 1;
+      if (va > vb) return sortDir === 'asc' ?  1 : -1;
+      return 0;
+    });
+    return list;
+  }, [rows, search, filter, sortCol, sortDir]);
+
+  const expired  = rows.filter(r => EXPIRY_KEYS.some(k => isExpired(r[k]))).length;
+  const expiring = rows.filter(r => !EXPIRY_KEYS.some(k => isExpired(r[k])) && EXPIRY_KEYS.some(k => isExpiringSoon(r[k]))).length;
+
+  const Th = ({ col, children }) => (
+    <th onClick={() => handleSort(col)} style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}>
+      {children}<SortIcon col={col} sortCol={sortCol} sortDir={sortDir} />
+    </th>
+  );
 
   return (
-    <ServiceGate enabled={RTO_ENABLED} message={RTO_MSG} serviceName="RTO Details" icon="🚦">
     <div>
       {/* Summary pills */}
-      {rtoList.length > 0 && (
-        <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap' }}>
-          <div className="stat-pill stat-pill-blue">
-            <span style={{ fontWeight: 800, fontSize: '18px' }}>{rtoList.length}</span>
-            <span>Total Vehicles</span>
+      {rows.length > 0 && (
+        <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap' }}>
+          <div className="stat-pill stat-pill-blue"><span style={{ fontWeight: 800, fontSize: '18px' }}>{rows.length}</span><span>Total</span></div>
+          {expired > 0  && <div className="stat-pill stat-pill-red"><span style={{ fontWeight: 800, fontSize: '18px' }}>⚠ {expired}</span><span>Expired</span></div>}
+          {expiring > 0 && <div className="stat-pill stat-pill-amber"><span style={{ fontWeight: 800, fontSize: '18px' }}>🔔 {expiring}</span><span>Expiring Soon</span></div>}
+        </div>
+      )}
+
+      {/* Controls */}
+      {rows.length > 0 && (
+        <div style={{ display: 'flex', gap: '10px', marginBottom: '14px', flexWrap: 'wrap', alignItems: 'center' }}>
+          {/* Search */}
+          <div style={{ position: 'relative' }}>
+            <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8', pointerEvents: 'none' }}>⌕</span>
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search vehicle…"
+              className="form-control" style={{ paddingLeft: 30, width: 200 }} />
           </div>
-          {expired > 0 && (
-            <div className="stat-pill stat-pill-red">
-              <span style={{ fontWeight: 800, fontSize: '18px' }}>⚠ {expired}</span>
-              <span>Expired Documents</span>
-            </div>
-          )}
-          {expiring > 0 && (
-            <div className="stat-pill stat-pill-amber">
-              <span style={{ fontWeight: 800, fontSize: '18px' }}>🔔 {expiring}</span>
-              <span>Expiring in 30 Days</span>
-            </div>
-          )}
+          {/* Filter pills */}
+          <div style={{ display: 'flex', gap: 6 }}>
+            {FILTERS.map(f => (
+              <button key={f.key} onClick={() => setFilter(f.key)}
+                className={`btn btn-sm ${filter === f.key ? 'btn-primary' : 'btn-outline'}`}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <span style={{ marginLeft: 'auto', fontSize: 12, color: '#94A3B8' }}>{displayed.length} of {rows.length} vehicles</span>
         </div>
       )}
 
@@ -67,41 +187,46 @@ const RtoDetails = () => {
         <div style={{ padding: '80px', textAlign: 'center', color: '#94A3B8', fontSize: '15px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
           <span className="spinner" /> Loading RTO data…
         </div>
-      ) : rtoList.length === 0 ? (
-        <div style={{ padding: '80px', textAlign: 'center', color: '#94A3B8', fontSize: '15px' }}>No RTO details found.</div>
+      ) : error ? (
+        <div style={{ padding: '60px', textAlign: 'center' }}>
+          <div style={{ fontSize: '32px', marginBottom: '12px' }}>⚠️</div>
+          <div style={{ fontSize: '15px', fontWeight: 600, color: '#DC2626', marginBottom: '8px' }}>Could not load RTO data</div>
+          <div style={{ fontSize: '13px', color: '#94A3B8' }}>{error}</div>
+          <div style={{ fontSize: '12px', color: '#94A3B8', marginTop: '8px' }}>Check SmartChallan credentials in <strong>Profile → RTO &amp; Challan</strong></div>
+        </div>
+      ) : displayed.length === 0 ? (
+        <div style={{ padding: '60px', textAlign: 'center', color: '#94A3B8', fontSize: '15px' }}>No records found.</div>
       ) : (
         <div className="table-container">
           <table>
             <thead>
               <tr>
-                <th>Vehicle</th>
-                <th>Owner</th>
-                <th>Body Type</th>
-                <th>Insurance</th>
-                <th>Road Tax</th>
-                <th>Fitness</th>
-                <th>Pollution</th>
-                <th>Nat. Permit</th>
-                <th>Actions</th>
+                <Th col="vehicleNumber">Vehicle</Th>
+                <Th col="insuranceExpiry">Insurance</Th>
+                <Th col="roadTaxExpiry">Road Tax</Th>
+                <Th col="fitnessExpiry">Fitness</Th>
+                <Th col="pollutionExpiry">Pollution</Th>
+                <Th col="nationalPermitExpiry">Nat. Permit</Th>
+                <Th col="statePermit">State Permit</Th>
+                <th>Details</th>
               </tr>
             </thead>
             <tbody>
-              {rtoList.map((rto) => (
-                <tr key={rto.id}>
+              {displayed.map(r => (
+                <tr key={r.id}>
+                  <td><span style={{ fontWeight: 800, color: '#0F172A', fontSize: '14px' }}>{r.vehicleNumber}</span></td>
+                  <td><DateCell date={r.insuranceExpiry} /></td>
+                  <td><DateCell date={r.roadTaxExpiry} /></td>
+                  <td><DateCell date={r.fitnessExpiry} /></td>
+                  <td><DateCell date={r.pollutionExpiry} /></td>
+                  <td><DateCell date={r.nationalPermitExpiry} /></td>
+                  <td><DateCell date={r.statePermit} /></td>
                   <td>
-                    <span style={{ fontWeight: 800, color: '#0F172A', letterSpacing: '-0.01em' }}>
-                      {rto.vehicle?.vehicleNumber || rto.vehicleNumber}
-                    </span>
-                  </td>
-                  <td>{rto.ownerName || '—'}</td>
-                  <td>{rto.bodyType || '—'}</td>
-                  <td><DateCell date={rto.insuranceExpiry} /></td>
-                  <td><DateCell date={rto.roadTaxExpiry} /></td>
-                  <td><DateCell date={rto.fitnessExpiry} /></td>
-                  <td><DateCell date={rto.pollutionExpiry} /></td>
-                  <td><DateCell date={rto.nationalPermitExpiry} /></td>
-                  <td>
-                    <button className="btn btn-outline btn-sm">✏️ Edit</button>
+                    <button onClick={() => setDetail(r)}
+                      style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 6, padding: '5px 10px', cursor: 'pointer', color: '#2563EB', fontSize: 14, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                      title="View full details">
+                      🔍 View
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -109,8 +234,9 @@ const RtoDetails = () => {
           </table>
         </div>
       )}
+
+      <DetailModal row={detail} onClose={() => setDetail(null)} />
     </div>
-    </ServiceGate>
   );
 };
 
