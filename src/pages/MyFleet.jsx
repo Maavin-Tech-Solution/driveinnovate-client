@@ -488,7 +488,6 @@ const FocusBoundsController = ({ bounds }) => {
 // never lost.  Only selection toggle causes a remount (intentional — it
 // resizes the icon and re-anchors the position).
 const SmoothMarker = ({ vehicleId, markerRefs, position, icon, eventHandlers, children }) => {
-  const initialPos = useRef(position);
   const markerRef = useRef(null);
 
   // Register / unregister this marker so the RAF controller can find it.
@@ -498,8 +497,14 @@ const SmoothMarker = ({ vehicleId, markerRefs, position, icon, eventHandlers, ch
     return () => { markerRefs.current.delete(vehicleId); };
   }, [vehicleId, markerRefs]);
 
+  // Pass the live `position` prop straight to react-leaflet — it calls
+  // setLatLng() whenever the array's values change, so every poll cycle the
+  // marker visibly moves.  RAF still drives 60-Hz interpolation between polls
+  // via SmoothMotionController.setLatLng(), and that override sticks until the
+  // next prop change.  The combination gives smooth motion while-moving AND
+  // reliable updates when standing still.
   return (
-    <Marker ref={markerRef} position={initialPos.current} icon={icon} eventHandlers={eventHandlers}>
+    <Marker ref={markerRef} position={position} icon={icon} eventHandlers={eventHandlers}>
       {children}
     </Marker>
   );
@@ -877,77 +882,39 @@ const MyFleet = () => {
       // Skip when tab is not visible — saves requests, battery, CPU
       if (document.visibilityState === 'hidden') return;
       try {
-        const params = [];
-        if (effectClientId) params.push(`clientId=${effectClientId}`);
-        if (lastSince) params.push(`since=${encodeURIComponent(lastSince)}`);
-        const url = `/vehicles/live-positions${params.length ? '?' + params.join('&') : ''}`;
+        const url = effectClientId
+          ? `/vehicles/live-positions?clientId=${effectClientId}`
+          : '/vehicles/live-positions';
         const res = await api.get(url);
         const positions = Array.isArray(res.data) ? res.data : [];
-        // Empty means nothing changed since last poll — skip re-render entirely
         if (!positions.length) return;
 
-        // Advance the cursor strictly on lastSeenAt (matching the server
-        // filter).  Never use updatedAt as a fallback — reconcile bumps it
-        // without a real packet, which would prematurely advance the cursor
-        // and exclude genuinely silent vehicles from future polls.
-        const maxTime = positions.reduce((m, p) => {
-          if (!p.lastSeenAt) return m;
-          return m === null || new Date(p.lastSeenAt) > new Date(m) ? p.lastSeenAt : m;
-        }, lastSince);
-        if (maxTime) lastSince = maxTime;
-
-        // Push every position with valid lat/lng into the per-vehicle buffer
-        // so the smooth-animation RAF loop has packets to interpolate between.
-        // Use lastSeenAt (real server UTC) not lastPacketTime (device-reported,
-        // can be 5.5 h ahead for GT06 with no timezone correction) — the RAF
-        // loop compares packetTime against Date.now()-25s, so a future timestamp
-        // means getInterpolated() never finds a straddling pair → no animation.
+        // Push every fresh GPS coord into the smooth-animation buffer so RAF
+        // has packets to interpolate between polls.  Use MongoDB packet time
+        // (gpsData.timestamp) so the buffer's ordering reflects real GPS fix
+        // time, not server-side state-write time.
         positions.forEach(p => {
-          if (p.lat != null && p.lng != null) {
+          const lat = p.deviceStatus?.gpsData?.latitude;
+          const lng = p.deviceStatus?.gpsData?.longitude;
+          const t   = p.deviceStatus?.gpsData?.timestamp || p.deviceStatus?.lastUpdate;
+          if (lat != null && lng != null) {
             pushPosition(p.id, {
-              packetTime: p.lastSeenAt
-                ? new Date(p.lastSeenAt).getTime()
-                : Date.now(),
-              lat:   p.lat,
-              lng:   p.lng,
-              speed: p.speed || 0,
+              packetTime: t ? new Date(t).getTime() : Date.now(),
+              lat:   Number(lat),
+              lng:   Number(lng),
+              speed: Number(p.deviceStatus?.gpsData?.speed) || 0,
             });
           }
         });
 
+        // Replace each vehicle wholesale from the comprehensive payload.  The
+        // server returns the SAME shape as getVehicles / syncVehicleData, so a
+        // simple spread keeps every UI surface (markers, hover tooltips, card
+        // popovers, click drawer) reading from one in-sync object.
         setVehicles(prev => prev.map(v => {
           const p = positions.find(x => x.id === v.id);
-          if (!p) return v; // unchanged — keep existing reference (no re-render for this vehicle)
-          return {
-            ...v,
-            deviceStatus: {
-              ...v.deviceStatus,
-              status: {
-                ...(v.deviceStatus?.status || {}),
-                ignition:       p.engineOn,
-                // Duration-tracker timestamps — vehicleState.js computes
-                // speedZeroSeconds / ignitionOffSeconds from these live so they
-                // auto-increment with the 30-second stateTick.
-                speedZeroSince: p.speedZeroSince  ?? (v.deviceStatus?.status?.speedZeroSince  ?? null),
-                engineOffSince: p.engineOffSince  ?? (v.deviceStatus?.status?.engineOffSince  ?? null),
-                runningStreak:  p.runningStreak   ?? (v.deviceStatus?.status?.runningStreak   ?? 0),
-                movement:       p.movement        ?? (v.deviceStatus?.status?.movement        ?? null),
-              },
-              gpsData: {
-                ...(v.deviceStatus?.gpsData || {}),
-                latitude:  p.lat,
-                longitude: p.lng,
-                speed:     p.speed,
-                timestamp: p.lastPacketTime,
-              },
-              // lastSeenAt only — never fall back to updatedAt (bumped by
-              // reconcile) or lastPacketTime (device-time, possibly wrong TZ).
-              // If null, we genuinely don't know when the device was last seen
-              // and the existing v.deviceStatus.lastUpdate (from initial load)
-              // is preserved by the spread above.
-              ...(p.lastSeenAt ? { lastUpdate: p.lastSeenAt } : {}),
-            },
-          };
+          if (!p) return v;
+          return { ...v, ...p };
         }));
       } catch (_) { /* silently ignore poll errors */ }
     };
