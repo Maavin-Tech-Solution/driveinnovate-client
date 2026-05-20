@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { VehicleIcon, VEHICLE_ICONS, VEHICLE_ICON_LABELS, vehicleMarkerHtml } from '../utils/vehicleIcons';
 import { toast } from 'react-toastify';
-import { MapContainer, TileLayer, Marker, Tooltip, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Polyline, Tooltip, useMap } from 'react-leaflet';
 import MarkerClusterGroup from 'react-leaflet-cluster';
 import 'react-leaflet-cluster/lib/assets/MarkerCluster.css';
 import 'react-leaflet-cluster/lib/assets/MarkerCluster.Default.css';
@@ -278,6 +278,39 @@ const getMapSubdomains = () => {
   return ['roadmap', 'terrain', 'satellite', 'hybrid'].includes(style) ? '0123' : 'abcd';
 };
 
+// ─── Trail helpers ───────────────────────────────────────────────────────────
+// Bearing in degrees clockwise from north between two GPS points.
+const bearingDeg = (lat1, lng1, lat2, lng2) => {
+  const toRad = d => d * Math.PI / 180;
+  const φ1 = toRad(lat1), φ2 = toRad(lat2);
+  const Δλ = toRad(lng2 - lng1);
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+};
+
+// ">" chevron divIcon, rotated to face the segment bearing.  Drawn as two
+// strokes meeting at an apex (no fill) so a row of them reads as ">>>>>>".
+// Default orientation points UP (bearing 0); the SVG-level rotate transform
+// pivots the path around the icon's centre so the chevron stays pinned on
+// the geographic point regardless of bearing.  Stroke midpoints are designed
+// to coincide with iconAnchor, so the visual centre matches the GPS point.
+const TRAIL_COLOR    = '#FFFFFF';
+const TRAIL_OUTLINE  = 'rgba(15, 23, 42, 0.55)';
+const ARROW_SIZE     = 14;
+const ARROW_CENTER   = ARROW_SIZE / 2;     // 7
+const makeArrowIcon = (deg) => L.divIcon({
+  className: '',
+  // Path apex at (7, 4) and base at (3.5, 10) / (10.5, 10) → the midpoint of
+  // each stroke is exactly (5.25, 7) and (8.75, 7), so the combined visual
+  // centre of the V lands precisely at (7, 7) = iconAnchor.
+  html: `<svg width="${ARROW_SIZE}" height="${ARROW_SIZE}" viewBox="0 0 ${ARROW_SIZE} ${ARROW_SIZE}" style="pointer-events:none; overflow:visible; filter: drop-shadow(0 0 1.5px ${TRAIL_OUTLINE});">
+    <path d="M3.5 10 L7 4 L10.5 10" fill="none" stroke="${TRAIL_COLOR}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" transform="rotate(${deg} ${ARROW_CENTER} ${ARROW_CENTER})"/>
+  </svg>`,
+  iconSize:   [ARROW_SIZE, ARROW_SIZE],
+  iconAnchor: [ARROW_CENTER, ARROW_CENTER],
+});
+
 // ─── Map Marker Icon ──────────────────────────────────────────────────────────
 // Uses vehicleMarkerHtml: 3D Fluent Emoji icon inside a coloured circle badge
 // with a triangular pin below pointing to the exact GPS coordinate.
@@ -361,6 +394,35 @@ const Ic = ({ n, size = 14, color = 'currentColor', sw = 1.75 }) => {
   return <svg {...p}>{I[n] ?? null}</svg>;
 };
 
+// ─── SectionHeader — sidebar section label with coloured icon chip + hairline ─
+// Replaces the bland uppercase-grey label that used to sit above each sidebar
+// section.  The icon badge picks up the section's accent colour so users can
+// scan vertically; the hairline divider gives the heading visual weight without
+// shouting.
+const SectionHeader = ({ icon, title, accent = '#475569' }) => (
+  <div style={{
+    display: 'flex', alignItems: 'center', gap: 10,
+    paddingBottom: 8, marginBottom: 12,
+    borderBottom: '1px solid #E2E8F0',
+  }}>
+    <div style={{
+      width: 26, height: 26, borderRadius: 8,
+      background: `linear-gradient(135deg, ${accent} 0%, ${accent}D9 100%)`,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      boxShadow: `0 2px 6px ${accent}40`,
+      flexShrink: 0,
+    }}>
+      <Ic n={icon} size={13} color="#FFFFFF" />
+    </div>
+    <span style={{
+      fontSize: 12.5, fontWeight: 800, color: '#0F172A',
+      letterSpacing: '0.02em', flex: 1, minWidth: 0,
+    }}>
+      {title}
+    </span>
+  </div>
+);
+
 // ─── Style helpers ────────────────────────────────────────────────────────────
 const btn = (bg, disabled) => ({
   display: 'inline-flex', alignItems: 'center', gap: 6,
@@ -373,78 +435,86 @@ const inp = { width: '100%', padding: '8px 11px', border: `1px solid ${C.border}
 const lbl = { display: 'block', fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' };
 
 // ─── MapController — flies to a position once (on vehicle click) ─────────────
-const MapController = ({ center }) => {
+// Zoom 17 is street-level (single-building resolution) — close enough to see
+// the vehicle on a specific stretch of road, while still giving enough context
+// to follow it as it moves.  Don't zoom in if the user is already deeper.
+//
+// `focusKey` is a counter bumped by selectVehicle on every click — using that
+// as the effect dependency (instead of `center`) makes the flyTo fire
+// reliably even when the user re-clicks the same vehicle or two vehicles
+// happen to share coordinates, both of which can shallow-equal in the
+// `center` array reference and silently skip the effect.
+const FOCUS_ZOOM = 17;
+const MapController = ({ center, focusKey }) => {
   const map = useMap();
-  useEffect(() => { if (center) map.flyTo(center, 15, { duration: 1 }); }, [center, map]);
+  const latestCenter = useRef(center);
+  latestCenter.current = center;
+  useEffect(() => {
+    const c = latestCenter.current;
+    if (!c) return;
+    const targetZoom = Math.max(map.getZoom(), FOCUS_ZOOM);
+    map.flyTo(c, targetZoom, { duration: 1 });
+  }, [focusKey, map]);
   return null;
 };
 
-// ─── SmoothMotionController — RAF-driven marker animation + edge auto-pan ────
-// Walks the registered marker refs every animation frame, computes each
-// vehicle's interpolated position from the buffer (displayTime = now - lag),
-// and calls marker.setLatLng() directly. This bypasses React re-rendering for
-// the position update — only icon/tooltip changes still go through React.
+// ─── Smooth marker animation ─────────────────────────────────────────────────
+// When a new poll arrives, each vehicle's marker gets a "motion segment":
+// animate from where it's currently displayed to the new target position over
+// MOTION_DURATION_MS.  A single shared RAF loop walks all active segments at
+// 60 Hz and calls marker.setLatLng() — no React re-renders during animation.
 //
-// For the currently-selected vehicle, also re-centres the map when the marker
-// drifts within 20 % of any edge — debounced to once per 600 ms so user pan
-// gestures aren't constantly fighting auto-pan.
+// Linear interpolation matches the visual fidelity needed for highway tracking
+// (at 100 km/h the vehicle covers ~140 m in 5 s, well within "looks like a
+// straight line" tolerance).  For sharp turns between polls the marker cuts
+// the corner slightly — acceptable trade-off vs. fetching routing data.
+const MOTION_DURATION_MS = 5000;          // matches poll interval
+const motionSegments = new Map();         // vehicleId -> { fromLat, fromLng, toLat, toLng, startedAt }
+
+const startMotionSegment = (vehicleId, fromLat, fromLng, toLat, toLng) => {
+  motionSegments.set(vehicleId, {
+    fromLat, fromLng, toLat, toLng,
+    startedAt: performance.now(),
+  });
+};
+
 const SmoothMotionController = ({ markerRefs, selectedId }) => {
   const map = useMap();
 
   useEffect(() => {
     let rafId;
     let lastPanAt = 0;
-    // Below this zoom MarkerClusterGroup hides individual markers (clustering
-    // is disabled at zoom 14 in our setup), so animating positions is just CPU
-    // overhead that nobody can see — and worse, it churns cluster layout.
-    const ANIMATE_AT_ZOOM = 14;
 
     const tick = () => {
-      // Cheap zoom check on every frame — getZoom() is a property read.
-      if (map.getZoom() < ANIMATE_AT_ZOOM) {
-        rafId = requestAnimationFrame(tick);
-        return;
-      }
-      const displayTime = Date.now() - DISPLAY_LAG_MS;
+      const now = performance.now();
 
-      markerRefs.current.forEach((markerRef, vehicleId) => {
-        const m = markerRef?.current;
-        if (!m) return;
+      motionSegments.forEach((seg, vehicleId) => {
+        const m = markerRefs.current.get(vehicleId)?.current;
+        if (!m) { motionSegments.delete(vehicleId); return; }
 
-        let pos;
-        if (isMoving(vehicleId)) {
-          pos = getInterpolated(vehicleId, displayTime);
-        } else {
-          // Stationary vehicles: snap to latest, no animation. Skip if the
-          // marker is already at the latest position (avoids redundant
-          // setLatLng → cluster-layout work for hundreds of parked cars).
-          const latest = getLatest(vehicleId);
-          if (!latest) return;
-          const cur = m.getLatLng();
-          if (Math.abs(cur.lat - latest.lat) < 1e-7 && Math.abs(cur.lng - latest.lng) < 1e-7) return;
-          pos = { lat: latest.lat, lng: latest.lng };
-        }
-        if (!pos) return;
+        const t = Math.min((now - seg.startedAt) / MOTION_DURATION_MS, 1);
+        // easeOutCubic — fast start, soft landing on the target
+        const e = 1 - Math.pow(1 - t, 3);
+        const lat = seg.fromLat + (seg.toLat - seg.fromLat) * e;
+        const lng = seg.fromLng + (seg.toLng - seg.fromLng) * e;
+        m.setLatLng([lat, lng]);
 
-        m.setLatLng([pos.lat, pos.lng]);
+        if (t >= 1) motionSegments.delete(vehicleId);
 
         // Selected-vehicle edge auto-pan
-        if (selectedId && vehicleId === selectedId) {
-          const now = performance.now();
-          if (now - lastPanAt > 600) {
-            const latlng = L.latLng(pos.lat, pos.lng);
-            const b   = map.getBounds();
-            const ne  = b.getNorthEast();
-            const sw  = b.getSouthWest();
-            const pad = 0.2;
-            const inner = L.latLngBounds(
-              [sw.lat + (ne.lat - sw.lat) * pad, sw.lng + (ne.lng - sw.lng) * pad],
-              [ne.lat - (ne.lat - sw.lat) * pad, ne.lng - (ne.lng - sw.lng) * pad],
-            );
-            if (!inner.contains(latlng)) {
-              map.panTo(latlng, { animate: true, duration: 0.5 });
-              lastPanAt = now;
-            }
+        if (selectedId && vehicleId === selectedId && (now - lastPanAt > 600)) {
+          const latlng = L.latLng(lat, lng);
+          const b   = map.getBounds();
+          const ne  = b.getNorthEast();
+          const sw  = b.getSouthWest();
+          const pad = 0.2;
+          const inner = L.latLngBounds(
+            [sw.lat + (ne.lat - sw.lat) * pad, sw.lng + (ne.lng - sw.lng) * pad],
+            [ne.lat - (ne.lat - sw.lat) * pad, ne.lng - (ne.lng - sw.lng) * pad],
+          );
+          if (!inner.contains(latlng)) {
+            map.panTo(latlng, { animate: true, duration: 0.5 });
+            lastPanAt = now;
           }
         }
       });
@@ -488,23 +558,40 @@ const FocusBoundsController = ({ bounds }) => {
 // never lost.  Only selection toggle causes a remount (intentional — it
 // resizes the icon and re-anchors the position).
 const SmoothMarker = ({ vehicleId, markerRefs, position, icon, eventHandlers, children }) => {
+  const initialPos = useRef(position);  // stable — react-leaflet sees same ref forever
   const markerRef = useRef(null);
 
-  // Register / unregister this marker so the RAF controller can find it.
+  // Register / unregister this marker so SmoothMotionController can find it.
   useEffect(() => {
     if (!markerRefs || vehicleId == null) return;
     markerRefs.current.set(vehicleId, markerRef);
     return () => { markerRefs.current.delete(vehicleId); };
   }, [vehicleId, markerRefs]);
 
-  // Pass the live `position` prop straight to react-leaflet — it calls
-  // setLatLng() whenever the array's values change, so every poll cycle the
-  // marker visibly moves.  RAF still drives 60-Hz interpolation between polls
-  // via SmoothMotionController.setLatLng(), and that override sticks until the
-  // next prop change.  The combination gives smooth motion while-moving AND
-  // reliable updates when standing still.
+  // When the position prop changes (new poll), start a new motion segment from
+  // the marker's CURRENT displayed position to the new target.  RAF takes it
+  // from here and interpolates over MOTION_DURATION_MS.  We deliberately do
+  // NOT forward `position` to <Marker> — that would let react-leaflet snap the
+  // marker straight to the target, defeating the animation.
+  useEffect(() => {
+    if (!position) return;
+    const [toLat, toLng] = position;
+    if (toLat == null || toLng == null) return;
+
+    const m = markerRef.current;
+    if (!m) return;
+    const cur = m.getLatLng();
+
+    // Skip if essentially unchanged (< ~1 m at the equator).
+    if (Math.abs(cur.lat - toLat) < 1e-6 && Math.abs(cur.lng - toLng) < 1e-6) {
+      motionSegments.delete(vehicleId);
+      return;
+    }
+    startMotionSegment(vehicleId, cur.lat, cur.lng, toLat, toLng);
+  }, [position, vehicleId]);
+
   return (
-    <Marker ref={markerRef} position={position} icon={icon} eventHandlers={eventHandlers}>
+    <Marker ref={markerRef} position={initialPos.current} icon={icon} eventHandlers={eventHandlers}>
       {children}
     </Marker>
   );
@@ -702,6 +789,7 @@ const MyFleet = () => {
   const [playerTo, setPlayerTo] = useState(null);
 
   const [mapCenter, setMapCenter] = useState(null);
+  const [mapFocusKey, setMapFocusKey] = useState(0); // bumped on every click → forces MapController flyTo
   const [panelOpen, setPanelOpen] = useState(true);
   const [hoveredCardId, setHoveredCardId] = useState(null);
   const [hoverPos, setHoverPos] = useState({ top: 0, left: 0 });
@@ -871,51 +959,27 @@ const MyFleet = () => {
       .finally(() => setLoading(false));
   }, [viewClientId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── Live-position auto-refresh (5 s, differential, pauses when tab hidden) ──
+  // ─── Live-position auto-refresh (5 s, pauses when tab hidden) ───────────────
   // Restarts when viewClientId changes so the poll tracks the right fleet.
+  // Uses the SAME endpoint as the initial load (`getVehicles`) — guarantees the
+  // poll's response shape matches what every UI surface already reads.  A
+  // previous "differential live-positions" optimisation drifted out of sync
+  // with the comprehensive shape and silently produced stale-data symptoms.
   useEffect(() => {
-    // Track the latest packet time we've seen so the server only returns changed vehicles
-    let lastSince = null;
-    const effectClientId = viewClientId; // captured at effect-run time
+    const effectClientId = viewClientId;
 
     const poll = async () => {
-      // Skip when tab is not visible — saves requests, battery, CPU
       if (document.visibilityState === 'hidden') return;
       try {
-        const url = effectClientId
-          ? `/vehicles/live-positions?clientId=${effectClientId}`
-          : '/vehicles/live-positions';
-        const res = await api.get(url);
-        const positions = Array.isArray(res.data) ? res.data : [];
-        if (!positions.length) return;
-
-        // Push every fresh GPS coord into the smooth-animation buffer so RAF
-        // has packets to interpolate between polls.  Use MongoDB packet time
-        // (gpsData.timestamp) so the buffer's ordering reflects real GPS fix
-        // time, not server-side state-write time.
-        positions.forEach(p => {
-          const lat = p.deviceStatus?.gpsData?.latitude;
-          const lng = p.deviceStatus?.gpsData?.longitude;
-          const t   = p.deviceStatus?.gpsData?.timestamp || p.deviceStatus?.lastUpdate;
-          if (lat != null && lng != null) {
-            pushPosition(p.id, {
-              packetTime: t ? new Date(t).getTime() : Date.now(),
-              lat:   Number(lat),
-              lng:   Number(lng),
-              speed: Number(p.deviceStatus?.gpsData?.speed) || 0,
-            });
-          }
+        const res  = await getVehicles(effectClientId || undefined);
+        const list = Array.isArray(res.data) ? res.data : [];
+        if (!list.length) return;
+        // Replace by id; preserves vehicles that the poll didn't return (e.g.
+        // permission filtering edge cases) instead of dropping them.
+        setVehicles(prev => {
+          const byId = new Map(list.map(v => [v.id, v]));
+          return prev.map(v => byId.get(v.id) ?? v);
         });
-
-        // Replace each vehicle wholesale from the comprehensive payload.  The
-        // server returns the SAME shape as getVehicles / syncVehicleData, so a
-        // simple spread keeps every UI surface (markers, hover tooltips, card
-        // popovers, click drawer) reading from one in-sync object.
-        setVehicles(prev => prev.map(v => {
-          const p = positions.find(x => x.id === v.id);
-          if (!p) return v;
-          return { ...v, ...p };
-        }));
       } catch (_) { /* silently ignore poll errors */ }
     };
 
@@ -964,6 +1028,70 @@ const MyFleet = () => {
   // SmoothMotionController reads the selected vehicle's interpolated position
   // straight from the buffer; trackedPosition / trackedVehicleId state is kept
   // for reference but no longer needs the per-poll mirror that lived here.
+
+  // ─── Tracked-vehicle trail ─────────────────────────────────────────────────
+  // While a vehicle is selected, record every new position into a trail that
+  // renders as a polyline behind the marker.  The trail resets when the user
+  // selects a different vehicle (or deselects).  Capped to TRAIL_MAX_POINTS so
+  // long sessions don't bloat memory or slow rendering.
+  const TRAIL_MAX_POINTS = 300;       // ~25 min at 5 s polling
+  const TRAIL_MIN_DELTA  = 1e-5;      // ~1 m at the equator — ignore GPS jitter
+  const [trail, setTrail] = useState([]);
+  const trailVehicleIdRef = useRef(null);
+
+  useEffect(() => {
+    if (!selectedVehicle) {
+      trailVehicleIdRef.current = null;
+      setTrail([]);
+      return;
+    }
+    const coords = getVehicleCoords(selectedVehicle);
+
+    // Selection changed → reset trail, seed with current point (if any).
+    if (trailVehicleIdRef.current !== selectedVehicle.id) {
+      trailVehicleIdRef.current = selectedVehicle.id;
+      setTrail(coords ? [[coords.lat, coords.lng]] : []);
+      return;
+    }
+
+    // Same vehicle — append if it actually moved.
+    if (!coords) return;
+    setTrail(prev => {
+      const last = prev[prev.length - 1];
+      if (last && Math.abs(last[0] - coords.lat) < TRAIL_MIN_DELTA
+              && Math.abs(last[1] - coords.lng) < TRAIL_MIN_DELTA) return prev;
+      const next = [...prev, [coords.lat, coords.lng]];
+      return next.length > TRAIL_MAX_POINTS ? next.slice(-TRAIL_MAX_POINTS) : next;
+    });
+  }, [
+    selectedVehicle?.id,
+    selectedVehicle?.deviceStatus?.gpsData?.latitude,
+    selectedVehicle?.deviceStatus?.gpsData?.longitude,
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Dense direction chevrons placed along every segment so the trail reads as
+  // a continuous ">>>>>>" pointing toward the vehicle's heading.  Each segment
+  // gets CHEVRONS_PER_SEGMENT evenly-spaced marks, all sharing the segment's
+  // bearing (one bearing calc per segment — cheap).
+  const trailArrows = useMemo(() => {
+    if (trail.length < 2) return [];
+    const CHEVRONS_PER_SEGMENT = 4;
+    const arrows = [];
+    for (let i = 1; i < trail.length; i++) {
+      const [a0, a1] = trail[i - 1];
+      const [b0, b1] = trail[i];
+      const deg = bearingDeg(a0, a1, b0, b1);
+      for (let j = 0; j < CHEVRONS_PER_SEGMENT; j++) {
+        const t = (j + 0.5) / CHEVRONS_PER_SEGMENT;
+        arrows.push({
+          key: `${i}-${j}`,
+          pos: [a0 + (b0 - a0) * t, a1 + (b1 - a1) * t],
+          deg,
+        });
+      }
+    }
+    return arrows;
+  }, [trail]);
 
   useEffect(() => {
     if (!selectedVehicle) { setSensors([]); setCustomFields([]); return; }
@@ -1067,6 +1195,10 @@ const MyFleet = () => {
     setReportData(null);
     const coords = getVehicleCoords(v);
     if (coords) setMapCenter([coords.lat, coords.lng]);
+    // Always bump the focus key — even if coords are missing on this click,
+    // a later poll may resolve them and the user expects the next click to
+    // re-fly.  MapController gates flyTo on mapCenter being non-null.
+    setMapFocusKey(k => k + 1);
     setEditForm({
       vehicleNumber: v.vehicleNumber || '', vehicleName: v.vehicleName || '',
       chasisNumber: v.chasisNumber || '', engineNumber: v.engineNumber || '',
@@ -1492,21 +1624,10 @@ const MyFleet = () => {
     if (!drawerVehicle) return null;
     const dv       = drawerVehicle;
     const ign      = getIgnition(dv);
-    const gps      = dv.deviceStatus?.gpsData;
-    const dst      = dv.deviceStatus?.status;
-    const dfuel    = dv.deviceStatus?.fuel;
     const dvs      = getVState(dv, deviceStatesByType);
     const ignColor = dvs.stateColor;
     const ignBg    = ign === true ? '#f0fdf4' : ign === false ? '#fef2f2' : '#f8fafc';
     const ignLabel = dvs.stateName;
-    const statItems = [
-      gps?.speed      != null && { icon: '🏎️', label: 'Speed',      val: String(gps.speed),              unit: 'km/h', accent: gps.speed > 80 ? '#dc2626' : '#2563eb' },
-      dfuel?.level    != null && { icon: '⛽',  label: 'Fuel',       val: String(Math.round(dfuel.level)), unit: '%',    accent: dfuel.level < 20 ? '#dc2626' : dfuel.level < 40 ? '#d97706' : '#16a34a' },
-      dst?.battery    != null && { icon: '🔋',  label: 'Battery',    val: String(dst.battery),             unit: '%',    accent: dst.battery < 20 ? '#dc2626' : '#7c3aed' },
-      dst?.voltage    != null && { icon: '⚡',  label: 'Voltage',    val: String(dst.voltage),             unit: 'V',    accent: '#d97706' },
-      gps?.satellites != null && { icon: '🛰️', label: 'Satellites', val: String(gps.satellites),          unit: '',     accent: gps.satellites < 4 ? '#d97706' : '#059669' },
-      dst?.gsmSignal  != null && { icon: '📶', label: 'GSM',        val: String(dst.gsmSignal),            unit: '',     accent: '#0891b2' },
-    ].filter(Boolean);
     return (
       <div style={{ position: 'fixed', inset: 0, zIndex: 7000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setDrawerVehicle(null)}>
         <style>{`
@@ -1576,81 +1697,10 @@ const MyFleet = () => {
             {/* ── Left panel ── */}
             <div style={{ width: 272, borderRight: '1px solid #E8ECF2', display: 'flex', flexDirection: 'column', background: '#FFFFFF', flexShrink: 0, overflowY: 'auto' }}>
 
-              {/* Live data grid */}
+              {/* Quick actions — rounded pill buttons (moved to the top of the
+                  sidebar so Sync / Play / View on Map are always one click away) */}
               <div style={{ padding: '18px 16px 14px' }}>
-                <div style={{ fontSize: 10.5, fontWeight: 800, color: '#64748B', letterSpacing: '0.10em', textTransform: 'uppercase', marginBottom: 12 }}>Live Data</div>
-                {statItems.length > 0 ? (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    {statItems.map((s, i) => (
-                      <div key={i} style={{
-                        background: `linear-gradient(135deg, ${s.accent} 0%, ${s.accent}CC 100%)`,
-                        borderRadius: 12,
-                        padding: '12px 14px',
-                        position: 'relative', overflow: 'hidden',
-                        boxShadow: `0 4px 12px ${s.accent}38`,
-                      }}>
-                        <div style={{ position: 'absolute', right: -8, top: -8, width: 48, height: 48, borderRadius: '50%', background: 'rgba(255,255,255,0.12)', pointerEvents: 'none' }} />
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6, position: 'relative', zIndex: 1 }}>
-                          <span style={{ fontSize: 13 }}>{s.icon}</span>
-                          <span style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.82)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{s.label}</span>
-                        </div>
-                        <div style={{ fontSize: 22, fontWeight: 800, color: '#FFFFFF', fontVariantNumeric: 'tabular-nums', lineHeight: 1, position: 'relative', zIndex: 1 }}>
-                          {s.val}<span style={{ fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.78)', marginLeft: 3 }}>{s.unit}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div style={{ background: '#F8FAFC', border: '1px dashed #CBD5E1', borderRadius: 10, padding: '18px', textAlign: 'center', color: '#94A3B8', fontSize: 12 }}>No live data</div>
-                )}
-
-                {/* Sensors section */}
-                {drawerSensors.length > 0 && (
-                  <div style={{ marginTop: 14 }}>
-                    <div style={{ fontSize: 11, fontWeight: 800, color: '#0F172A', letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 10 }}>Sensors</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                      {drawerSensors.map(s => {
-                        // Resolve live value from device status
-                        const ds  = dv.deviceStatus || {};
-                        const st  = ds.status  || {};
-                        const g   = ds.gpsData || {};
-                        const f   = ds.fuel    || {};
-                        const io  = g.ioElements || {};
-                        const param = s.mappedParameter || '';
-                        let lv;
-                        if (param.startsWith('status.')) lv = st[param.slice(7)];
-                        else if (param.startsWith('fuel.')) lv = f[param.slice(5)];
-                        else if (['speed','latitude','longitude','altitude','satellites','course','heading','hdop'].includes(param)) lv = g[param];
-                        else { const raw = io[param]; lv = raw !== undefined ? (typeof raw === 'object' && raw !== null ? raw.value : raw) : undefined; }
-
-                        const hasVal = lv !== undefined && lv !== null;
-                        const accent = hasVal ? '#6366F1' : '#94A3B8';
-                        return (
-                          <div key={s.id} style={{
-                            background: hasVal ? 'linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)' : '#F1F5F9',
-                            borderRadius: 12, padding: '12px 14px',
-                            position: 'relative', overflow: 'hidden',
-                            boxShadow: hasVal ? '0 4px 12px rgba(99,102,241,0.32)' : 'none',
-                          }}>
-                            <div style={{ position: 'absolute', right: -8, top: -8, width: 40, height: 40, borderRadius: '50%', background: hasVal ? 'rgba(255,255,255,0.12)' : 'transparent', pointerEvents: 'none' }} />
-                            <div style={{ fontSize: 9, fontWeight: 700, color: hasVal ? 'rgba(255,255,255,0.80)' : '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6, position: 'relative', zIndex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {s.name}
-                            </div>
-                            <div style={{ fontSize: 20, fontWeight: 800, color: hasVal ? '#FFFFFF' : '#CBD5E1', fontVariantNumeric: 'tabular-nums', lineHeight: 1, position: 'relative', zIndex: 1 }}>
-                              {hasVal ? String(lv) : '—'}
-                              {hasVal && s.unit && <span style={{ fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.75)', marginLeft: 3 }}>{s.unit}</span>}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Quick actions — rounded pill buttons */}
-              <div style={{ padding: '0 16px 16px' }}>
-                <div style={{ fontSize: 10.5, fontWeight: 800, color: '#64748B', letterSpacing: '0.10em', textTransform: 'uppercase', marginBottom: 10 }}>Actions</div>
+                <SectionHeader icon="zap" title="Quick Actions" accent="#0891B2" />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
                   {[
                     { label: syncing && syncingId === dv.id ? 'Syncing…' : 'Sync Data',  icon: 'refresh', color: '#0891B2', grad: 'linear-gradient(135deg,#0891B2,#06B6D4)', onClick: () => handleSync(dv), disabled: syncing && syncingId === dv.id },
@@ -1674,9 +1724,51 @@ const MyFleet = () => {
                 </div>
               </div>
 
+              {/* Sensors — only when the vehicle has configured sensors */}
+              {drawerSensors.length > 0 && (
+                <div style={{ padding: '0 16px 16px' }}>
+                  <SectionHeader icon="activity" title="Sensors" accent="#6366F1" />
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    {drawerSensors.map(s => {
+                      // Resolve live value from device status
+                      const ds  = dv.deviceStatus || {};
+                      const st  = ds.status  || {};
+                      const g   = ds.gpsData || {};
+                      const f   = ds.fuel    || {};
+                      const io  = g.ioElements || {};
+                      const param = s.mappedParameter || '';
+                      let lv;
+                      if (param.startsWith('status.')) lv = st[param.slice(7)];
+                      else if (param.startsWith('fuel.')) lv = f[param.slice(5)];
+                      else if (['speed','latitude','longitude','altitude','satellites','course','heading','hdop'].includes(param)) lv = g[param];
+                      else { const raw = io[param]; lv = raw !== undefined ? (typeof raw === 'object' && raw !== null ? raw.value : raw) : undefined; }
+
+                      const hasVal = lv !== undefined && lv !== null;
+                      return (
+                        <div key={s.id} style={{
+                          background: hasVal ? 'linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)' : '#F1F5F9',
+                          borderRadius: 12, padding: '12px 14px',
+                          position: 'relative', overflow: 'hidden',
+                          boxShadow: hasVal ? '0 4px 12px rgba(99,102,241,0.32)' : 'none',
+                        }}>
+                          <div style={{ position: 'absolute', right: -8, top: -8, width: 40, height: 40, borderRadius: '50%', background: hasVal ? 'rgba(255,255,255,0.12)' : 'transparent', pointerEvents: 'none' }} />
+                          <div style={{ fontSize: 9, fontWeight: 700, color: hasVal ? 'rgba(255,255,255,0.80)' : '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6, position: 'relative', zIndex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {s.name}
+                          </div>
+                          <div style={{ fontSize: 20, fontWeight: 800, color: hasVal ? '#FFFFFF' : '#CBD5E1', fontVariantNumeric: 'tabular-nums', lineHeight: 1, position: 'relative', zIndex: 1 }}>
+                            {hasVal ? String(lv) : '—'}
+                            {hasVal && s.unit && <span style={{ fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.75)', marginLeft: 3 }}>{s.unit}</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Device info — card style */}
               <div style={{ padding: '0 16px 20px' }}>
-                <div style={{ fontSize: 10.5, fontWeight: 800, color: '#64748B', letterSpacing: '0.10em', textTransform: 'uppercase', marginBottom: 10 }}>Device Info</div>
+                <SectionHeader icon="cpu" title="Device Info" accent="#475569" />
                 <div style={{ background: '#F8FAFC', borderRadius: 12, border: '1px solid #E8ECF2', overflow: 'hidden' }}>
                   {[
                     ['Type',   dv.deviceType || '—'],
@@ -1725,7 +1817,20 @@ const MyFleet = () => {
               {/* Tab content */}
               <div style={{ flex: 1, overflow: 'auto', background: '#FFFFFF', borderRadius: '0 0 24px 0' }}>
                 <div style={{ padding: 24 }}>
-                  {activeTab === 'overview' && <OverviewTab vehicle={dv} />}
+                  {activeTab === 'overview' && (
+                    <OverviewTab vehicle={dv} cf={{
+                      fields:   customFields,
+                      showForm: showCfForm,
+                      form:     cfForm,
+                      setForm:  setCfForm,
+                      editing:  editingCf,
+                      saving:   savingCf,
+                      open:     openCfForm,
+                      save:     handleSaveCf,
+                      remove:   handleDeleteCf,
+                      cancel:   () => setShowCfForm(false),
+                    }} />
+                  )}
                   {activeTab === 'trips' && (
                     <TripsTab vehicle={dv} reportFrom={reportFrom} reportTo={reportTo}
                       reportData={reportData} reportLoading={reportLoading} reportPage={reportPage}
@@ -1758,7 +1863,7 @@ const MyFleet = () => {
       </div>
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drawerVehicle, activeTab, syncing, syncingId, liveShareEnabled, isPapaOrDealer, user, deviceStatesByType, sensors, drawerSensors, loadingSensors, showSensorForm, sensorForm, editingSensor, savingSensor, editForm, saving, reportFrom, reportTo, reportData, reportLoading, reportPage, reportTab, reportExporting, packetsDownloading, selectedVehicle]);
+  }, [drawerVehicle, activeTab, syncing, syncingId, liveShareEnabled, isPapaOrDealer, user, deviceStatesByType, sensors, drawerSensors, loadingSensors, showSensorForm, sensorForm, editingSensor, savingSensor, editForm, saving, reportFrom, reportTo, reportData, reportLoading, reportPage, reportTab, reportExporting, packetsDownloading, selectedVehicle, customFields, showCfForm, cfForm, editingCf, savingCf]);
 
   /* ══════ TABLE VIEW ══════ */
   if (viewMode === 'table') {
@@ -2815,7 +2920,7 @@ const MyFleet = () => {
 
       {/* ── MAP AREA — flex:1, takes remaining space between panels ── */}
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden', minWidth: 0 }}>
-        <MapContainer center={INDIA_CENTER} zoom={5} style={{ position: 'absolute', inset: 0, height: '100%', width: '100%' }} scrollWheelZoom zoomControl={false}>
+        <MapContainer center={INDIA_CENTER} zoom={5} style={{ position: 'absolute', inset: 0, height: '100%', width: '100%' }} scrollWheelZoom zoomControl={true}>
           <TileLayer
             url={getMapTileUrl()}
             attribution='&copy; Google Maps'
@@ -2825,21 +2930,34 @@ const MyFleet = () => {
           <MapResizer />
           {/* When any vehicles are pinned, disable individual-vehicle tracking so
               FocusBoundsController can handle the view; otherwise normal tracking */}
-          {mapCenter && focusedIds.size <= 1 && <MapController center={mapCenter} />}
-          {focusedIds.size === 0 && (
-            <SmoothMotionController
-              markerRefs={markerRefs}
-              selectedId={selectedVehicle?.id || null}
-            />
-          )}
+          {mapCenter && focusedIds.size <= 1 && <MapController center={mapCenter} focusKey={mapFocusKey} />}
+          <SmoothMotionController markerRefs={markerRefs} selectedId={selectedVehicle?.id || null} />
           <FocusBoundsController bounds={focusedBounds} />
+
+          {/* Tracked-vehicle trail — a row of white ">" chevrons pointing in
+              the direction of travel.  Appears as soon as a vehicle is
+              selected and grows on every poll until selection changes. */}
+          {trailArrows.map(a => (
+            <Marker
+              key={`trail-arrow-${a.key}`}
+              position={a.pos}
+              icon={makeArrowIcon(a.deg)}
+              interactive={false}
+              keyboard={false}
+            />
+          ))}
+
           <MarkerClusterGroup chunkedLoading iconCreateFunction={createClusterCustomIcon} maxClusterRadius={60} showCoverageOnHover={false} spiderfyOnMaxZoom={true} disableClusteringAtZoom={14}>
             {mapVehicles.map(v => {
               const isSel = selectedVehicle?.id === v.id;
               const vState = getVState(v, deviceStatesByType);
+              // SmoothMarker holds a stable initial position and registers a
+              // RAF-driven motion segment each time the position prop changes,
+              // so the marker glides from its current displayed spot to the
+              // new target over ~5 s instead of snapping every poll.
               return (
                 <SmoothMarker
-                  key={`${v.id}-${isSel ? 1 : 0}`}
+                  key={v.id}
                   vehicleId={v.id}
                   markerRefs={markerRefs}
                   position={[v.coords.lat, v.coords.lng]}
@@ -3071,7 +3189,20 @@ const MyFleet = () => {
               {/* ── Tab Content — full width, no center cap ── */}
               <div style={{ flex: 1, overflow: 'auto', background: C.surface }}>
                 <div style={{ padding: 22 }}>
-                  {activeTab === 'overview' && <OverviewTab vehicle={sv} />}
+                  {activeTab === 'overview' && (
+                    <OverviewTab vehicle={sv} cf={{
+                      fields:   customFields,
+                      showForm: showCfForm,
+                      form:     cfForm,
+                      setForm:  setCfForm,
+                      editing:  editingCf,
+                      saving:   savingCf,
+                      open:     openCfForm,
+                      save:     handleSaveCf,
+                      remove:   handleDeleteCf,
+                      cancel:   () => setShowCfForm(false),
+                    }} />
+                  )}
                   {activeTab === 'trips' && (
                     <TripsTab vehicle={sv} reportFrom={reportFrom} reportTo={reportTo}
                       reportData={reportData} reportLoading={reportLoading} reportPage={reportPage}
@@ -3514,7 +3645,7 @@ const Empty = ({ msg }) => (
 // ══════════════════════════════════════════════════════════════════════════════
 // Overview Tab
 // ══════════════════════════════════════════════════════════════════════════════
-const OverviewTab = ({ vehicle }) => {
+const OverviewTab = ({ vehicle, cf }) => {
   const ds = vehicle.deviceStatus;
   const gps = ds?.gpsData;
   const status = ds?.status;
@@ -3524,11 +3655,67 @@ const OverviewTab = ({ vehicle }) => {
   const driver = ds?.driver;
   const alerts = ds?.alerts;
   const cellInfo = ds?.cellInfo;
+  const cfFields = cf?.fields || [];
   return (
     // Multi-column grid: cards lay out 2/3/4 across at wider widths so the
     // panel stops looking like a single very-tall column. minmax(280px, 1fr)
     // keeps each card readable at narrower peeks.
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12, alignItems: 'start' }}>
+      {/* Custom Fields — user-defined name/value pairs.  Always rendered first
+          so they sit at the top of the overview.  Empty state shows just an
+          "Add" prompt; populated state shows chips with inline edit/delete. */}
+      {cf && (
+        <SectionCard icon="edit" title="Custom Fields" style={{ gridColumn: '1 / -1' }}>
+          {cf.showForm && (
+            <div style={{ display: 'flex', gap: 6, marginBottom: 10, alignItems: 'stretch', flexWrap: 'wrap' }}>
+              <input style={{ flex: '1 1 180px', minWidth: 0, padding: '8px 12px', border: '1px solid #CBD5E1', borderRadius: 6, fontSize: 13, outline: 'none', fontFamily: 'inherit' }}
+                value={cf.form.fieldName} onChange={e => cf.setForm({ ...cf.form, fieldName: e.target.value })}
+                placeholder="Field name" />
+              <input style={{ flex: '1 1 180px', minWidth: 0, padding: '8px 12px', border: '1px solid #CBD5E1', borderRadius: 6, fontSize: 13, outline: 'none', fontFamily: 'inherit' }}
+                value={cf.form.fieldValue} onChange={e => cf.setForm({ ...cf.form, fieldValue: e.target.value })}
+                placeholder="Value" />
+              <button onClick={cf.save} disabled={cf.saving || !cf.form.fieldName.trim()}
+                style={{ padding: '8px 16px', background: '#2563EB', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer', flexShrink: 0, opacity: cf.saving || !cf.form.fieldName.trim() ? 0.5 : 1 }}>
+                {cf.saving ? '…' : cf.editing ? 'SAVE' : 'ADD'}
+              </button>
+              <button onClick={cf.cancel}
+                style={{ padding: '8px 12px', background: '#F1F5F9', border: 'none', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                <Ic n="x" size={13} color="#475569" />
+              </button>
+            </div>
+          )}
+          {cfFields.length > 0 ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {cfFields.map(f => (
+                <div key={f.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: '#F1F5F9', borderRadius: 6, fontSize: 12 }}>
+                  <span style={{ fontWeight: 700, color: '#475569' }}>{f.fieldName}:</span>
+                  <span style={{ color: '#0F172A', fontWeight: 600 }}>{f.fieldValue || '—'}</span>
+                  <button onClick={() => cf.open(f)} title="Edit" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex' }}>
+                    <Ic n="edit" size={10} color="#475569" />
+                  </button>
+                  <button onClick={() => cf.remove(f.id)} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex' }}>
+                    <Ic n="x" size={10} color="#DC2626" />
+                  </button>
+                </div>
+              ))}
+              {!cf.showForm && (
+                <button onClick={() => cf.open(null)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 10px', background: '#FFFFFF', border: '1px dashed #94A3B8', borderRadius: 6, cursor: 'pointer', fontSize: 12, color: '#475569', fontWeight: 700 }}>
+                  <Ic n="plus" size={11} color="#475569" /> ADD FIELD
+                </button>
+              )}
+            </div>
+          ) : (
+            !cf.showForm && (
+              <button onClick={() => cf.open(null)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: '#FFFFFF', border: '1px dashed #94A3B8', borderRadius: 6, cursor: 'pointer', fontSize: 12, color: '#475569', fontWeight: 700 }}>
+                <Ic n="plus" size={12} color="#475569" /> ADD CUSTOM FIELD
+              </button>
+            )
+          )}
+        </SectionCard>
+      )}
+
       <SectionCard icon="pin" title="GPS & Location">
         <InfoRow label="Latitude"    value={gps?.latitude?.toFixed(6)} mono />
         <InfoRow label="Longitude"   value={gps?.longitude?.toFixed(6)} mono />
@@ -3598,20 +3785,6 @@ const OverviewTab = ({ vehicle }) => {
           <InfoRow label="Engine Hours" value={engine?.hours != null ? `${engine.hours} h` : null} />
         </SectionCard>
       )}
-      <SectionCard icon="route" title="Trip Info">
-        <InfoRow label="Odometer"      value={trip?.odometer != null ? `${Number(trip.odometer).toFixed(1)} km` : null} />
-        <InfoRow label="Trip Odometer" value={trip?.tripOdometer != null ? `${Number(trip.tripOdometer).toFixed(1)} km` : null} />
-        {driver?.name && <InfoRow label="Driver" value={driver.name} />}
-        {driver?.iButtonId && <InfoRow label="iButton ID" value={driver.iButtonId} />}
-        {alerts?.latestAlarm && <InfoRow label="Last Alarm" value={alerts.latestAlarm} accent={C.danger} />}
-      </SectionCard>
-      <SectionCard icon="gear" title="Device Config">
-        <InfoRow label="Device Name" value={vehicle.deviceName} />
-        <InfoRow label="Device Type" value={vehicle.deviceType} />
-        <InfoRow label="Server IP"   value={vehicle.serverIp} mono />
-        <InfoRow label="Server Port" value={vehicle.serverPort} mono />
-        <InfoRow label="IMEI"        value={vehicle.imei} mono />
-      </SectionCard>
       {/* AIS-140 cell tower info */}
       {ds?.deviceType === 'AIS140' && cellInfo && (
         <SectionCard icon="signal" title="Cell Tower">
@@ -3629,6 +3802,15 @@ const OverviewTab = ({ vehicle }) => {
         <InfoRow label="Engine No."   value={vehicle.engineNumber} />
         <InfoRow label="Idle Threshold" value={vehicle.idleThreshold ? `${vehicle.idleThreshold} min` : null} />
         <InfoRow label="Fuel Threshold" value={vehicle.fuelFillThreshold ? `${vehicle.fuelFillThreshold}%` : null} />
+      </SectionCard>
+      {/* Trip Info — kept last in the overview as it summarises journey
+          totals rather than live telemetry. */}
+      <SectionCard icon="route" title="Trip Info">
+        <InfoRow label="Odometer"      value={trip?.odometer != null ? `${Number(trip.odometer).toFixed(1)} km` : null} />
+        <InfoRow label="Trip Odometer" value={trip?.tripOdometer != null ? `${Number(trip.tripOdometer).toFixed(1)} km` : null} />
+        {driver?.name && <InfoRow label="Driver" value={driver.name} />}
+        {driver?.iButtonId && <InfoRow label="iButton ID" value={driver.iButtonId} />}
+        {alerts?.latestAlarm && <InfoRow label="Last Alarm" value={alerts.latestAlarm} accent={C.danger} />}
       </SectionCard>
     </div>
   );
