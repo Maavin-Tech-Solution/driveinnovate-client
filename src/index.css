@@ -115,10 +115,12 @@ thead th {
   background: var(--theme-sidebar-bg);
   border: none;
   border-bottom: 1px solid rgba(255,255,255,0.14);
+  border-right: 1px solid rgba(255,255,255,0.10);
   position: sticky;
   top: 0;
   z-index: 2;
 }
+thead th:last-child { border-right: none; }
 
 /* ── Body rows ── */
 tbody tr {
@@ -135,9 +137,11 @@ tbody td {
   color: var(--text-primary);
   vertical-align: middle;
   text-align: center;
-  border-bottom: 1px solid #e2e8f0; /* border on td, not tr, because border-collapse: separate */
+  border-bottom: 1px solid #e2e8f0;
+  border-right: 1px solid #e2e8f0;
 }
 
+tbody td:last-child { border-right: none; }
 tbody tr:last-child td { border-bottom: none; }
 
 /* Row actions */

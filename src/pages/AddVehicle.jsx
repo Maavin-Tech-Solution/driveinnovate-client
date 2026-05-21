@@ -9,6 +9,7 @@ import {
   TruckIcon,
 } from '@heroicons/react/24/outline';
 import { addVehicle } from '../services/vehicle.service';
+import { createCustomField } from '../services/vehicle.service';
 import { getClientTree } from '../services/user.service';
 import { useAuth } from '../context/AuthContext';
 
@@ -239,6 +240,11 @@ const AddVehicle = () => {
   const [clients, setClients]           = useState([]);
   const [loading, setLoading]           = useState(false);
 
+  // Custom fields — collected locally and saved after vehicle creation
+  const [pendingCf, setPendingCf]       = useState([]);   // [{ fieldName, fieldValue }]
+  const [cfName,  setCfName]            = useState('');
+  const [cfValue, setCfValue]           = useState('');
+
   useEffect(() => {
     if (!isAdmin) return;
     getClientTree()
@@ -261,6 +267,14 @@ const AddVehicle = () => {
     }
   };
 
+  const addCfRow = () => {
+    if (!cfName.trim()) return;
+    setPendingCf(prev => [...prev, { fieldName: cfName.trim(), fieldValue: cfValue.trim() }]);
+    setCfName(''); setCfValue('');
+  };
+
+  const removeCfRow = (idx) => setPendingCf(prev => prev.filter((_, i) => i !== idx));
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -268,7 +282,12 @@ const AddVehicle = () => {
       const payload = { ...form };
       if (payload.vehicleNumber) payload.vehicleNumber = payload.vehicleNumber.toUpperCase();
       if (forClientId) payload.forClientId = Number(forClientId);
-      await addVehicle(payload);
+      const res = await addVehicle(payload);
+      const newId = res?.data?.id || res?.data?.vehicle?.id;
+      // Save custom fields if any were added, using the new vehicle's id
+      if (newId && pendingCf.length > 0) {
+        await Promise.all(pendingCf.map(cf => createCustomField(newId, cf).catch(() => {})));
+      }
       toast.success('Vehicle registered successfully!');
       navigate('/my-fleet');
     } catch (err) {
@@ -281,6 +300,7 @@ const AddVehicle = () => {
   const handleReset = () => {
     setForm({ vehicleNumber: '', vehicleName: '', chasisNumber: '', engineNumber: '', imei: '', sim1: '', sim2: '', deviceType: '', serverIp: 'd.maavitrack.com', serverPort: '', vehicleIcon: 'car' });
     setForClientId('');
+    setPendingCf([]); setCfName(''); setCfValue('');
   };
 
 
@@ -449,6 +469,51 @@ const AddVehicle = () => {
                     maxLength={20}
                   />
                 </div>
+              </div>
+            </div>
+
+            {/* Section: Custom Fields */}
+            <div style={{ borderTop: '1px solid #f1f5f9', padding: '20px 24px 0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '18px' }}>
+                <span style={{ background: '#f0fdf4', borderRadius: '8px', padding: '7px 9px', fontSize: '16px' }}>🏷️</span>
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>Custom Fields</div>
+                  <div style={{ fontSize: '12px', color: '#94a3b8' }}>Add any extra details you want to track (owner, depot, route, etc.)</div>
+                </div>
+              </div>
+            </div>
+            <div style={{ padding: '0 24px 20px' }}>
+              {/* Existing rows */}
+              {pendingCf.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+                  {pendingCf.map((cf, idx) => (
+                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+                      <span style={{ fontWeight: 700, color: '#475569', fontSize: 13 }}>{cf.fieldName}:</span>
+                      <span style={{ color: '#0f172a', fontSize: 13, flex: 1 }}>{cf.fieldValue || '—'}</span>
+                      <button type="button" onClick={() => removeCfRow(idx)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: 16, lineHeight: 1, padding: '0 2px' }}>×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {/* Add row */}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  type="text" placeholder="Field name (e.g. Route)"
+                  value={cfName} onChange={e => setCfName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addCfRow())}
+                  style={{ ...inputStyle, flex: '0 0 40%' }}
+                />
+                <input
+                  type="text" placeholder="Value (e.g. Delhi–Jaipur)"
+                  value={cfValue} onChange={e => setCfValue(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addCfRow())}
+                  style={{ ...inputStyle, flex: 1 }}
+                />
+                <button type="button" onClick={addCfRow} disabled={!cfName.trim()}
+                  style={{ flexShrink: 0, padding: '10px 16px', background: cfName.trim() ? '#2563eb' : '#e2e8f0', color: cfName.trim() ? '#fff' : '#94a3b8', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: cfName.trim() ? 'pointer' : 'not-allowed' }}>
+                  + Add
+                </button>
               </div>
             </div>
 

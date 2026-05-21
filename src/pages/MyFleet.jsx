@@ -678,7 +678,9 @@ const VehicleTooltip = ({ vehicle }) => {
 
 // ─── Column Definitions ───────────────────────────────────────────────────────
 const COL_DEFS = {
+  icon:       { label: '',             icon: 'map',      ic: '#3b82f6' },
   vehicle:    { label: 'Vehicle',     icon: 'map',      ic: '#3b82f6' },
+  sim:        { label: 'SIM',         icon: 'radio',    ic: '#0891b2' },
   regNo:      { label: 'Vehicle No.', icon: 'info',     ic: '#64748b' },
   imei:       { label: 'IMEI',        icon: 'cpu',      ic: '#7c3aed' },
   status:     { label: 'Status',      icon: 'activity', ic: '#16a34a' },
@@ -692,6 +694,15 @@ const COL_DEFS = {
   gps:        { label: 'GPS',         icon: 'pin',      ic: '#ef4444' },
   lastUpdate: { label: 'Last Update', icon: 'clock',    ic: '#475569' },
   actions:    { label: 'Actions',     icon: 'gear',     ic: '#6b7280' },
+};
+
+// Wrap a name into lines of max N words each for compact table display.
+const wrapByWords = (text, n = 3) => {
+  if (!text) return [];
+  const words = text.trim().split(/\s+/);
+  const lines = [];
+  for (let i = 0; i < words.length; i += n) lines.push(words.slice(i, i + n).join(' '));
+  return lines;
 };
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -749,9 +760,9 @@ const MyFleet = () => {
   const [showColPicker, setShowColPicker] = useState(false);
   const [sortCol, setSortCol] = useState(null);
   const [sortDir, setSortDir] = useState('asc');
-  const [colOrder, setColOrder] = useState(['vehicle','regNo','imei','status','speed','fuel','battery','voltage','gsm','satellites','odometer','gps','lastUpdate','actions']);
+  const [colOrder, setColOrder] = useState(['icon','vehicle','sim','regNo','imei','status','speed','fuel','battery','voltage','gsm','satellites','odometer','gps','lastUpdate','actions']);
   const [visibleChips, setVisibleChips] = useState(getVisibleFleetChips);
-  const [visibleCols, setVisibleCols] = useState(new Set(['vehicle','regNo','imei','status','speed','fuel','battery','voltage','gsm','satellites','odometer','gps','lastUpdate','actions']));
+  const [visibleCols, setVisibleCols] = useState(new Set(['icon','vehicle','sim','imei','status','speed','fuel','battery','voltage','gsm','satellites','odometer','gps','lastUpdate','actions']));
   const [dragSrcCol, setDragSrcCol] = useState(null);
   const [dragOverCol, setDragOverCol] = useState(null);
 
@@ -796,6 +807,19 @@ const MyFleet = () => {
   const [geoAddress, setGeoAddress]   = useState(null);   // resolved address for hovered card
   const [geoLoading, setGeoLoading]   = useState(false);
   const geoCache = useRef(new Map());                      // key: "lat,lng" → address string
+
+  // Custom-fields popover (table view icon click)
+  const [cfPopover, setCfPopover] = useState(null); // { vehicleId, fields, loading, pos }
+
+  const openCfPopover = async (vehicleId, pos) => {
+    setCfPopover({ vehicleId, fields: [], loading: true, pos });
+    try {
+      const r = await getCustomFields(vehicleId);
+      setCfPopover(p => p?.vehicleId === vehicleId ? { ...p, fields: r.data?.data || r.data || [], loading: false } : p);
+    } catch {
+      setCfPopover(p => p?.vehicleId === vehicleId ? { ...p, fields: [], loading: false } : p);
+    }
+  };
 
   // Delete confirmation modal state
   const [deleteConfirm, setDeleteConfirm] = useState(null); // { vehicleId, vehicleName, phrase }
@@ -1467,7 +1491,9 @@ const MyFleet = () => {
       list = [...list].sort((a, b) => {
         const getSortVal = (v) => {
           switch (sortCol) {
+            case 'icon':       return (v.vehicleIcon || '').toLowerCase();
             case 'vehicle':    return vehicleDisplayName(v).toLowerCase();
+            case 'sim':        return (v.sim1 || v.sim2 || '').toLowerCase();
             case 'regNo':      return (v.vehicleNumber || '').toLowerCase();
             case 'imei':       return (v.imei || '').toLowerCase();
             case 'status':     { const s = getVState(v, deviceStatesByType).stateName; return s === 'Running' ? 0 : s === 'Stopped' ? 1 : 2; }
@@ -1868,7 +1894,7 @@ const MyFleet = () => {
   /* ══════ TABLE VIEW ══════ */
   if (viewMode === 'table') {
     return (
-      <div style={{ minHeight: '100%', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+      <div style={{ minHeight: '100%', fontFamily: "'Plus Jakarta Sans', sans-serif" }} onClick={() => cfPopover && setCfPopover(null)}>
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
         {/* Stat cards — driven by fleetChips (dynamic from Master-Settings states) */}
@@ -2189,12 +2215,72 @@ const MyFleet = () => {
                     const statusLabel = vs.stateName;
 
                     const cells = {
+                      icon: (
+                        <td key="icon" style={{ textAlign: 'center', width: 40, paddingLeft: 8, paddingRight: 4 }}>
+                          <VehicleIcon icon={v.vehicleIcon} color={statusColor} size={30} />
+                        </td>
+                      ),
                       vehicle: (
-                        <td key="vehicle">
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <VehicleIcon icon={v.vehicleIcon} color={getVState(v, deviceStatesByType).stateColor || '#64748B'} size={29} />
-                            <span style={{ fontWeight: 600, color: '#1e3a5f', whiteSpace: 'nowrap' }}>{vehicleDisplayName(v)}</span>
-                          </div>
+                        <td key="vehicle" style={{ textAlign: 'left' }}>
+                          {v.vehicleName ? (
+                            <>
+                              {wrapByWords(v.vehicleName, 3).map((line, i) => (
+                                <div key={i} style={{ lineHeight: 1.4 }}>{line}</div>
+                              ))}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginTop: 1 }}>
+                                {v.vehicleNumber && (
+                                  <>
+                                    <span onClick={e => openDrawer(v, e)} title="Click to view/edit"
+                                      style={{ fontFamily: 'monospace', color: '#64748b', cursor: 'pointer' }}>
+                                      {v.vehicleNumber}
+                                    </span>
+                                    <button onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(v.vehicleNumber); toast.success('Copied!', { autoClose: 1200 }); }}
+                                      title="Copy" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 2px', color: '#CBD5E1', lineHeight: 1, borderRadius: 3, flexShrink: 0 }}
+                                      onMouseEnter={e => e.currentTarget.style.color = '#2563EB'}
+                                      onMouseLeave={e => e.currentTarget.style.color = '#CBD5E1'}>⧉</button>
+                                  </>
+                                )}
+                                {/* Custom fields icon — opens popover */}
+                                <button onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); openCfPopover(v.id, { top: r.bottom + 4, left: r.left }); }}
+                                  title="Custom fields"
+                                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', color: '#CBD5E1', lineHeight: 1, borderRadius: 3, flexShrink: 0, fontSize: 12 }}
+                                  onMouseEnter={e => e.currentTarget.style.color = '#6366F1'}
+                                  onMouseLeave={e => e.currentTarget.style.color = '#CBD5E1'}>
+                                  <Ic n="layers" size={12} color="currentColor" />
+                                </button>
+                              </div>
+                            </>
+                          ) : (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                              <span onClick={e => openDrawer(v, e)} title="Click to view/edit"
+                                style={{ fontFamily: 'monospace', cursor: 'pointer' }}>
+                                {v.vehicleNumber || '—'}
+                              </span>
+                              {v.vehicleNumber && (
+                                <button onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(v.vehicleNumber); toast.success('Copied!', { autoClose: 1200 }); }}
+                                  title="Copy" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 2px', color: '#CBD5E1', lineHeight: 1, borderRadius: 3, flexShrink: 0 }}
+                                  onMouseEnter={e => e.currentTarget.style.color = '#2563EB'}
+                                  onMouseLeave={e => e.currentTarget.style.color = '#CBD5E1'}>⧉</button>
+                              )}
+                              <button onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); openCfPopover(v.id, { top: r.bottom + 4, left: r.left }); }}
+                                title="Custom fields"
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', color: '#CBD5E1', lineHeight: 1, borderRadius: 3, flexShrink: 0 }}
+                                onMouseEnter={e => e.currentTarget.style.color = '#6366F1'}
+                                onMouseLeave={e => e.currentTarget.style.color = '#CBD5E1'}>
+                                <Ic n="layers" size={12} color="currentColor" />
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      ),
+                      sim: (
+                        <td key="sim" style={{ textAlign: 'left' }}>
+                          {(v.sim1 || v.sim2) ? (
+                            <>
+                              {v.sim1 && <div style={{ fontFamily: 'monospace' }}>{v.sim1}</div>}
+                              {v.sim2 && <div style={{ fontFamily: 'monospace', color: '#64748b', marginTop: v.sim1 ? 1 : 0 }}>{v.sim2}</div>}
+                            </>
+                          ) : <span style={{ color: '#CBD5E1' }}>—</span>}
                         </td>
                       ),
                       regNo: (
@@ -2459,6 +2545,33 @@ const MyFleet = () => {
                 )}
               </div>
             </div>
+          </div>
+        )}
+
+        {/* ── Custom-fields popover ── */}
+        {cfPopover && (
+          <div
+            style={{ position: 'fixed', top: cfPopover.pos.top, left: cfPopover.pos.left, zIndex: 9999, minWidth: 220, maxWidth: 320, background: '#fff', borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', border: '1px solid #E2E8F0', padding: '12px 16px', fontFamily: 'inherit' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontSize: 12, fontWeight: 800, color: '#0F172A', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Custom Fields</span>
+              <button onClick={() => setCfPopover(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', padding: 2, lineHeight: 1, display: 'flex' }}><Ic n="x" size={13} color="#94A3B8" /></button>
+            </div>
+            {cfPopover.loading ? (
+              <div style={{ fontSize: 12, color: '#94A3B8', textAlign: 'center', padding: '8px 0' }}>Loading…</div>
+            ) : cfPopover.fields.length === 0 ? (
+              <div style={{ fontSize: 12, color: '#94A3B8', fontStyle: 'italic' }}>No custom fields added.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                {cfPopover.fields.map(f => (
+                  <div key={f.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 13 }}>
+                    <span style={{ fontWeight: 700, color: '#475569', whiteSpace: 'nowrap' }}>{f.fieldName}</span>
+                    <span style={{ color: '#0F172A', textAlign: 'right' }}>{f.fieldValue || '—'}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
