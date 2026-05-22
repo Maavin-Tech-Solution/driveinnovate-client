@@ -28,6 +28,7 @@ const Ic = ({ n, size = 14, color = 'currentColor', sw = 1.75 }) => {
     calendar: <><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></>,
     refresh:  <><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></>,
     check:    <polyline points="20 6 9 17 4 12"/>,
+    warn:     <><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></>,
   };
   return <svg {...p}>{I[n] ?? null}</svg>;
 };
@@ -41,6 +42,36 @@ const fmtDur = (seconds) => {
   return `${m}m`;
 };
 const fmtDate = (d) => d ? new Date(d).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+
+// ─── Confirm Modal ────────────────────────────────────────────────────────────
+const ConfirmModal = ({ title, message, confirmLabel = 'Delete', confirmColor = '#DC2626', onConfirm, onCancel }) => (
+  <div style={{ position: 'fixed', inset: 0, zIndex: 900, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+    onClick={onCancel}>
+    <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.5)', backdropFilter: 'blur(4px)' }} />
+    <div style={{ position: 'relative', zIndex: 1, background: '#fff', width: 400, maxWidth: '92vw', borderRadius: 14, boxShadow: '0 20px 60px rgba(0,0,0,0.22)', overflow: 'hidden' }}
+      onClick={e => e.stopPropagation()}>
+      {/* Header */}
+      <div style={{ background: confirmColor, padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <Ic n="warn" size={18} color="#fff" />
+        <span style={{ fontSize: 14, fontWeight: 800, color: '#fff' }}>{title}</span>
+      </div>
+      {/* Body */}
+      <div style={{ padding: '20px 22px 22px' }}>
+        <p style={{ margin: 0, fontSize: 14, color: '#374151', lineHeight: 1.6 }}>{message}</p>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 22 }}>
+          <button onClick={onCancel}
+            style={{ padding: '8px 18px', background: '#F1F5F9', border: '1px solid #E2E8F0', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', color: '#374151' }}>
+            Cancel
+          </button>
+          <button onClick={onConfirm}
+            style={{ padding: '8px 18px', background: confirmColor, border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700, fontFamily: 'inherit', color: '#fff' }}>
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+);
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 const Groups = () => {
@@ -62,6 +93,9 @@ const Groups = () => {
   const [editingGroup, setEditingGroup] = useState(null);
   const [groupForm, setGroupForm] = useState({ name: '', description: '', color: '#3b82f6' });
   const [savingGroup, setSavingGroup] = useState(false);
+
+  // Confirmation modal
+  const [confirmModal, setConfirmModal] = useState(null); // { title, message, confirmLabel, confirmColor, onConfirm }
 
   // Active tab inside group detail
   const [activeTab, setActiveTab] = useState('vehicles');
@@ -90,11 +124,16 @@ const Groups = () => {
   const [sharingTripId, setSharingTripId] = useState(null);
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
-  const fetchGroups = async () => {
+  const fetchGroups = async (autoSelectFirst = false) => {
     setLoadingGroups(true);
     try {
       const res = await getGroups();
-      setGroups(res.data || []);
+      const list = res.data || [];
+      setGroups(list);
+      // Auto-select first group on initial load
+      if (autoSelectFirst && list.length > 0) {
+        setSelectedGroupId(list[0].id);
+      }
     } catch { toast.error('Failed to load groups'); }
     finally { setLoadingGroups(false); }
   };
@@ -140,7 +179,7 @@ const Groups = () => {
     finally { setLoadingTrips(false); }
   };
 
-  useEffect(() => { fetchGroups(); fetchAllVehicles(); }, []);
+  useEffect(() => { fetchGroups(true); fetchAllVehicles(); }, []);
 
   useEffect(() => {
     if (!selectedGroupId) { setGroupDetail(null); return; }
@@ -156,7 +195,7 @@ const Groups = () => {
   };
 
   const openEditForm = (g, e) => {
-    e.stopPropagation();
+    if (e) e.stopPropagation();
     setEditingGroup(g);
     setGroupForm({ name: g.name, description: g.description || '', color: g.color || '#3b82f6' });
     setShowGroupForm(true);
@@ -180,27 +219,50 @@ const Groups = () => {
     finally { setSavingGroup(false); }
   };
 
-  const handleDeleteGroup = async (id, e) => {
-    e.stopPropagation();
-    if (!window.confirm('Delete this group? This will not delete the vehicles.')) return;
-    try {
-      await deleteGroup(id);
-      toast.success('Group deleted');
-      if (selectedGroupId === id) setSelectedGroupId(null);
-      fetchGroups();
-    } catch (e) { toast.error(e.message || 'Delete failed'); }
+  const confirmDeleteGroup = (id, name) => {
+    setConfirmModal({
+      title: 'Delete Group',
+      message: `Are you sure you want to delete "${name}"? The vehicles inside will not be deleted — only the group will be removed.`,
+      confirmLabel: 'Delete Group',
+      confirmColor: '#DC2626',
+      onConfirm: async () => {
+        setConfirmModal(null);
+        try {
+          await deleteGroup(id);
+          toast.success('Group deleted');
+          if (selectedGroupId === id) setSelectedGroupId(null);
+          fetchGroups();
+        } catch (e) { toast.error(e.message || 'Delete failed'); }
+      },
+    });
   };
 
   // ── Vehicle assignment ─────────────────────────────────────────────────────
-  const handleToggleVehicle = async (vehicleId, inGroup) => {
+  const confirmRemoveVehicle = (vehicleId, vehicleName) => {
+    setConfirmModal({
+      title: 'Remove Vehicle',
+      message: `Remove "${vehicleName}" from this group? The vehicle itself will not be deleted.`,
+      confirmLabel: 'Remove',
+      confirmColor: '#D97706',
+      onConfirm: async () => {
+        setConfirmModal(null);
+        if (!groupDetail) return;
+        setTogglingVehicle(vehicleId);
+        try {
+          await removeVehicleFromGroup(groupDetail.id, vehicleId);
+          await fetchGroupDetail(groupDetail.id);
+          await fetchGroups();
+        } catch (e) { toast.error(e.message || 'Failed'); }
+        finally { setTogglingVehicle(null); }
+      },
+    });
+  };
+
+  const handleAddVehicle = async (vehicleId) => {
     if (!groupDetail) return;
     setTogglingVehicle(vehicleId);
     try {
-      if (inGroup) {
-        await removeVehicleFromGroup(groupDetail.id, vehicleId);
-      } else {
-        await addVehicleToGroup(groupDetail.id, vehicleId);
-      }
+      await addVehicleToGroup(groupDetail.id, vehicleId);
       await fetchGroupDetail(groupDetail.id);
       await fetchGroups();
     } catch (e) { toast.error(e.message || 'Failed'); }
@@ -278,7 +340,7 @@ const Groups = () => {
               const isActive = selectedGroupId === g.id;
               return (
                 <div key={g.id}
-                  onClick={() => setSelectedGroupId(isActive ? null : g.id)}
+                  onClick={() => setSelectedGroupId(g.id)}
                   style={{ padding: '12px 16px', borderBottom: '1px solid #F1F5F9', cursor: 'pointer', background: isActive ? '#EFF6FF' : '#fff', borderLeft: `3px solid ${isActive ? '#2563EB' : g.color || '#E2E8F0'}`, transition: 'background 0.1s' }}
                   onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = '#f8fafc'; }}
                   onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = '#fff'; }}>
@@ -293,16 +355,6 @@ const Groups = () => {
                     <span style={{ fontSize: 11, fontWeight: 700, background: isActive ? '#DBEAFE' : '#F1F5F9', color: isActive ? '#1D4ED8' : '#64748B', padding: '2px 7px', flexShrink: 0 }}>
                       {g.vehicles?.length || 0}
                     </span>
-                  </div>
-                  <div style={{ display: 'flex', gap: 4, marginTop: 8, paddingLeft: 20 }}>
-                    <button onClick={e => openEditForm(g, e)}
-                      style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', background: 'none', border: '1px solid #E2E8F0', cursor: 'pointer', fontSize: 11, color: '#64748B', fontFamily: 'inherit' }}>
-                      <Ic n="edit" size={10} color="#64748B" />Edit
-                    </button>
-                    <button onClick={e => handleDeleteGroup(g.id, e)}
-                      style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', background: 'none', border: '1px solid #FECACA', cursor: 'pointer', fontSize: 11, color: '#DC2626', fontFamily: 'inherit' }}>
-                      <Ic n="trash" size={10} color="#DC2626" />Delete
-                    </button>
                   </div>
                 </div>
               );
@@ -338,9 +390,13 @@ const Groups = () => {
                 <span style={{ background: 'rgba(255,255,255,0.14)', color: 'rgba(255,255,255,0.9)', padding: '4px 12px', fontSize: 12, fontWeight: 700 }}>
                   {groupDetail.vehicles?.length || 0} vehicles
                 </span>
-                <button onClick={e => openEditForm(groupDetail, e)}
+                <button onClick={() => openEditForm(groupDetail, null)}
                   style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'inherit' }}>
-                  <Ic n="edit" size={12} color="#fff" />Edit Group
+                  <Ic n="edit" size={12} color="#fff" />Edit
+                </button>
+                <button onClick={() => confirmDeleteGroup(groupDetail.id, groupDetail.name)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', background: 'rgba(220,38,38,0.18)', border: '1px solid rgba(220,38,38,0.4)', color: '#FCA5A5', cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'inherit' }}>
+                  <Ic n="trash" size={12} color="#FCA5A5" />Delete Group
                 </button>
               </div>
             </div>
@@ -393,7 +449,9 @@ const Groups = () => {
                                 <div style={{ fontSize: 11, color: '#94A3B8', fontFamily: 'monospace', marginTop: 1 }}>{v.vehicleNumber}</div>
                               )}
                             </div>
-                            <button onClick={() => handleToggleVehicle(v.id, true)} disabled={togglingVehicle === v.id}
+                            <button
+                              onClick={() => confirmRemoveVehicle(v.id, v.vehicleName || v.vehicleNumber || `Vehicle #${v.id}`)}
+                              disabled={togglingVehicle === v.id}
                               style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', background: '#FEF2F2', border: '1px solid #FECACA', color: '#DC2626', cursor: togglingVehicle === v.id ? 'not-allowed' : 'pointer', fontSize: 11, fontWeight: 600, fontFamily: 'inherit', flexShrink: 0 }}>
                               <Ic n="x" size={10} color="#DC2626" />Remove
                             </button>
@@ -441,7 +499,7 @@ const Groups = () => {
                                   <Ic n="check" size={11} color="#059669" />In group
                                 </span>
                               ) : (
-                                <button onClick={() => handleToggleVehicle(v.id, false)} disabled={togglingVehicle === v.id}
+                                <button onClick={() => handleAddVehicle(v.id)} disabled={togglingVehicle === v.id}
                                   style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', background: '#EFF6FF', border: '1px solid #BFDBFE', color: '#2563EB', cursor: togglingVehicle === v.id ? 'not-allowed' : 'pointer', fontSize: 11, fontWeight: 600, fontFamily: 'inherit', flexShrink: 0 }}>
                                   <Ic n="plus" size={10} color="#2563EB" />Add
                                 </button>
@@ -458,7 +516,6 @@ const Groups = () => {
               {/* ── Summary tab ── */}
               {activeTab === 'summary' && (
                 <div>
-                  {/* Date range controls */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid #E2E8F0', padding: '6px 12px' }}>
                       <Ic n="calendar" size={13} color="#94A3B8" />
@@ -485,7 +542,6 @@ const Groups = () => {
 
                   {summary && (
                     <>
-                      {/* Aggregate stat tiles */}
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12, marginBottom: 24 }}>
                         {[
                           { label: 'Vehicles', value: summary.totals.vehicleCount, color: '#2563EB', icon: '🚗' },
@@ -505,7 +561,6 @@ const Groups = () => {
                         ))}
                       </div>
 
-                      {/* Per-vehicle breakdown */}
                       <div style={{ fontSize: 11, fontWeight: 700, color: '#94A3B8', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>Per Vehicle Breakdown</div>
                       <div className="table-container">
                         <table>
@@ -557,7 +612,6 @@ const Groups = () => {
               {/* ── Trips tab ── */}
               {activeTab === 'trips' && (
                 <div>
-                  {/* Date range controls */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid #E2E8F0', padding: '6px 12px' }}>
                       <Ic n="calendar" size={13} color="#94A3B8" />
@@ -640,7 +694,6 @@ const Groups = () => {
                         </table>
                       </div>
 
-                      {/* Pagination */}
                       {tripsTotal > PAGE_SIZE && (
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 16 }}>
                           <button onClick={() => fetchTrips(groupDetail.id, tripsPage - 1)} disabled={tripsPage === 0 || loadingTrips}
@@ -723,6 +776,18 @@ const Groups = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Confirmation modal ─────────────────────────────────────────── */}
+      {confirmModal && (
+        <ConfirmModal
+          title={confirmModal.title}
+          message={confirmModal.message}
+          confirmLabel={confirmModal.confirmLabel}
+          confirmColor={confirmModal.confirmColor}
+          onConfirm={confirmModal.onConfirm}
+          onCancel={() => setConfirmModal(null)}
+        />
       )}
     </div>
   );

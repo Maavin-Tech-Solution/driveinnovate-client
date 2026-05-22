@@ -691,7 +691,7 @@ const COL_DEFS = {
   gsm:        { label: 'GSM Signal',  icon: 'radio',    ic: '#0891b2' },
   satellites: { label: 'Satellites',  icon: 'radio',    ic: '#4f46e5' },
   odometer:   { label: 'Odometer',    icon: 'route',    ic: '#059669' },
-  gps:        { label: 'GPS',         icon: 'pin',      ic: '#ef4444' },
+  gps:        { label: 'Location',     icon: 'pin',      ic: '#ef4444' },
   lastUpdate: { label: 'Last Update', icon: 'clock',    ic: '#475569' },
   actions:    { label: 'Actions',     icon: 'gear',     ic: '#6b7280' },
 };
@@ -760,9 +760,11 @@ const MyFleet = () => {
   const [showColPicker, setShowColPicker] = useState(false);
   const [sortCol, setSortCol] = useState(null);
   const [sortDir, setSortDir] = useState('asc');
-  const [colOrder, setColOrder] = useState(['icon','vehicle','sim','regNo','imei','status','speed','fuel','battery','voltage','gsm','satellites','odometer','gps','lastUpdate','actions']);
+  const TABLE_PAGE_SIZE = 50;
+  const [tablePage, setTablePage] = useState(0);
+  const [colOrder, setColOrder] = useState(['icon','vehicle','sim','regNo','imei','status','gps','speed','fuel','battery','voltage','gsm','satellites','odometer','lastUpdate','actions']);
   const [visibleChips, setVisibleChips] = useState(getVisibleFleetChips);
-  const [visibleCols, setVisibleCols] = useState(new Set(['icon','vehicle','sim','imei','status','speed','fuel','battery','voltage','gsm','satellites','odometer','gps','lastUpdate','actions']));
+  const [visibleCols, setVisibleCols] = useState(new Set(['icon','vehicle','sim','imei','status','gps','speed','fuel','battery','voltage','gsm','satellites','odometer','lastUpdate','actions']));
   const [dragSrcCol, setDragSrcCol] = useState(null);
   const [dragOverCol, setDragOverCol] = useState(null);
 
@@ -807,6 +809,30 @@ const MyFleet = () => {
   const [geoAddress, setGeoAddress]   = useState(null);   // resolved address for hovered card
   const [geoLoading, setGeoLoading]   = useState(false);
   const geoCache = useRef(new Map());                      // key: "lat,lng" → address string
+
+  // Table-view reverse geocoding: queue-based so Nominatim rate limit is respected.
+  const [tableGeoMap, setTableGeoMap] = useState(new Map()); // coordKey → address
+  const tableGeoQueue  = useRef([]);  // [{ key, lat, lng }]
+  const tableGeoActive = useRef(false);
+
+  const drainGeoQueue = useRef(() => {
+    if (!tableGeoQueue.current.length) { tableGeoActive.current = false; return; }
+    tableGeoActive.current = true;
+    const { key, lat, lng } = tableGeoQueue.current.shift();
+    fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=16`)
+      .then(r => r.json())
+      .then(d => {
+        const a = d.address || {};
+        const text = [a.road, a.suburb || a.neighbourhood || a.county,
+                      a.city || a.town || a.village || a.state_district]
+          .filter(Boolean).join(', ')
+          || d.display_name?.split(',').slice(0, 2).join(',').trim()
+          || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+        setTableGeoMap(m => new Map(m).set(key, text));
+      })
+      .catch(() => setTableGeoMap(m => new Map(m).set(key, `${lat.toFixed(4)}, ${lng.toFixed(4)}`)))
+      .finally(() => setTimeout(drainGeoQueue.current, 1200)); // 1.2 s between calls
+  });
 
   // Custom-fields popover (table view icon click)
   const [cfPopover, setCfPopover] = useState(null); // { vehicleId, fields, loading, pos }
@@ -1465,7 +1491,14 @@ const MyFleet = () => {
     }
     if (search.trim()) {
       const q = search.toLowerCase();
-      list = list.filter(v => (v.vehicleNumber || '').toLowerCase().includes(q) || (v.vehicleName || '').toLowerCase().includes(q) || (v.imei || '').toLowerCase().includes(q));
+      list = list.filter(v =>
+        (v.vehicleNumber  || '').toLowerCase().includes(q) ||
+        (v.vehicleName    || '').toLowerCase().includes(q) ||
+        (v.imei           || '').toLowerCase().includes(q) ||
+        (v.deviceType     || '').toLowerCase().includes(q) ||
+        (v.sim1           || '').toLowerCase().includes(q) ||
+        (v.sim2           || '').toLowerCase().includes(q)
+      );
     }
     if (statusFilter.size < 3) {
       list = list.filter(v => statusFilter.has(getVState(v, deviceStatesByType).stateName));
@@ -1517,6 +1550,28 @@ const MyFleet = () => {
     }
     return list;
   }, [vehicles, groups, selectedGroupId, search, statusFilter, chipFilter, sortCol, sortDir, deviceStatesByType, stateTick]);
+
+  // Reset to first page only when filtering/sorting criteria change — NOT when
+  // the underlying vehicle data refreshes from the poll (that would kick users
+  // back to page 1 every 5 s while browsing page 2+).
+  useEffect(() => { setTablePage(0); }, [selectedGroupId, search, statusFilter, chipFilter, sortCol, sortDir]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Queue reverse-geocoding for vehicles on the current table page.
+  useEffect(() => {
+    if (viewMode !== 'table') return;
+    const paged = filteredVehicles.slice(tablePage * 50, (tablePage + 1) * 50);
+    let queued = false;
+    paged.forEach(v => {
+      const c = getVehicleCoords(v);
+      if (!c) return;
+      const key = `${c.lat.toFixed(4)},${c.lng.toFixed(4)}`;
+      if (tableGeoMap.has(key)) return;
+      if (tableGeoQueue.current.some(q => q.key === key)) return;
+      tableGeoQueue.current.push({ key, lat: c.lat, lng: c.lng });
+      queued = true;
+    });
+    if (queued && !tableGeoActive.current) drainGeoQueue.current();
+  }, [filteredVehicles, tablePage, viewMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Lazily load sensors for every visible vehicle when the map-view sidebar
   // is open. Placed AFTER filteredVehicles useMemo to avoid TDZ error.
@@ -1915,11 +1970,17 @@ const MyFleet = () => {
             <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8', fontSize: '15px', pointerEvents: 'none' }}>⌕</span>
             <input
               className="form-control"
-              style={{ paddingLeft: '32px', width: '200px' }}
-              placeholder="Search vehicles…"
+              style={{ paddingLeft: '32px', paddingRight: search ? '26px' : undefined, width: '220px' }}
+              placeholder="Name, reg, IMEI, SIM, device…"
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
+            {search && (
+              <button onClick={() => setSearch('')} title="Clear search"
+                style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', padding: 2, lineHeight: 1, display: 'flex' }}>
+                <Ic n="x" size={12} color="#94A3B8" />
+              </button>
+            )}
           </div>
 
           {/* Client Picker — papa / dealer only: switch whose fleet is displayed (shared with map view) */}
@@ -2141,7 +2202,7 @@ const MyFleet = () => {
           ) : filteredVehicles.length === 0 ? (
             <div style={{ padding: '80px', textAlign: 'center', color: '#94A3B8', fontSize: '15px' }}>No vehicles found.</div>
           ) : (
-            <div className="table-container" style={{ maxHeight: 'calc(100vh - 300px)', overflowY: 'auto' }}>
+            <div className="table-container">
               <table>
                 <thead>
                   <tr>
@@ -2193,7 +2254,7 @@ const MyFleet = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredVehicles.map((v) => {
+                  {filteredVehicles.slice(tablePage * TABLE_PAGE_SIZE, (tablePage + 1) * TABLE_PAGE_SIZE).map((v) => {
                     const ign        = getIgnition(v);
                     const gps        = v.deviceStatus?.gpsData;
                     const fuelObj    = v.deviceStatus?.fuel;
@@ -2235,17 +2296,14 @@ const MyFleet = () => {
                                       {v.vehicleNumber}
                                     </span>
                                     <button onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(v.vehicleNumber); toast.success('Copied!', { autoClose: 1200 }); }}
-                                      title="Copy" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 2px', color: '#CBD5E1', lineHeight: 1, borderRadius: 3, flexShrink: 0 }}
-                                      onMouseEnter={e => e.currentTarget.style.color = '#2563EB'}
-                                      onMouseLeave={e => e.currentTarget.style.color = '#CBD5E1'}>⧉</button>
+                                      title="Copy reg" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 2px', color: '#64748b', lineHeight: 1, borderRadius: 3, flexShrink: 0 }}>⧉</button>
                                   </>
                                 )}
-                                {/* Custom fields icon — opens popover */}
-                                <button onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); openCfPopover(v.id, { top: r.bottom + 4, left: r.left }); }}
-                                  title="Custom fields"
-                                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', color: '#CBD5E1', lineHeight: 1, borderRadius: 3, flexShrink: 0, fontSize: 12 }}
-                                  onMouseEnter={e => e.currentTarget.style.color = '#6366F1'}
-                                  onMouseLeave={e => e.currentTarget.style.color = '#CBD5E1'}>
+                                {/* Additional info icon — opens on hover */}
+                                <button
+                                  onMouseEnter={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); openCfPopover(v.id, { top: r.bottom + 6, left: r.left }); }}
+                                  title="Additional info"
+                                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', color: '#64748b', lineHeight: 1, borderRadius: 3, flexShrink: 0 }}>
                                   <Ic n="layers" size={12} color="currentColor" />
                                 </button>
                               </div>
@@ -2258,15 +2316,12 @@ const MyFleet = () => {
                               </span>
                               {v.vehicleNumber && (
                                 <button onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(v.vehicleNumber); toast.success('Copied!', { autoClose: 1200 }); }}
-                                  title="Copy" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 2px', color: '#CBD5E1', lineHeight: 1, borderRadius: 3, flexShrink: 0 }}
-                                  onMouseEnter={e => e.currentTarget.style.color = '#2563EB'}
-                                  onMouseLeave={e => e.currentTarget.style.color = '#CBD5E1'}>⧉</button>
+                                  title="Copy reg" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 2px', color: '#64748b', lineHeight: 1, borderRadius: 3, flexShrink: 0 }}>⧉</button>
                               )}
-                              <button onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); openCfPopover(v.id, { top: r.bottom + 4, left: r.left }); }}
-                                title="Custom fields"
-                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', color: '#CBD5E1', lineHeight: 1, borderRadius: 3, flexShrink: 0 }}
-                                onMouseEnter={e => e.currentTarget.style.color = '#6366F1'}
-                                onMouseLeave={e => e.currentTarget.style.color = '#CBD5E1'}>
+                              <button
+                                onMouseEnter={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); openCfPopover(v.id, { top: r.bottom + 6, left: r.left }); }}
+                                title="Additional info"
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', color: '#64748b', lineHeight: 1, borderRadius: 3, flexShrink: 0 }}>
                                 <Ic n="layers" size={12} color="currentColor" />
                               </button>
                             </div>
@@ -2277,8 +2332,20 @@ const MyFleet = () => {
                         <td key="sim" style={{ textAlign: 'left' }}>
                           {(v.sim1 || v.sim2) ? (
                             <>
-                              {v.sim1 && <div style={{ fontFamily: 'monospace' }}>{v.sim1}</div>}
-                              {v.sim2 && <div style={{ fontFamily: 'monospace', color: '#64748b', marginTop: v.sim1 ? 1 : 0 }}>{v.sim2}</div>}
+                              {v.sim1 && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                                  <span style={{ fontFamily: 'monospace' }}>{v.sim1}</span>
+                                  <button onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(v.sim1); toast.success('Copied!', { autoClose: 1200 }); }}
+                                    title="Copy SIM 1" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 2px', color: '#64748b', lineHeight: 1, borderRadius: 3, flexShrink: 0 }}>⧉</button>
+                                </div>
+                              )}
+                              {v.sim2 && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginTop: v.sim1 ? 1 : 0 }}>
+                                  <span style={{ fontFamily: 'monospace', color: '#64748b' }}>{v.sim2}</span>
+                                  <button onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(v.sim2); toast.success('Copied!', { autoClose: 1200 }); }}
+                                    title="Copy SIM 2" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 2px', color: '#64748b', lineHeight: 1, borderRadius: 3, flexShrink: 0 }}>⧉</button>
+                                </div>
+                              )}
                             </>
                           ) : <span style={{ color: '#CBD5E1' }}>—</span>}
                         </td>
@@ -2405,18 +2472,29 @@ const MyFleet = () => {
                           ) : <span style={{ color: '#94a3b8' }}>—</span>}
                         </td>
                       ),
-                      gps: (
-                        <td key="gps">
-                          {coords ? (
-                            <span
-                              title={`${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}`}
-                              style={{ fontSize: '18px', cursor: 'default', lineHeight: 1 }}
-                            >📍</span>
-                          ) : (
-                            <span title="No GPS" style={{ color: '#94a3b8', fontSize: '16px', lineHeight: 1 }}>○</span>
-                          )}
-                        </td>
-                      ),
+                      gps: (() => {
+                        const geoKey  = coords ? `${coords.lat.toFixed(4)},${coords.lng.toFixed(4)}` : null;
+                        const geoText = geoKey ? tableGeoMap.get(geoKey) : null;
+                        return (
+                          <td key="gps" style={{ textAlign: 'left', maxWidth: 200 }}>
+                            {coords ? (
+                              <div title={`${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}`}>
+                                {geoText ? (
+                                  <span style={{ fontSize: 12, color: '#374151', lineHeight: 1.35, display: 'block', whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                                    {geoText}
+                                  </span>
+                                ) : (
+                                  <span style={{ fontSize: 11, color: '#94a3b8', fontFamily: 'monospace' }}>
+                                    {coords.lat.toFixed(4)}, {coords.lng.toFixed(4)}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span style={{ color: '#CBD5E1' }}>—</span>
+                            )}
+                          </td>
+                        );
+                      })(),
                       lastUpdate: (
                         <td key="lastUpdate" style={{ color: '#64748b', whiteSpace: 'nowrap' }}>
                           {lastUpdate ? new Date(lastUpdate).toLocaleString('en-IN', { timeStyle: 'short', dateStyle: 'short' }) : '—'}
@@ -2456,6 +2534,40 @@ const MyFleet = () => {
               </table>
             </div>
           )}
+
+          {/* Pagination */}
+          {filteredVehicles.length > 0 && (() => {
+            const totalPages = Math.ceil(filteredVehicles.length / 50);
+            const isFirst = tablePage === 0;
+            const isLast  = tablePage >= totalPages - 1;
+            return (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', padding: '10px 18px', borderTop: '1px solid #E2E8F0', background: '#F8FAFC', flexWrap: 'wrap', gap: 12 }}>
+                {totalPages > 1 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <button disabled={isFirst} onClick={() => setTablePage(p => p - 1)}
+                      style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #E2E8F0', background: isFirst ? '#F1F5F9' : '#fff', color: isFirst ? '#CBD5E1' : '#374151', fontWeight: 700, fontSize: 13, cursor: isFirst ? 'not-allowed' : 'pointer' }}>
+                      ← Prev
+                    </button>
+                    {Array.from({ length: totalPages }, (_, i) => i)
+                      .filter(i => Math.abs(i - tablePage) <= 2)
+                      .map(i => (
+                        <button key={i} onClick={() => setTablePage(i)}
+                          style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${i === tablePage ? '#2563EB' : '#E2E8F0'}`, background: i === tablePage ? '#2563EB' : '#fff', color: i === tablePage ? '#fff' : '#374151', fontWeight: 700, fontSize: 13, cursor: 'pointer', minWidth: 36 }}>
+                          {i + 1}
+                        </button>
+                      ))}
+                    <button disabled={isLast} onClick={() => setTablePage(p => p + 1)}
+                      style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #E2E8F0', background: isLast ? '#F1F5F9' : '#fff', color: isLast ? '#CBD5E1' : '#374151', fontWeight: 700, fontSize: 13, cursor: isLast ? 'not-allowed' : 'pointer' }}>
+                      Next →
+                    </button>
+                  </div>
+                )}
+                <span style={{ fontSize: 13, color: '#64748B' }}>
+                  Showing <strong>{tablePage * 50 + 1}</strong>–<strong>{Math.min((tablePage + 1) * 50, filteredVehicles.length)}</strong> of <strong>{filteredVehicles.length}</strong> vehicles
+                </span>
+              </div>
+            );
+          })()}
         </div>
 
         {vehicleDetailModalJsx}
@@ -2553,9 +2665,10 @@ const MyFleet = () => {
           <div
             style={{ position: 'fixed', top: cfPopover.pos.top, left: cfPopover.pos.left, zIndex: 9999, minWidth: 220, maxWidth: 320, background: '#fff', borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', border: '1px solid #E2E8F0', padding: '12px 16px', fontFamily: 'inherit' }}
             onClick={e => e.stopPropagation()}
+            onMouseLeave={() => setCfPopover(null)}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <span style={{ fontSize: 12, fontWeight: 800, color: '#0F172A', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Custom Fields</span>
+              <span style={{ fontSize: 12, fontWeight: 800, color: '#0F172A', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Additional Info</span>
               <button onClick={() => setCfPopover(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', padding: 2, lineHeight: 1, display: 'flex' }}><Ic n="x" size={13} color="#94A3B8" /></button>
             </div>
             {cfPopover.loading ? (
@@ -2612,7 +2725,13 @@ const MyFleet = () => {
           {/* Search */}
           <div style={{ position: 'relative' }}>
             <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8', fontSize: '15px', pointerEvents: 'none' }}>⌕</span>
-            <input className="form-control" style={{ paddingLeft: '32px', width: '200px' }} placeholder="Search vehicles…" value={search} onChange={e => setSearch(e.target.value)} />
+            <input className="form-control" style={{ paddingLeft: '32px', paddingRight: search ? '26px' : undefined, width: '220px' }} placeholder="Name, reg, IMEI, SIM, device…" value={search} onChange={e => setSearch(e.target.value)} />
+            {search && (
+              <button onClick={() => setSearch('')} title="Clear search"
+                style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', padding: 2, lineHeight: 1, display: 'flex' }}>
+                <Ic n="x" size={12} color="#94A3B8" />
+              </button>
+            )}
           </div>
 
           {/* Group filter */}

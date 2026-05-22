@@ -448,7 +448,7 @@ const AddVehicle = () => {
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 18px' }}>
                 <div style={fieldStyle}>
-                  <label style={labelStyle}>SIM 1 Number <span style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 500 }}>(Optional)</span></label>
+                  <label style={labelStyle}>SIM 1 Number </label>
                   <input
                     name="sim1"
                     style={{ ...inputStyle, fontFamily: 'monospace', fontSize: '14px', letterSpacing: '0.05em' }}
@@ -459,7 +459,7 @@ const AddVehicle = () => {
                   />
                 </div>
                 <div style={fieldStyle}>
-                  <label style={labelStyle}>SIM 2 Number <span style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 500 }}>(Optional)</span></label>
+                  <label style={labelStyle}>SIM 2 Number </label>
                   <input
                     name="sim2"
                     style={{ ...inputStyle, fontFamily: 'monospace', fontSize: '14px', letterSpacing: '0.05em' }}
