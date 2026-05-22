@@ -15,20 +15,35 @@ const normalise = (records) => {
   const flat = [];
   records.forEach(r => {
     (r.pending_data  || []).forEach(c => flat.push({ ...c, _vehicleNum: r.vehicle_number || r.vehicleNumber, _status: 'pending', _raw: c }));
-    (r.disposed_data || []).forEach(c => flat.push({ ...c, _vehicleNum: r.vehicle_number || r.vehicleNumber, _status: 'paid',    _raw: c }));
+    (r.disposed_data || []).forEach(c => flat.push({ ...c, _vehicleNum: r.vehicle_number || r.vehicleNumber, _status: 'disposed', _raw: c }));
   });
-  return flat.map((c, i) => ({
-    _raw:          c._raw || c,
-    id:            `${i}`,
-    vehicleNumber: (c._vehicleNum || '—').toUpperCase(),
-    challanNumber: c.challan_no   || c.challanNo   || '—',
-    challanType:   c.challan_type || c.challanType  || '—',
-    offense:       c.offense      || c.violation    || '—',
-    amount:        Number(c.amount || 0),
-    challanDate:   c.challan_date || c.challanDate  || null,
-    dueDate:       c.due_date     || c.dueDate       || null,
-    status:        c._status,
-  }));
+  return flat.map((c, i) => {
+    // offence_details is an array of { act, name }; join names for display
+    const offenceArr = Array.isArray(c.offence_details) ? c.offence_details : [];
+    const offense = offenceArr.map(o => o.name).filter(Boolean).join(' | ')
+      || c.offense || c.violation || '—';
+
+    // Amount: fine_imposed is a string, received_amount is a number for disposed
+    const amount = Number(c.fine_imposed || c.received_amount || c.amount || 0);
+
+    // Date: challan_date_time e.g. "22-09-2025 16:18:36"
+    const challanDate = c.challan_date_time || c.challan_date || c.challanDate || null;
+
+    return {
+      _raw:          c._raw || c,
+      id:            `${i}`,
+      vehicleNumber: (c._vehicleNum || '—').toUpperCase(),
+      challanNumber: c.challan_no    || c.challanNo   || '—',
+      challanType:   c.department    || c.challan_type || c.challanType || '—',
+      offense,
+      offenceDetails: offenceArr,
+      amount,
+      challanDate,
+      dueDate:       c.due_date || c.dueDate || c.date_of_proceeding || null,
+      challanPlace:  c.challan_place || null,
+      status:        c._status,
+    };
+  });
 };
 
 const dateMs = (d) => d ? new Date(d).getTime() : 0;
@@ -58,18 +73,26 @@ const DetailModal = ({ row, onClose }) => {
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#94A3B8' }}>✕</button>
         </div>
         <div style={{ flex: 1, overflow: 'auto', padding: '16px 24px' }}>
-          <Field label="Vehicle"      value={row.vehicleNumber} />
-          <Field label="Challan No."  value={row.challanNumber} />
-          <Field label="Type"         value={row.challanType} />
-          <Field label="Offense"      value={row.offense} />
-          <Field label="Amount"       value={`₹${row.amount.toLocaleString('en-IN')}`} />
-          <Field label="Challan Date" value={toISTDateString(row.challanDate)} />
-          <Field label="Due Date"     value={toISTDateString(row.dueDate)} />
-          <Field label="Status"       value={sm.label} />
-          {/* Extra raw fields */}
-          {Object.entries(row._raw || {}).filter(([k]) => !['challan_no','challanNo','challan_type','challanType','offense','violation','amount','challan_date','challanDate','due_date','dueDate','_vehicleNum','_status','_raw'].includes(k)).map(([k, v]) => (
-            <Field key={k} label={k.replace(/_/g, ' ')} value={v != null ? String(v) : null} />
-          ))}
+          <Field label="Vehicle"       value={row.vehicleNumber} />
+          <Field label="Challan No."   value={row.challanNumber} />
+          <Field label="Department"    value={row.challanType} />
+          <Field label="Place"         value={row.challanPlace} />
+          <Field label="Amount"        value={`₹${row.amount.toLocaleString('en-IN')}`} />
+          <Field label="Date"          value={row.challanDate} />
+          <Field label="Due Date"      value={row.dueDate} />
+          <Field label="Status"        value={sm.label} />
+          {/* Offences */}
+          {row.offenceDetails?.length > 0 && (
+            <div style={{ paddingTop: 10, borderTop: '1px solid #F1F5F9', marginTop: 4 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Offences</div>
+              {row.offenceDetails.map((o, i) => (
+                <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                  {o.act && <span style={{ fontSize: 11, fontFamily: 'monospace', background: '#FEF3C7', color: '#92400E', padding: '1px 6px', borderRadius: 4, flexShrink: 0 }}>{o.act}</span>}
+                  <span style={{ fontSize: 12, color: '#374151' }}>{o.name}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -190,7 +213,7 @@ const Challans = () => {
                 <Th col="offense">Offense</Th>
                 <Th col="amount">Amount</Th>
                 <Th col="challanDate">Date</Th>
-                <Th col="dueDate">Due Date</Th>
+
                 <Th col="status">Status</Th>
                 <th>Details</th>
               </tr>
@@ -204,10 +227,12 @@ const Challans = () => {
                     <td><span style={{ fontWeight: 800, color: '#0F172A', fontSize: '14px' }}>{c.vehicleNumber}</span></td>
                     <td style={{ fontFamily: 'monospace', fontSize: '12px', color: '#64748B' }}>{c.challanNumber}</td>
                     <td style={{ fontSize: '13px' }}>{c.challanType}</td>
-                    <td style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '13px', color: '#334155' }} title={c.offense}>{c.offense}</td>
-                    <td><span style={{ fontWeight: 800, fontSize: '15px', color: c.status === 'paid' || c.status === 'disposed' ? '#059669' : '#DC2626', fontVariantNumeric: 'tabular-nums' }}>₹{c.amount.toLocaleString('en-IN')}</span></td>
-                    <td style={{ fontSize: '13px', color: '#64748B' }}>{toISTDateString(c.challanDate)}</td>
-                    <td style={{ fontSize: '13px', color: '#64748B' }}>{toISTDateString(c.dueDate)}</td>
+                    <td style={{ maxWidth: 200, fontSize: '13px', color: '#334155' }}>
+                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.offense}>{c.offense}</div>
+                      {c.challanPlace && <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.challanPlace}>{c.challanPlace}</div>}
+                    </td>
+                    <td><span style={{ fontWeight: 800, fontSize: '15px', color: c.status === 'disposed' ? '#059669' : '#DC2626', fontVariantNumeric: 'tabular-nums' }}>₹{c.amount.toLocaleString('en-IN')}</span></td>
+                    <td style={{ fontSize: '13px', color: '#64748B', whiteSpace: 'nowrap' }}>{c.challanDate || '—'}</td>
                     <td><span className={`badge ${sm.cls}`}>{sm.label}</span></td>
                     <td>
                       <button onClick={() => setDetail(c)}

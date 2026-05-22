@@ -657,32 +657,20 @@ function DrawModal({ mode, editTarget, vehicles, groups, onSave, onClose }) {
 
 // ── Stat card — color-filled, matches dashboard style ─────────────────────────
 
-function StatCard({ label, value, icon, color }) {
+function StatCard({ label, value, icon, gradient, shadow }) {
   return (
     <div style={{
-      background: `linear-gradient(135deg, ${color} 0%, ${color}D9 100%)`,
-      borderRadius: 16,
-      padding: '22px 26px',
-      display: 'flex', flexDirection: 'column', gap: 8,
-      flex: 1, minWidth: 160, minHeight: 138,
-      position: 'relative', overflow: 'hidden',
-      boxShadow: `0 8px 22px ${color}38, 0 2px 8px rgba(15,23,42,0.10)`,
+      display: 'flex', alignItems: 'center', gap: 8,
+      padding: '11px 17px',
+      background: gradient,
+      borderRadius: 10,
+      boxShadow: shadow,
+      flex: '0 0 auto',
       cursor: 'default',
-      transition: 'transform 0.18s, box-shadow 0.18s',
-    }}
-      onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = `0 14px 28px ${color}55, 0 4px 10px rgba(15,23,42,0.14)`; }}
-      onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = `0 8px 22px ${color}38, 0 2px 8px rgba(15,23,42,0.10)`; }}
-    >
-      {/* decorative circle bubble */}
-      <div style={{ position: 'absolute', right: -20, top: -20, width: 110, height: 110, borderRadius: '50%', background: 'rgba(255,255,255,0.12)', pointerEvents: 'none' }} />
-      {/* icon badge */}
-      <div style={{ position: 'absolute', right: 18, top: 16, width: 44, height: 44, borderRadius: 10, background: 'rgba(255,255,255,0.20)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, backdropFilter: 'blur(4px)' }}>
-        {icon}
-      </div>
-      <div style={{ position: 'relative', zIndex: 1 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.82)', textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: 8 }}>{label}</div>
-        <div style={{ fontSize: 42, fontWeight: 800, color: '#fff', lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{value}</div>
-      </div>
+    }}>
+      <span style={{ fontSize: 18, lineHeight: 1, flexShrink: 0 }}>{icon}</span>
+      <span style={{ fontSize: 22, fontWeight: 800, color: '#fff', lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.01em' }}>{value}</span>
+      <span style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.82)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>{label}</span>
     </div>
   );
 }
@@ -827,15 +815,12 @@ export default function Geofence() {
     <div style={{ minHeight: '100vh', background: '#f1f5f9', display: 'flex', flexDirection: 'column' }}>
 
       {/* Page title + stat cards */}
-      <div style={{ padding: '20px 28px 16px', background: '#fff', borderBottom: '1px solid #e2e8f0', flexShrink: 0 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 800, margin: '0 0 12px', color: '#1e293b' }}>Geofences</h1>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14 }}>
-          <StatCard label="Total"    value={stats.total}    icon="📍" color="#3B82F6" />
-          <StatCard label="Active"   value={stats.active}   icon="✅" color="#10B981" />
-          <StatCard label="Inactive" value={stats.total - stats.active} icon="⏸️" color="#64748B" />
-          <StatCard label="Circular" value={stats.circular} icon="⭕" color="#F59E0B" />
-          <StatCard label="Polygon"  value={stats.polygon}  icon="🔷" color="#8B5CF6" />
-        </div>
+      <div style={{ padding: '14px 24px', background: '#fff', borderBottom: '1px solid #e2e8f0', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <StatCard label="Total"    value={stats.total}                icon="📍" gradient="linear-gradient(135deg, #1D4ED8 0%, #3B82F6 100%)" shadow="0 4px 14px rgba(37,99,235,0.28)" />
+        <StatCard label="Active"   value={stats.active}               icon="✅" gradient="linear-gradient(135deg, #047857 0%, #10B981 100%)" shadow="0 4px 14px rgba(5,150,105,0.28)" />
+        <StatCard label="Inactive" value={stats.total - stats.active} icon="⏸️" gradient="linear-gradient(135deg, #475569 0%, #64748B 100%)" shadow="0 4px 14px rgba(100,116,139,0.28)" />
+        <StatCard label="Circular" value={stats.circular}             icon="⭕" gradient="linear-gradient(135deg, #B45309 0%, #F59E0B 100%)" shadow="0 4px 14px rgba(217,119,6,0.28)" />
+        <StatCard label="Polygon"  value={stats.polygon}              icon="🔷" gradient="linear-gradient(135deg, #5B21B6 0%, #8B5CF6 100%)" shadow="0 4px 14px rgba(109,40,217,0.28)" />
       </div>
 
       {/* Split layout */}

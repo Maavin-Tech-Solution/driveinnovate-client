@@ -21,20 +21,25 @@ const DateCell = ({ date }) => {
   );
 };
 
-const normalise = (r) => ({
-  _raw:                 r,
-  id:                   r.id,
-  vehicleNumber:        r.vehicle_number || r.vehicleNumber || '—',
-  insuranceExpiry:      r.insurance_exp  || r.insuranceExpiry      || null,
-  roadTaxExpiry:        r.road_tax_exp   || r.roadTaxExpiry         || null,
-  fitnessExpiry:        r.fitness_exp    || r.fitnessExpiry         || null,
-  pollutionExpiry:      r.pollution_exp  || r.pollutionExpiry       || null,
-  nationalPermitExpiry: r.rto_data?.permit_exp || r.nationalPermitExpiry || null,
-  statePermit:          r.rto_data?.state_permit || r.rto_data?.statePermit || r.state_permit || null,
-});
+const normalise = (r) => {
+  // rto_data can be a nested object with a VehicleDetails sub-key
+  const vd = r.rto_data?.VehicleDetails || r.rto_data || {};
+  return {
+    _raw:                 r,
+    id:                   r.id,
+    vehicleNumber:        r.vehicle_number || r.vehicleNumber || '—',
+    regDate:              vd.rc_regn_dt    || r.rc_regn_dt    || null,
+    insuranceExpiry:      r.insurance_exp  || r.insuranceExpiry      || vd.rc_insurance_upto || null,
+    roadTaxExpiry:        r.road_tax_exp   || r.roadTaxExpiry         || vd.rc_tax_upto       || null,
+    fitnessExpiry:        r.fitness_exp    || r.fitnessExpiry         || vd.rc_fit_upto       || null,
+    pollutionExpiry:      r.pollution_exp  || r.pollutionExpiry       || vd.rc_pucc_upto      || null,
+    nationalPermitExpiry: r.nationalPermitExpiry || vd.permit_exp     || vd.rc_permit_exp     || null,
+    statePermit:          r.state_permit   || vd.state_permit         || vd.rc_state_permit   || null,
+  };
+};
 
 const EXPIRY_KEYS = ['insuranceExpiry','roadTaxExpiry','fitnessExpiry','pollutionExpiry','nationalPermitExpiry','statePermit'];
-const SORT_COLS   = ['vehicleNumber','insuranceExpiry','roadTaxExpiry','fitnessExpiry','pollutionExpiry','nationalPermitExpiry','statePermit'];
+const SORT_COLS   = ['vehicleNumber','regDate','insuranceExpiry','roadTaxExpiry','fitnessExpiry','pollutionExpiry','nationalPermitExpiry','statePermit'];
 
 const SortIcon = ({ col, sortCol, sortDir }) => {
   if (sortCol !== col) return <span style={{ color: '#CBD5E1', marginLeft: 4 }}>⇅</span>;
@@ -59,16 +64,19 @@ const DetailModal = ({ row, onClose }) => {
           {/* Key expiry fields */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10, marginBottom: 20 }}>
             {[
+              { label: 'Reg Date',       val: row.regDate, plain: true },
               { label: 'Insurance',      val: row.insuranceExpiry },
               { label: 'Road Tax',       val: row.roadTaxExpiry },
               { label: 'Fitness',        val: row.fitnessExpiry },
               { label: 'Pollution',      val: row.pollutionExpiry },
               { label: 'Nat. Permit',    val: row.nationalPermitExpiry },
               { label: 'State Permit',   val: row.statePermit },
-            ].map(({ label, val }) => (
+            ].map(({ label, val, plain }) => (
               <div key={label} style={{ background: '#F8FAFC', borderRadius: 8, padding: '10px 14px', border: '1px solid #E2E8F0' }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>{label}</div>
-                <DateCell date={val} />
+                {plain
+                  ? <span style={{ fontSize: 13, fontWeight: 700, color: '#475569' }}>{val || '—'}</span>
+                  : <DateCell date={val} />}
               </div>
             ))}
           </div>
@@ -94,15 +102,29 @@ const FILTERS = [
   { key: 'ok',       label: '✅ Valid' },
 ];
 
+// Optional columns hidden by default — user can toggle them on
+const OPTIONAL_COLS = [
+  { key: 'nationalPermitExpiry', label: 'National Permit' },
+  { key: 'statePermit',          label: 'State Permit'    },
+];
+
 const RtoDetails = () => {
-  const [rows,    setRows]    = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState(null);
-  const [search,  setSearch]  = useState('');
-  const [sortCol, setSortCol] = useState('vehicleNumber');
-  const [sortDir, setSortDir] = useState('asc');
-  const [filter,  setFilter]  = useState('all');
-  const [detail,  setDetail]  = useState(null);
+  const [rows,       setRows]       = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [error,      setError]      = useState(null);
+  const [search,     setSearch]     = useState('');
+  const [sortCol,    setSortCol]    = useState('vehicleNumber');
+  const [sortDir,    setSortDir]    = useState('asc');
+  const [filter,     setFilter]     = useState('all');
+  const [detail,     setDetail]     = useState(null);
+  // Optional columns — hidden by default
+  const [optCols,    setOptCols]    = useState(new Set());
+
+  const toggleOptCol = (key) => setOptCols(prev => {
+    const next = new Set(prev);
+    next.has(key) ? next.delete(key) : next.add(key);
+    return next;
+  });
 
   useEffect(() => {
     getScRtoData()
@@ -179,6 +201,23 @@ const RtoDetails = () => {
               </button>
             ))}
           </div>
+
+          {/* Optional column toggles */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginLeft: 8, paddingLeft: 12, borderLeft: '1px solid #E2E8F0' }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>Show columns:</span>
+            {OPTIONAL_COLS.map(c => (
+              <label key={c.key} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontSize: 13, color: optCols.has(c.key) ? '#2563EB' : '#64748B', fontWeight: optCols.has(c.key) ? 700 : 500, userSelect: 'none' }}>
+                <input
+                  type="checkbox"
+                  checked={optCols.has(c.key)}
+                  onChange={() => toggleOptCol(c.key)}
+                  style={{ accentColor: '#2563EB', width: 14, height: 14, cursor: 'pointer' }}
+                />
+                {c.label}
+              </label>
+            ))}
+          </div>
+
           <span style={{ marginLeft: 'auto', fontSize: 12, color: '#94A3B8' }}>{displayed.length} of {rows.length} vehicles</span>
         </div>
       )}
@@ -202,12 +241,13 @@ const RtoDetails = () => {
             <thead>
               <tr>
                 <Th col="vehicleNumber">Vehicle</Th>
+                <Th col="regDate">Reg Date</Th>
                 <Th col="insuranceExpiry">Insurance</Th>
                 <Th col="roadTaxExpiry">Road Tax</Th>
                 <Th col="fitnessExpiry">Fitness</Th>
                 <Th col="pollutionExpiry">Pollution</Th>
-                <Th col="nationalPermitExpiry">Nat. Permit</Th>
-                <Th col="statePermit">State Permit</Th>
+                {optCols.has('nationalPermitExpiry') && <Th col="nationalPermitExpiry">Nat. Permit</Th>}
+                {optCols.has('statePermit')          && <Th col="statePermit">State Permit</Th>}
                 <th>Details</th>
               </tr>
             </thead>
@@ -215,12 +255,13 @@ const RtoDetails = () => {
               {displayed.map(r => (
                 <tr key={r.id}>
                   <td><span style={{ fontWeight: 800, color: '#0F172A', fontSize: '14px' }}>{r.vehicleNumber}</span></td>
+                  <td><span style={{ fontSize: '13px', color: '#475569' }}>{r.regDate || <span style={{ color: '#CBD5E1' }}>—</span>}</span></td>
                   <td><DateCell date={r.insuranceExpiry} /></td>
                   <td><DateCell date={r.roadTaxExpiry} /></td>
                   <td><DateCell date={r.fitnessExpiry} /></td>
                   <td><DateCell date={r.pollutionExpiry} /></td>
-                  <td><DateCell date={r.nationalPermitExpiry} /></td>
-                  <td><DateCell date={r.statePermit} /></td>
+                  {optCols.has('nationalPermitExpiry') && <td><DateCell date={r.nationalPermitExpiry} /></td>}
+                  {optCols.has('statePermit')          && <td><DateCell date={r.statePermit} /></td>}
                   <td>
                     <button onClick={() => setDetail(r)}
                       style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 6, padding: '5px 10px', cursor: 'pointer', color: '#2563EB', fontSize: 14, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}

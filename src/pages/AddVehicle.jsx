@@ -390,7 +390,7 @@ const AddVehicle = () => {
             <div style={{ padding: '0 24px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 18px' }}>
                 <div style={fieldStyle}>
-                  <label style={labelStyle}>IMEI Number of Device</label>
+                  <label style={labelStyle}>IMEI Number of Device <span style={{ color: '#ef4444' }}>*</span></label>
                   <input
                     name="imei"
                     style={{ ...inputStyle, fontFamily: 'monospace', fontSize: '15px', letterSpacing: '0.08em' }}
@@ -398,11 +398,12 @@ const AddVehicle = () => {
                     value={form.imei}
                     onChange={handleChange}
                     maxLength={20}
+                    required
                   />
                 </div>
                 <div style={fieldStyle}>
-                  <label style={labelStyle}>Device Type</label>
-                  <select name="deviceType" style={{ ...inputStyle, cursor: 'pointer' }} value={form.deviceType} onChange={handleChange}>
+                  <label style={labelStyle}>Device Type <span style={{ color: '#ef4444' }}>*</span></label>
+                  <select name="deviceType" style={{ ...inputStyle, cursor: 'pointer' }} value={form.deviceType} onChange={handleChange} required>
                     <option value="">Select Device Type</option>
                     <option value="GT06">GT06</option>
                     <option value="GT06N">GT06N</option>
@@ -431,12 +432,13 @@ const AddVehicle = () => {
                   />
                 </div>
                 <div style={fieldStyle}>
-                  <label style={labelStyle}>Port</label>
+                  <label style={labelStyle}>Port <span style={{ color: '#ef4444' }}>*</span></label>
                   <select
                     name="serverPort"
                     style={{ ...inputStyle, fontFamily: 'monospace', cursor: 'pointer' }}
                     value={form.serverPort}
                     onChange={handleChange}
+                    required
                   >
                     <option value="">Select port</option>
                     <option value="5023">5023 (GT06)</option>
@@ -553,9 +555,9 @@ const AddVehicle = () => {
             <div style={{ padding: '0 24px 24px', display: 'flex', gap: '10px' }}>
               <button
                 type="submit"
-                disabled={loading || !form.vehicleNumber}
+                disabled={loading || !form.vehicleNumber || !form.imei || !form.deviceType || !form.serverPort}
                 style={{
-                  flex: 1, padding: '12px', background: (!form.vehicleNumber || loading) ? '#93c5fd' : '#2563eb',
+                  flex: 1, padding: '12px', background: (!form.vehicleNumber || !form.imei || !form.deviceType || !form.serverPort || loading) ? '#93c5fd' : '#2563eb',
                   color: '#fff', border: 'none', borderRadius: '10px',
                   fontWeight: 700, fontSize: '14px', cursor: (!form.vehicleNumber || loading) ? 'not-allowed' : 'pointer',
                   transition: 'background 0.15s',
@@ -591,12 +593,12 @@ const AddVehicle = () => {
               { key: 'vehicleName',   label: 'Vehicle Name',        required: false },
               { key: 'chasisNumber',  label: 'Chassis Number',      required: false },
               { key: 'engineNumber',  label: 'Engine Number',       required: false },
-              { key: 'imei',         label: 'IMEI Number',         required: false },
+              { key: 'imei',         label: 'IMEI Number',         required: true  },
               { key: 'sim1',         label: 'SIM 1 Number',        required: false },
               { key: 'sim2',         label: 'SIM 2 Number',        required: false },
-              { key: 'deviceType',   label: 'Device Type',         required: false },
+              { key: 'deviceType',   label: 'Device Type',         required: true  },
               { key: 'serverIp',     label: 'Server IP',           required: false },
-              { key: 'serverPort',   label: 'Port',                required: false },
+              { key: 'serverPort',   label: 'Port',                required: true  },
               { key: 'vehicleIcon',  label: 'Vehicle Icon',        required: false },
             ].map(({ key, label, required }) => {
               const done = !!form[key];
