@@ -228,6 +228,7 @@ const AddVehicle = () => {
     vehicleName: '',
     chasisNumber: '',
     engineNumber: '',
+    branch: '',
     imei: '',
     sim1: '',
     sim2: '',
@@ -298,7 +299,7 @@ const AddVehicle = () => {
   };
 
   const handleReset = () => {
-    setForm({ vehicleNumber: '', vehicleName: '', chasisNumber: '', engineNumber: '', imei: '', sim1: '', sim2: '', deviceType: '', serverIp: 'd.maavitrack.com', serverPort: '', vehicleIcon: 'car' });
+    setForm({ vehicleNumber: '', vehicleName: '', chasisNumber: '', engineNumber: '', branch: '', imei: '', sim1: '', sim2: '', deviceType: '', serverIp: 'd.maavitrack.com', serverPort: '', vehicleIcon: 'car' });
     setForClientId('');
     setPendingCf([]); setCfName(''); setCfValue('');
   };
@@ -352,16 +353,15 @@ const AddVehicle = () => {
                 <span style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px', display: 'block' }}>Enter exactly as printed on the RC book</span>
               </div>
 
-              <div style={fieldStyle}>
-                <label style={labelStyle}>Vehicle Name <span style={{ fontSize: '10px', fontWeight: 400, color: '#94a3b8', textTransform: 'none' }}>(optional)</span></label>
-                <input
-                  name="vehicleName"
-                  style={inputStyle}
-                  placeholder="e.g. Company Truck, Office Cab"
-                  value={form.vehicleName}
-                  onChange={handleChange}
-                />
-                <span style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px', display: 'block' }}>A friendly display name shown in fleet view</span>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 18px' }}>
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>Vehicle Name <span style={{ fontSize: '10px', fontWeight: 400, color: '#94a3b8', textTransform: 'none' }}>(optional)</span></label>
+                  <input name="vehicleName" style={inputStyle} placeholder="e.g. Company Truck, Office Cab" value={form.vehicleName} onChange={handleChange} />
+                </div>
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>Branch <span style={{ fontSize: '10px', fontWeight: 400, color: '#94a3b8', textTransform: 'none' }}>(optional)</span></label>
+                  <input name="branch" style={inputStyle} placeholder="e.g. Delhi, North Zone" value={form.branch} onChange={handleChange} />
+                </div>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 18px' }}>

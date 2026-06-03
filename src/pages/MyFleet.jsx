@@ -29,6 +29,8 @@ import { createTripShare, createLiveShare } from '../services/share.service';
 import LocationPlayer from '../components/common/LocationPlayer';
 import BottomSheet from '../components/common/BottomSheet';
 import { getISTToday, getISTDaysAgo, getISTNow, getISTDaysAgoDatetime } from '../utils/dateFormat';
+import { SIDEBAR_PRESETS, resolveSidebarColor } from '../utils/theme';
+import * as XLSX from 'xlsx';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const INDIA_CENTER = [22.9734, 78.6569];
@@ -86,14 +88,16 @@ const HUD_CSS = `
     65%  { box-shadow: 0 0 0 9px rgba(22,163,74,0), 0 2px 8px rgba(0,0,0,0.4); }
     100% { box-shadow: 0 0 0 0 rgba(22,163,74,0), 0 2px 8px rgba(0,0,0,0.4); }
   }
-  /* Vehicle card — light theme, smooth elevation */
+  /* Vehicle list row — lifts out of the list on hover */
   .fv-card {
-    transition: box-shadow 0.22s ease, transform 0.22s ease, border-color 0.22s ease, background 0.15s ease;
+    transition: box-shadow 0.18s ease, transform 0.18s ease, background 0.12s ease, z-index 0s;
+    position: relative; z-index: 0;
   }
   .fv-card:hover {
-    transform: translateY(-2px) !important;
-    box-shadow: 0 10px 30px rgba(15,23,42,0.12), 0 2px 6px rgba(15,23,42,0.06) !important;
-    border-color: #C7D2E8 !important;
+    background: #FAFCFF !important;
+    transform: translateX(2px);
+    box-shadow: 4px 0 16px rgba(15,23,42,0.10), 0 2px 8px rgba(15,23,42,0.06) !important;
+    z-index: 2;
   }
   /* HUD icon buttons */
   .fv-hud-btn { transition: background 0.15s, color 0.15s, box-shadow 0.15s; }
@@ -247,35 +251,71 @@ const ALL_FLEET_CHIPS = [
   { id: 'stopped',   label: 'Stopped',   dot: '#ef4444', gradient: 'linear-gradient(135deg, #B91C1C 0%, #EF4444 100%)', shadow: '0 4px 14px rgba(220,38,38,0.28)',   icon: '🔴' },
   { id: 'idle',      label: 'Idle',      dot: '#8b5cf6', gradient: 'linear-gradient(135deg, #6D28D9 0%, #8B5CF6 100%)', shadow: '0 4px 14px rgba(109,40,217,0.28)',  icon: '⏸️' },
   { id: 'overspeed', label: 'Overspeed', dot: '#dc2626', gradient: 'linear-gradient(135deg, #991B1B 0%, #DC2626 100%)', shadow: '0 4px 14px rgba(153,27,27,0.28)',   icon: '🏎️' },
+  { id: 'nodata',    label: 'No Data',   dot: '#94A3B8', gradient: 'linear-gradient(135deg, #475569 0%, #64748B 100%)', shadow: '0 4px 14px rgba(100,116,139,0.28)', icon: '📵' },
 ];
-const DEFAULT_FLEET_CHIPS = ['total', 'running', 'stopped'];
+const DEFAULT_FLEET_CHIPS = ['total', 'running', 'stopped', 'nodata'];
 
 function getVisibleFleetChips() {
   try {
     const saved = localStorage.getItem('myfleet-visible-chips');
-    return saved ? JSON.parse(saved) : DEFAULT_FLEET_CHIPS;
+    if (!saved) return DEFAULT_FLEET_CHIPS;
+    const arr = JSON.parse(saved);
+    // Migrate: ensure newly added default chips are visible even in old saved lists
+    DEFAULT_FLEET_CHIPS.forEach(id => { if (!arr.includes(id)) arr.push(id); });
+    return arr;
   } catch { return DEFAULT_FLEET_CHIPS; }
 }
 
 // ─── Map tile URL from saved preference ──────────────────────────────────────
 const MAP_TILES = {
-  roadmap:   'https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+  voyager:   'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
   light:     'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-  osm:       'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-  terrain:   'https://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}',
   dark:      'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+  osm:       'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
   satellite: 'https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
   hybrid:    'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
 };
-// Migrate old 'voyager' preference to 'roadmap'
+const MAP_ATTRIBUTIONS = {
+  voyager:   '&copy; <a href="https://carto.com">CARTO</a> &copy; <a href="https://openstreetmap.org">OpenStreetMap</a>',
+  light:     '&copy; <a href="https://carto.com">CARTO</a> &copy; <a href="https://openstreetmap.org">OpenStreetMap</a>',
+  dark:      '&copy; <a href="https://carto.com">CARTO</a> &copy; <a href="https://openstreetmap.org">OpenStreetMap</a>',
+  osm:       '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a> contributors',
+  satellite: '&copy; Google Maps',
+  hybrid:    '&copy; Google Maps',
+};
 const getMapTileUrl = () => {
-  let style = localStorage.getItem('mapStyle') || 'roadmap';
-  if (style === 'voyager') { style = 'roadmap'; localStorage.setItem('mapStyle', 'roadmap'); }
-  return MAP_TILES[style] || MAP_TILES.roadmap;
+  let style = localStorage.getItem('mapStyle') || 'voyager';
+  // Migrate old keys
+  if (style === 'roadmap' || style === 'terrain') { style = 'voyager'; localStorage.setItem('mapStyle', 'voyager'); }
+  return MAP_TILES[style] || MAP_TILES.voyager;
+};
+const getMapAttribution = () => {
+  const style = localStorage.getItem('mapStyle') || 'voyager';
+  return MAP_ATTRIBUTIONS[style] || MAP_ATTRIBUTIONS.voyager;
+};
+const MAP_SUBDOMAINS = {
+  voyager:   'abcd',
+  light:     'abcd',
+  dark:      'abcd',
+  osm:       'abc',   // OSM only has a/b/c — 'd' returns 404 → grey tiles
+  satellite: '0123',
+  hybrid:    '0123',
+};
+const MAP_MAXZOOM = {
+  osm:       19,      // OSM tiles stop at 19; requesting z=20 gives grey squares
+  satellite: 20,
+  hybrid:    20,
+  voyager:   20,
+  light:     20,
+  dark:      20,
 };
 const getMapSubdomains = () => {
-  const style = localStorage.getItem('mapStyle') || 'roadmap';
-  return ['roadmap', 'terrain', 'satellite', 'hybrid'].includes(style) ? '0123' : 'abcd';
+  const style = localStorage.getItem('mapStyle') || 'voyager';
+  return MAP_SUBDOMAINS[style] || 'abcd';
+};
+const getMapMaxZoom = () => {
+  const style = localStorage.getItem('mapStyle') || 'voyager';
+  return MAP_MAXZOOM[style] || 20;
 };
 
 // ─── Trail helpers ───────────────────────────────────────────────────────────
@@ -444,7 +484,9 @@ const lbl = { display: 'block', fontSize: 11, fontWeight: 700, color: C.textMute
 // reliably even when the user re-clicks the same vehicle or two vehicles
 // happen to share coordinates, both of which can shallow-equal in the
 // `center` array reference and silently skip the effect.
-const FOCUS_ZOOM = 17;
+const DEFAULT_FOCUS_ZOOM = 13;
+const getFocusZoom = () => parseInt(localStorage.getItem('mapFocusZoom') || DEFAULT_FOCUS_ZOOM, 10);
+
 const MapController = ({ center, focusKey }) => {
   const map = useMap();
   const latestCenter = useRef(center);
@@ -452,7 +494,9 @@ const MapController = ({ center, focusKey }) => {
   useEffect(() => {
     const c = latestCenter.current;
     if (!c) return;
-    const targetZoom = Math.max(map.getZoom(), FOCUS_ZOOM);
+    // Use saved focus zoom; never zoom OUT if user is already deeper
+    const saved = getFocusZoom();
+    const targetZoom = Math.max(map.getZoom(), saved);
     map.flyTo(c, targetZoom, { duration: 1 });
   }, [focusKey, map]);
   return null;
@@ -669,7 +713,7 @@ const VehicleTooltip = ({ vehicle }) => {
         <div style={{ padding: '8px 14px', background: '#F8FAFC', borderRadius: '0 0 8px 8px', borderTop: '1px solid #E2E8F0' }}>
           {coords && <div style={{ fontSize: 10, color: '#94A3B8', fontFamily: 'monospace', marginBottom: 2 }}>{coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}</div>}
           {vehicle.deviceType && <div style={{ fontSize: 10, color: '#94A3B8' }}>{vehicle.deviceType}{vehicle.imei ? ` · ${vehicle.imei}` : ''}</div>}
-          {gps?.timestamp && <div style={{ fontSize: 10, color: '#94A3B8', marginTop: 2 }}>Updated: {new Date(gps.timestamp).toLocaleString('en-IN', { timeStyle: 'short', dateStyle: 'short' })}</div>}
+          {gps?.timestamp && <div style={{ fontSize: 10, color: '#94A3B8', marginTop: 2 }}>Updated: {new Date(gps.timestamp).toLocaleString('en-IN', { timeStyle: 'medium', dateStyle: 'short' })}</div>}
         </div>
       )}
     </div>
@@ -680,6 +724,7 @@ const VehicleTooltip = ({ vehicle }) => {
 const COL_DEFS = {
   icon:       { label: '',             icon: 'map',      ic: '#3b82f6' },
   vehicle:    { label: 'Vehicle',     icon: 'map',      ic: '#3b82f6' },
+  branch:     { label: 'Branch',      icon: 'layers',   ic: '#7c3aed' },
   sim:        { label: 'SIM',         icon: 'radio',    ic: '#0891b2' },
   regNo:      { label: 'Vehicle No.', icon: 'info',     ic: '#64748b' },
   imei:       { label: 'IMEI',        icon: 'cpu',      ic: '#7c3aed' },
@@ -692,7 +737,9 @@ const COL_DEFS = {
   satellites: { label: 'Satellites',  icon: 'radio',    ic: '#4f46e5' },
   odometer:   { label: 'Odometer',    icon: 'route',    ic: '#059669' },
   gps:        { label: 'Location',     icon: 'pin',      ic: '#ef4444' },
-  lastUpdate: { label: 'Last Update', icon: 'clock',    ic: '#475569' },
+  lastUpdate:   { label: 'Last Update',    icon: 'clock',    ic: '#475569' },
+  firstPacket:  { label: 'First Packet',   icon: 'clock',    ic: '#059669' },
+  registeredAt: { label: 'Registered At',  icon: 'calendar', ic: '#7c3aed' },
   actions:    { label: 'Actions',     icon: 'gear',     ic: '#6b7280' },
 };
 
@@ -754,6 +801,7 @@ const MyFleet = () => {
   const [detailSheetPeek, setDetailSheetPeek] = useState('half');
   const [activeTab, setActiveTab] = useState('overview');
   const [search, setSearch] = useState('');
+  const [searchType, setSearchType] = useState('all'); // 'all'|'vehicleNumber'|'vehicleName'|'imei'|'sim'|'deviceType'|'branch'
   const [statusFilter, setStatusFilter] = useState(new Set(['Running', 'Stopped', 'Unknown']));
   const [chipFilter, setChipFilter] = useState(null); // null = all, or chip id string
   const [showStatusDrop, setShowStatusDrop] = useState(false);
@@ -762,9 +810,9 @@ const MyFleet = () => {
   const [sortDir, setSortDir] = useState('asc');
   const TABLE_PAGE_SIZE = 50;
   const [tablePage, setTablePage] = useState(0);
-  const [colOrder, setColOrder] = useState(['icon','vehicle','sim','regNo','imei','status','gps','speed','fuel','battery','voltage','gsm','satellites','odometer','lastUpdate','actions']);
+  const [colOrder, setColOrder] = useState(['icon','vehicle','branch','sim','regNo','imei','status','gps','speed','fuel','battery','voltage','gsm','satellites','odometer','lastUpdate','firstPacket','registeredAt','actions']);
   const [visibleChips, setVisibleChips] = useState(getVisibleFleetChips);
-  const [visibleCols, setVisibleCols] = useState(new Set(['icon','vehicle','sim','imei','status','gps','speed','fuel','battery','voltage','gsm','satellites','odometer','lastUpdate','actions']));
+  const [visibleCols, setVisibleCols] = useState(new Set(['icon','vehicle','branch','sim','imei','status','gps','speed','fuel','battery','voltage','gsm','satellites','odometer','lastUpdate','registeredAt','actions']));
   const [dragSrcCol, setDragSrcCol] = useState(null);
   const [dragOverCol, setDragOverCol] = useState(null);
 
@@ -836,6 +884,7 @@ const MyFleet = () => {
 
   // Custom-fields popover (table view icon click)
   const [cfPopover, setCfPopover] = useState(null); // { vehicleId, fields, loading, pos }
+  const [dlModal, setDlModal]   = useState(false); // format picker modal
 
   const openCfPopover = async (vehicleId, pos) => {
     setCfPopover({ vehicleId, fields: [], loading: true, pos });
@@ -845,6 +894,95 @@ const MyFleet = () => {
     } catch {
       setCfPopover(p => p?.vehicleId === vehicleId ? { ...p, fields: [], loading: false } : p);
     }
+  };
+
+  // ── Fleet export helpers ─────────────────────────────────────────────────
+  const buildExportRows = () => filteredVehicles.map(v => {
+    const gps  = v.deviceStatus?.gpsData || {};
+    const dst  = v.deviceStatus?.status  || {};
+    const fuel = v.deviceStatus?.fuel    || {};
+    const dvs  = getVState(v, deviceStatesByType);
+    const coords = getVehicleCoords(v);
+    const geoKey = coords ? `${coords.lat.toFixed(4)},${coords.lng.toFixed(4)}` : null;
+    const addr   = geoKey ? (tableGeoMap.get(geoKey) || '') : '';
+    const sensorCache = vehicleSensorsCache.get(v.id) || [];
+    const sensorValues = sensorCache.map(s => {
+      const io = gps.ioElements || {};
+      let lv;
+      const pm = s.mappedParameter || '';
+      if (pm.startsWith('status.')) lv = dst[pm.slice(7)];
+      else if (pm.startsWith('fuel.')) lv = fuel[pm.slice(5)];
+      else if (['speed','latitude','longitude','altitude','satellites'].includes(pm)) lv = gps[pm];
+      else { const r = io[pm]; lv = r !== undefined ? (typeof r === 'object' && r !== null ? r.value : r) : undefined; }
+      return `${s.name}: ${lv != null ? String(lv) + (s.unit ? ' ' + s.unit : '') : '—'}`;
+    }).join(' | ');
+
+    return {
+      'Reg Number':   v.vehicleNumber || '',
+      'Vehicle Name': v.vehicleName   || '',
+      'Branch':       v.branch        || '',
+      'Device Type':  v.deviceType    || '',
+      'IMEI':         v.imei          || '',
+      'SIM 1':        v.sim1          || '',
+      'SIM 2':        v.sim2          || '',
+      'Status':       dvs.stateName   || '',
+      'Speed (km/h)': gps.speed       != null ? gps.speed          : '',
+      'Ignition':     dst.ignition    === true ? 'ON' : dst.ignition === false ? 'OFF' : '',
+      'Fuel (%)':     fuel.level      != null ? Math.round(fuel.level) : '',
+      'Battery':      dst.battery     != null ? dst.battery          : '',
+      'GSM Signal':   dst.gsmSignal   != null ? dst.gsmSignal        : '',
+      'Satellites':   gps.satellites  != null ? gps.satellites       : '',
+      'Latitude':     coords ? coords.lat.toFixed(6) : '',
+      'Longitude':    coords ? coords.lng.toFixed(6) : '',
+      'Location':     addr,
+      'Last Update':  v.deviceStatus?.lastUpdate
+                        ? new Date(v.deviceStatus.lastUpdate).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'medium' })
+                        : '',
+      'Sensors':      sensorValues,
+    };
+  });
+
+  const exportExcel = () => {
+    const rows = buildExportRows();
+    const ws   = XLSX.utils.json_to_sheet(rows);
+    // Auto-width
+    const colWidths = Object.keys(rows[0] || {}).map(k => ({
+      wch: Math.max(k.length, ...rows.map(r => String(r[k] || '').length)) + 2,
+    }));
+    ws['!cols'] = colWidths;
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Fleet');
+    XLSX.writeFile(wb, `fleet_export_${new Date().toISOString().slice(0,10)}.xlsx`);
+    setDlModal(false);
+  };
+
+  const exportPdf = () => {
+    const rows = buildExportRows();
+    if (!rows.length) { toast.error('No data to export'); return; }
+    const cols = Object.keys(rows[0]);
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+      <title>Fleet Export</title>
+      <style>
+        body { font-family: Arial, sans-serif; font-size: 11px; margin: 16px; }
+        h2 { font-size: 16px; margin-bottom: 12px; color: #1B2A4A; }
+        p  { font-size: 10px; color: #64748B; margin-bottom: 10px; }
+        table { border-collapse: collapse; width: 100%; }
+        th { background: #1B2A4A; color: #fff; padding: 6px 8px; text-align: left; font-size: 10px; white-space: nowrap; }
+        td { border-bottom: 1px solid #E2E8F0; padding: 5px 8px; vertical-align: top; }
+        tr:nth-child(even) td { background: #F8FAFC; }
+        @media print { @page { size: landscape; margin: 10mm; } }
+      </style></head><body>
+      <h2>Fleet Export</h2>
+      <p>Generated: ${new Date().toLocaleString('en-IN', { dateStyle:'medium', timeStyle:'medium' })} &nbsp;|&nbsp; ${rows.length} vehicles</p>
+      <table>
+        <thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>
+        <tbody>${rows.map(r => `<tr>${cols.map(c => `<td>${r[c] ?? ''}</td>`).join('')}</tr>`).join('')}</tbody>
+      </table>
+      <script>window.onload=()=>{window.print();}</script>
+      </body></html>`;
+    const w = window.open('', '_blank');
+    if (w) { w.document.write(html); w.document.close(); }
+    setDlModal(false);
   };
 
   // Delete confirmation modal state
@@ -1010,26 +1148,61 @@ const MyFleet = () => {
   }, [viewClientId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Live-position auto-refresh (5 s, pauses when tab hidden) ───────────────
-  // Restarts when viewClientId changes so the poll tracks the right fleet.
-  // Uses the SAME endpoint as the initial load (`getVehicles`) — guarantees the
-  // poll's response shape matches what every UI surface already reads.  A
-  // previous "differential live-positions" optimisation drifted out of sync
-  // with the comprehensive shape and silently produced stale-data symptoms.
+  // Uses the lightweight /vehicles/live-positions endpoint (MySQL only, no
+  // MongoDB per-vehicle queries) so the poll never causes a heap OOM crash.
+  // The slim payload (lat/lng/speed/engineOn/runningStreak) is merged into the
+  // existing vehicle objects — full device status (fuel, battery, sensors)
+  // already loaded on initial page load is preserved.
   useEffect(() => {
+    let lastSince = null;
     const effectClientId = viewClientId;
 
     const poll = async () => {
       if (document.visibilityState === 'hidden') return;
       try {
-        const res  = await getVehicles(effectClientId || undefined);
-        const list = Array.isArray(res.data) ? res.data : [];
-        if (!list.length) return;
-        // Replace by id; preserves vehicles that the poll didn't return (e.g.
-        // permission filtering edge cases) instead of dropping them.
-        setVehicles(prev => {
-          const byId = new Map(list.map(v => [v.id, v]));
-          return prev.map(v => byId.get(v.id) ?? v);
-        });
+        const params = [];
+        if (effectClientId) params.push(`clientId=${effectClientId}`);
+        if (lastSince)       params.push(`since=${encodeURIComponent(lastSince)}`);
+        const url = `/vehicles/live-positions${params.length ? '?' + params.join('&') : ''}`;
+        const res = await api.get(url);
+        const positions = Array.isArray(res.data) ? res.data : [];
+        if (!positions.length) return;
+
+        // Advance the since cursor
+        const maxTime = positions.reduce((m, p) => {
+          const t = p.lastSeenAt;
+          if (!t) return m;
+          return m === null || new Date(t) > new Date(m) ? t : m;
+        }, lastSince);
+        if (maxTime) lastSince = maxTime;
+
+        setVehicles(prev => prev.map(v => {
+          const p = positions.find(x => x.id === v.id);
+          if (!p) return v;
+          // Merge only the live fields; preserve existing deviceStatus shape
+          return {
+            ...v,
+            deviceStatus: {
+              ...v.deviceStatus,
+              status: {
+                ...(v.deviceStatus?.status || {}),
+                ignition:       p.engineOn,
+                speedZeroSince: p.speedZeroSince ?? (v.deviceStatus?.status?.speedZeroSince ?? null),
+                engineOffSince: p.engineOffSince ?? (v.deviceStatus?.status?.engineOffSince ?? null),
+                runningStreak:  p.runningStreak  ?? (v.deviceStatus?.status?.runningStreak  ?? 0),
+                movement:       p.movement       ?? (v.deviceStatus?.status?.movement       ?? null),
+              },
+              gpsData: {
+                ...(v.deviceStatus?.gpsData || {}),
+                ...(p.lat != null ? { latitude:  p.lat } : {}),
+                ...(p.lng != null ? { longitude: p.lng } : {}),
+                speed:     p.speed,
+                timestamp: p.lastPacketTime,
+              },
+              ...(p.lastSeenAt ? { lastUpdate: p.lastSeenAt } : {}),
+            },
+          };
+        }));
       } catch (_) { /* silently ignore poll errors */ }
     };
 
@@ -1239,6 +1412,8 @@ const MyFleet = () => {
   };
 
   const selectVehicle = (v) => {
+    // Close the detail sheet when a different vehicle is selected
+    setDrawerVehicle(cur => (cur && cur.id !== v.id) ? null : cur);
     setSelectedVehicle(v);
     setTrackedVehicleId(v.id);
     setActiveTab('overview');
@@ -1250,7 +1425,7 @@ const MyFleet = () => {
     // re-fly.  MapController gates flyTo on mapCenter being non-null.
     setMapFocusKey(k => k + 1);
     setEditForm({
-      vehicleNumber: v.vehicleNumber || '', vehicleName: v.vehicleName || '',
+      vehicleNumber: v.vehicleNumber || '', vehicleName: v.vehicleName || '', branch: v.branch || '',
       chasisNumber: v.chasisNumber || '', engineNumber: v.engineNumber || '',
       imei: v.imei || '', sim1: v.sim1 || '', sim2: v.sim2 || '',
       deviceName: v.deviceName || '', deviceType: v.deviceType || '',
@@ -1491,14 +1666,17 @@ const MyFleet = () => {
     }
     if (search.trim()) {
       const q = search.toLowerCase();
-      list = list.filter(v =>
-        (v.vehicleNumber  || '').toLowerCase().includes(q) ||
-        (v.vehicleName    || '').toLowerCase().includes(q) ||
-        (v.imei           || '').toLowerCase().includes(q) ||
-        (v.deviceType     || '').toLowerCase().includes(q) ||
-        (v.sim1           || '').toLowerCase().includes(q) ||
-        (v.sim2           || '').toLowerCase().includes(q)
-      );
+      list = list.filter(v => {
+        switch (searchType) {
+          case 'vehicleNumber': return (v.vehicleNumber || '').toLowerCase().includes(q);
+          case 'vehicleName':   return (v.vehicleName   || '').toLowerCase().includes(q);
+          case 'imei':          return (v.imei          || '').toLowerCase().includes(q);
+          case 'sim':           return (v.sim1||'').toLowerCase().includes(q)||(v.sim2||'').toLowerCase().includes(q);
+          case 'deviceType':    return (v.deviceType    || '').toLowerCase().includes(q);
+          case 'branch':        return (v.branch        || '').toLowerCase().includes(q);
+          default:              return (v.vehicleNumber||'').toLowerCase().includes(q)||(v.vehicleName||'').toLowerCase().includes(q)||(v.imei||'').toLowerCase().includes(q)||(v.deviceType||'').toLowerCase().includes(q)||(v.sim1||'').toLowerCase().includes(q)||(v.sim2||'').toLowerCase().includes(q)||(v.branch||'').toLowerCase().includes(q);
+        }
+      });
     }
     if (statusFilter.size < 3) {
       list = list.filter(v => statusFilter.has(getVState(v, deviceStatesByType).stateName));
@@ -1512,6 +1690,7 @@ const MyFleet = () => {
       list = list.filter(v => {
         if (chipFilter === 'no_gps')    return !getVehicleCoords(v);
         if (chipFilter === 'overspeed') return (v.deviceStatus?.gpsData?.speed ?? 0) > _fleetSpeedThresh;
+        if (chipFilter === 'nodata')    return !v.deviceStatus?.lastUpdate && !v.deviceStatus?.gpsData?.timestamp && !v.deviceStatus?.gpsData?.latitude;
         if (chipFilter === 'total')     return true;
         if (chipFilter.startsWith('state:')) {
           return getVState(v, deviceStatesByType).stateName === chipFilter.slice(6);
@@ -1526,6 +1705,7 @@ const MyFleet = () => {
           switch (sortCol) {
             case 'icon':       return (v.vehicleIcon || '').toLowerCase();
             case 'vehicle':    return vehicleDisplayName(v).toLowerCase();
+            case 'branch':     return (v.branch || '').toLowerCase();
             case 'sim':        return (v.sim1 || v.sim2 || '').toLowerCase();
             case 'regNo':      return (v.vehicleNumber || '').toLowerCase();
             case 'imei':       return (v.imei || '').toLowerCase();
@@ -1538,7 +1718,9 @@ const MyFleet = () => {
             case 'satellites': return v.deviceStatus?.gpsData?.satellites ?? -1;
             case 'odometer':   return v.deviceStatus?.trip?.odometer ?? -1;
             case 'gps':        return getVehicleCoords(v) ? 0 : 1;
-            case 'lastUpdate': return v.deviceStatus?.gpsData?.timestamp ? new Date(v.deviceStatus.gpsData.timestamp).getTime() : -1;
+            case 'lastUpdate':   return v.deviceStatus?.gpsData?.timestamp ? new Date(v.deviceStatus.gpsData.timestamp).getTime() : -1;
+            case 'firstPacket':  return (v.firstSeenAt||v.first_seen_at)  ? new Date(v.firstSeenAt||v.first_seen_at).getTime()  : -1;
+            case 'registeredAt': return (v.registeredAt||v.registered_at) ? new Date(v.registeredAt||v.registered_at).getTime() : -1;
             default: return 0;
           }
         };
@@ -1554,7 +1736,7 @@ const MyFleet = () => {
   // Reset to first page only when filtering/sorting criteria change — NOT when
   // the underlying vehicle data refreshes from the poll (that would kick users
   // back to page 1 every 5 s while browsing page 2+).
-  useEffect(() => { setTablePage(0); }, [selectedGroupId, search, statusFilter, chipFilter, sortCol, sortDir]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setTablePage(0); }, [selectedGroupId, search, searchType, statusFilter, chipFilter, sortCol, sortDir]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Queue reverse-geocoding for vehicles on the current table page.
   useEffect(() => {
@@ -1572,6 +1754,23 @@ const MyFleet = () => {
     });
     if (queued && !tableGeoActive.current) drainGeoQueue.current();
   }, [filteredVehicles, tablePage, viewMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Queue reverse-geocoding for all vehicles in map view cards.
+  // Reuses the same queue/cache as the table view Location column.
+  useEffect(() => {
+    if (viewMode !== 'map') return;
+    let queued = false;
+    filteredVehicles.forEach(v => {
+      const c = getVehicleCoords(v);
+      if (!c) return;
+      const key = `${c.lat.toFixed(4)},${c.lng.toFixed(4)}`;
+      if (tableGeoMap.has(key)) return;
+      if (tableGeoQueue.current.some(q => q.key === key)) return;
+      tableGeoQueue.current.push({ key, lat: c.lat, lng: c.lng });
+      queued = true;
+    });
+    if (queued && !tableGeoActive.current) drainGeoQueue.current();
+  }, [filteredVehicles, viewMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Lazily load sensors for every visible vehicle when the map-view sidebar
   // is open. Placed AFTER filteredVehicles useMemo to avoid TDZ error.
@@ -1594,7 +1793,14 @@ const MyFleet = () => {
     });
   }, [viewMode, filteredVehicles]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const mapVehicles = useMemo(() => filteredVehicles.map(v => ({ ...v, coords: getVehicleCoords(v) })).filter(v => v.coords), [filteredVehicles]);
+  // When any vehicles are pinned (checkboxes), show ONLY those on the map.
+  // With nothing pinned show everyone.
+  const mapVehicles = useMemo(() => {
+    const source = focusedIds.size > 0
+      ? filteredVehicles.filter(v => focusedIds.has(v.id))
+      : filteredVehicles;
+    return source.map(v => ({ ...v, coords: getVehicleCoords(v) })).filter(v => v.coords);
+  }, [filteredVehicles, focusedIds]);
 
   // Lat/lng pairs for the pinned (multi-tracked) set — drives FocusBoundsController.
   // Works for 1+ selected vehicles so the map always shows all checked vehicles.
@@ -1613,9 +1819,14 @@ const MyFleet = () => {
         next.delete(id);
       } else {
         next.add(id);
+        // Fly to newly checked vehicle (single selection) — bump focusKey so
+        // MapController fires even if mapCenter coords haven't changed.
         const v = vehicles.find(x => x.id === id);
         const coords = v && getVehicleCoords(v);
-        if (coords) setMapCenter([coords.lat, coords.lng]);
+        if (coords) {
+          setMapCenter([coords.lat, coords.lng]);
+          setMapFocusKey(k => k + 1);
+        }
       }
       return next;
     });
@@ -1637,6 +1848,8 @@ const MyFleet = () => {
   const stoppedCount   = chipScopedVehicles.filter(v => getVState(v, deviceStatesByType).stateName === 'Stopped').length;
   const fleetSpeedThresh = parseInt(localStorage.getItem('fleet-speed-threshold') || '80');
   const overspeedCount = chipScopedVehicles.filter(v => getSpeed(v) > fleetSpeedThresh).length;
+  // "No Data" — registered vehicles that have never sent a packet
+  const noDataCount = chipScopedVehicles.filter(v => !v.deviceStatus?.lastUpdate && !v.deviceStatus?.gpsData?.timestamp && !v.deviceStatus?.gpsData?.latitude).length;
 
   // Build the chip list dynamically from Master-Settings state definitions so
   // every configured state (e.g. "No Signal", "Idle", "Parked") gets its own
@@ -1670,13 +1883,15 @@ const MyFleet = () => {
   // state wins because it carries the user's intended conditions.
   const configuredLabels = new Set(stateChipList.map(c => c.label.toLowerCase().replace(/\s+/g, '')));
   const fleetChips = [
-    { id: 'total', label: 'Total', dot: '#64748b', gradient: 'linear-gradient(135deg, #1D4ED8 0%, #3B82F6 100%)', shadow: '0 4px 14px rgba(37,99,235,0.28)', icon: '🚗' },
+    { id: 'total',    label: 'Total',    dot: '#64748b', gradient: 'linear-gradient(135deg, #1D4ED8 0%, #3B82F6 100%)', shadow: '0 4px 14px rgba(37,99,235,0.28)', icon: '🚗' },
     ...stateChipList,
     ...(configuredLabels.has('overspeed') ? [] : [{ id: 'overspeed', label: 'Overspeed', dot: '#dc2626', gradient: 'linear-gradient(135deg, #991B1B 0%, #DC2626 100%)', shadow: '0 4px 14px rgba(153,27,27,0.28)', icon: '🏎️' }]),
+    { id: 'nodata',   label: 'No Data',  dot: '#94A3B8', gradient: 'linear-gradient(135deg, #475569 0%, #64748B 100%)', shadow: '0 4px 14px rgba(100,116,139,0.28)', icon: '📵' },
   ];
   const CHIP_COUNTS = {
     total:     chipScopedVehicles.length,
     overspeed: overspeedCount,
+    nodata:    noDataCount,
   };
   stateChipList.forEach(c => {
     CHIP_COUNTS[c.id] = chipScopedVehicles.filter(v => getVState(v, deviceStatesByType).stateName === c.stateName).length;
@@ -1709,242 +1924,357 @@ const MyFleet = () => {
     const ignColor = dvs.stateColor;
     const ignBg    = ign === true ? '#f0fdf4' : ign === false ? '#fef2f2' : '#f8fafc';
     const ignLabel = dvs.stateName;
+    const gps  = dv.deviceStatus?.gpsData;
+    // Read sidebar colour from the single source of truth in utils/theme.js
+    const sidebarKey = localStorage.getItem('theme-sidebar') || 'navy';
+    const stripColor = resolveSidebarColor(sidebarKey);
+    const dst  = dv.deviceStatus?.status;
+    const dfuel = dv.deviceStatus?.fuel;
+    const coords = getVehicleCoords(dv);
+    const speed  = gps?.speed;
+    const lastTs = dv.deviceStatus?.lastUpdate || gps?.timestamp;
+    const minsAgo = lastTs ? Math.round((Date.now() - new Date(lastTs).getTime()) / 60000) : null;
+    const ageStr  = minsAgo === null ? null : minsAgo < 2 ? 'Live' : minsAgo < 60 ? `${minsAgo}m ago` : `${Math.floor(minsAgo/60)}h ago`;
+
+    const MetricChip = ({ icon, label, value, color }) => value != null && value !== '' ? (
+      <div style={{ display:'flex', alignItems:'center', gap:6, background:'rgba(255,255,255,0.15)', borderRadius:6, padding:'4px 10px', flexShrink:0 }}>
+        <span style={{ fontSize:13 }}>{icon}</span>
+        <div>
+          <div style={{ fontSize:9, color:'rgba(255,255,255,0.7)', fontWeight:600, letterSpacing:'0.06em', textTransform:'uppercase', lineHeight:1 }}>{label}</div>
+          <div style={{ fontSize:12, fontWeight:800, color:'#fff', lineHeight:1.2 }}>{value}</div>
+        </div>
+      </div>
+    ) : null;
+
+    const ActionBtn = ({ label, icon, grad, color, onClick, disabled }) => (
+      <button onClick={onClick} disabled={disabled} className="dv-action"
+        style={{ display:'flex', alignItems:'center', gap:7, padding:'7px 10px', background:grad, border:'none', borderRadius:8, cursor:disabled?'not-allowed':'pointer', fontSize:11, fontWeight:700, color:'#fff', fontFamily:'inherit', transition:'transform 0.15s', opacity:disabled?0.5:1, boxShadow:`0 2px 6px ${color}30`, whiteSpace:'nowrap' }}>
+        <div style={{ width:20, height:20, borderRadius:5, background:'rgba(255,255,255,0.22)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+          <Ic n={icon} size={11} color="#fff" />
+        </div>
+        {label}
+      </button>
+    );
+
     return (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 7000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setDrawerVehicle(null)}>
-        <style>{`
-          @keyframes modalIn { from { opacity: 0; transform: scale(0.96) translateY(14px); } to { opacity: 1; transform: scale(1) translateY(0); } }
-          .dv-tab:hover { background: rgba(37,99,235,0.08) !important; }
-          .dv-action:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(0,0,0,0.12); }
-        `}</style>
-        <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.60)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }} />
+      <div style={{ position:'absolute', bottom:14, left:12, right:12, zIndex:500, pointerEvents:'auto' }}>
+        <div style={{
+          background:'#fff',
+          boxShadow:'0 -4px 32px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.10)',
+          animation:'sheetIn .2s cubic-bezier(.22,1,.36,1)',
+          fontFamily:"'Plus Jakarta Sans',sans-serif", overflow:'hidden',
+        }}
+        onClick={e => e.stopPropagation()}>
 
-        <div
-          style={{ position: 'relative', zIndex: 1, width: '96vw', maxWidth: '1176px', height: '90vh',
-            background: '#F8FAFC', borderRadius: 24,
-            display: 'flex', flexDirection: 'column',
-            boxShadow: '0 32px 80px rgba(0,0,0,0.36), 0 0 0 1px rgba(255,255,255,0.18)',
-            animation: 'modalIn 0.24s cubic-bezier(0.22,1,0.36,1)',
-            fontFamily: "'Plus Jakarta Sans',sans-serif", overflow: 'hidden' }}
-          onClick={e => e.stopPropagation()}>
+          {/* ── Header strip — matches sidebar menu colour ── */}
+          <div style={{ background:stripColor, borderBottom:`2px solid ${stripColor}`, display:'flex', alignItems:'stretch' }}>
 
-          {/* ── Gradient header ── */}
-          <div style={{
-            background: `linear-gradient(135deg, ${ignColor} 0%, ${ignColor}CC 100%)`,
-            padding: '20px 24px', display: 'flex', alignItems: 'center', gap: 16, flexShrink: 0,
-            position: 'relative', overflow: 'hidden',
-          }}>
-            {/* bubble decoration */}
-            <div style={{ position: 'absolute', right: -30, top: -30, width: 160, height: 160, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', pointerEvents: 'none' }} />
-            <div style={{ position: 'absolute', right: 80, bottom: -40, width: 100, height: 100, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', pointerEvents: 'none' }} />
-
-            <VehicleIcon icon={dv.vehicleIcon} color={ignColor} size={52} />
-
-            <div style={{ flex: 1, minWidth: 0, position: 'relative', zIndex: 1 }}>
-              <div style={{ fontSize: 18, fontWeight: 900, color: '#FFFFFF', letterSpacing: '-0.02em', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {dv.vehicleName || dv.vehicleNumber || 'Vehicle'}
+            {/* LEFT: Identity — all white on dark */}
+            <div style={{ display:'flex', alignItems:'center', gap:14, padding:'14px 20px', borderRight:'1px solid rgba(255,255,255,0.15)', flexShrink:0 }}>
+              <div style={{ width:54, height:54, borderRadius:12, background:'rgba(255,255,255,0.15)', border:'1.5px solid rgba(255,255,255,0.25)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                <div style={{ filter:'brightness(0) invert(1)', opacity:0.9 }}>
+                  <VehicleIcon icon={dv.vehicleIcon} color="#fff" size={36} />
+                </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 5, flexWrap: 'wrap' }}>
+              <div style={{ minWidth:0 }}>
+                <div style={{ fontSize:18, fontWeight:700, color:'#fff', lineHeight:1.15, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:220, fontFamily:"'Arvo',serif" }}>
+                  {dv.vehicleNumber || dv.vehicleName || 'Vehicle'}
+                </div>
                 {dv.vehicleName && dv.vehicleNumber && (
-                  <span style={{ fontSize: 11.5, fontWeight: 700, color: 'rgba(255,255,255,0.85)', fontFamily: 'monospace', background: 'rgba(255,255,255,0.15)', padding: '2px 9px', borderRadius: 20 }}>{dv.vehicleNumber}</span>
+                  <div style={{ fontSize:12, color:'rgba(255,255,255,0.72)', marginTop:2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:220, fontFamily:"'Arvo',serif" }}>{dv.vehicleName}</div>
                 )}
-                {dv.imei && (
-                  <span style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.70)', fontFamily: 'monospace' }}>{dv.imei}</span>
-                )}
-                {dv.deviceType && (
-                  <span style={{ fontSize: 10, background: 'rgba(255,255,255,0.20)', color: '#FFFFFF', padding: '2px 9px', borderRadius: 20, fontWeight: 700, letterSpacing: '0.04em' }}>{dv.deviceType}</span>
-                )}
+                <div style={{ display:'flex', gap:5, marginTop:5, flexWrap:'wrap' }}>
+                  {dv.branch && <span style={{ fontSize:10, fontWeight:700, background:'rgba(255,255,255,0.18)', color:'#fff', padding:'2px 8px', border:'1px solid rgba(255,255,255,0.25)' }}>{dv.branch}</span>}
+                  {dv.deviceType && <span style={{ fontSize:10, fontWeight:600, background:'rgba(255,255,255,0.10)', color:'rgba(255,255,255,0.80)', padding:'2px 8px', border:'1px solid rgba(255,255,255,0.18)' }}>{dv.deviceType}</span>}
+                </div>
               </div>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, position: 'relative', zIndex: 1 }}>
-              {/* Status pill */}
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 800, background: 'rgba(255,255,255,0.22)', color: '#FFFFFF', backdropFilter: 'blur(4px)', letterSpacing: '0.04em' }}>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#FFFFFF', boxShadow: ign === true ? '0 0 8px rgba(255,255,255,0.9)' : 'none' }} />
-                {ignLabel.toUpperCase()}
-              </span>
-              {/* Close */}
-              <button onClick={() => setDrawerVehicle(null)} title="Close"
-                style={{ width: 36, height: 36, background: 'rgba(255,255,255,0.18)', border: 'none', borderRadius: '50%', color: '#FFFFFF', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)', transition: 'background 0.15s', flexShrink: 0 }}
-                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.32)'}
-                onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.18)'}>
-                <Ic n="x" size={15} color="#FFFFFF" />
+            {/* CENTRE: Metric tiles — white icons + text */}
+            <div style={{ flex:1, display:'flex', alignItems:'stretch', overflow:'hidden' }}>
+              {[
+                { ic:'activity', value: ignLabel,                                                           label:'Status' },
+                { ic:'chart',    value: speed!=null?`${speed}`:'—',     unit:'km/h',                       label:'Speed' },
+                { ic:'zap',      value: ign===true?'ON':ign===false?'OFF':'—',                              label:'Ignition' },
+                { ic:'droplet',  value: dfuel?.level!=null?`${Math.round(dfuel.level)}`:'—', unit:'%',     label:'Fuel' },
+                { ic:'battery',  value: dst?.battery!=null?`${dst.battery}`:null, unit: dv.deviceType==='AIS140'?'V':'%', label:'Battery', show: dst?.battery!=null },
+                { ic:'radio',    value: dst?.gsmSignal!=null?`${dst.gsmSignal}`:null,                       label:'GSM',   show: dst?.gsmSignal!=null },
+                { ic:'pin',      value: coords?'Active':'No Fix',                                           label:'GPS' },
+                { ic:'clock',    value: ageStr||'—',                                                        label:'Updated' },
+              ].filter(c=>c.show!==false&&c.value).map((c,i,arr)=>(
+                <div key={i} style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'10px 16px', borderRight: i<arr.length-1?'1px solid rgba(255,255,255,0.12)':'none', gap:4, minWidth:72, flexShrink:0 }}>
+                  <Ic n={c.ic} size={20} color="rgba(255,255,255,0.75)" sw={1.5} />
+                  <div style={{ fontSize:15, fontWeight:700, color:'#fff', lineHeight:1, whiteSpace:'nowrap', fontVariantNumeric:'tabular-nums', fontFamily:"'Arvo',serif" }}>
+                    {c.value}{c.unit&&<span style={{ fontSize:11, fontWeight:400, color:'rgba(255,255,255,0.60)', marginLeft:2 }}>{c.unit}</span>}
+                  </div>
+                  <div style={{ fontSize:9, fontWeight:700, color:'rgba(255,255,255,0.50)', textTransform:'uppercase', letterSpacing:'0.09em', fontFamily:"'Arvo',serif" }}>{c.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* RIGHT: Actions — white icons + labels */}
+            <div style={{ display:'flex', alignItems:'center', gap:2, padding:'0 12px', borderLeft:'1px solid rgba(255,255,255,0.15)', flexShrink:0 }}>
+              {[
+                { ic:'refresh', label: syncing&&syncingId===dv.id?'…':'Sync',  onClick:()=>handleSync(dv), disabled:syncing&&syncingId===dv.id },
+                { ic:'play',    label:'Play',   onClick:()=>openPlayer(dv) },
+                { ic:'map',     label:'Track',  onClick:()=>{ setDrawerVehicle(null); setViewMode('map'); selectVehicle(dv); } },
+                { ic:'edit',    label:'Edit',   onClick:()=>setActiveTab('edit') },
+                ...(liveShareEnabled&&(isPapaOrDealer||user?.permissions?.canShareLiveLocation)?[{ ic:'share', label:'Share', onClick:()=>openShareModal('vehicle',dv.id,vehicleDisplayName(dv),dv.vehicleIcon) }]:[]),
+                { ic:'trash',   label:'Delete', onClick:()=>{ setDrawerVehicle(null); handleDelete(dv.id); }, del:true },
+              ].map(a=>(
+                <button key={a.ic} onClick={a.onClick} disabled={a.disabled} title={a.label}
+                  style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3, padding:'8px 10px', border:'none', borderRadius:6, cursor:a.disabled?'not-allowed':'pointer', background:'transparent', opacity:a.disabled?0.4:1, transition:'background .12s', flexShrink:0 }}
+                  onMouseEnter={e=>e.currentTarget.style.background=a.del?'rgba(220,38,38,0.35)':'rgba(255,255,255,0.14)'}
+                  onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                  <Ic n={a.ic} size={18} color={a.del?'#FCA5A5':'rgba(255,255,255,0.85)'} sw={1.5} />
+                  <span style={{ fontSize:9, fontWeight:700, color: a.del?'#FCA5A5':'rgba(255,255,255,0.65)', letterSpacing:'0.04em', fontFamily:"'Arvo',serif" }}>{a.label}</span>
+                </button>
+              ))}
+              <div style={{ width:1, height:28, background:'rgba(255,255,255,0.20)', margin:'0 4px' }} />
+              <button onClick={()=>setDrawerVehicle(null)}
+                style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3, padding:'8px 10px', border:'none', borderRadius:6, cursor:'pointer', background:'transparent', transition:'background .12s', flexShrink:0 }}
+                onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,0.14)'}
+                onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <Ic n="x" size={18} color="rgba(255,255,255,0.85)" sw={1.5} />
+                <span style={{ fontSize:9, fontWeight:700, color:'rgba(255,255,255,0.65)', fontFamily:"'Arvo',serif" }}>Close</span>
               </button>
             </div>
           </div>
 
-          {/* ── Two-column body ── */}
-          <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+          {/* ── Body ── */}
+          <div style={{ height:320, display:'flex', background:'#F8FAFC', fontFamily:"'Arvo', Georgia, serif", overflow:'hidden' }}>
 
-            {/* ── Left panel ── */}
-            <div style={{ width: 272, borderRight: '1px solid #E8ECF2', display: 'flex', flexDirection: 'column', background: '#FFFFFF', flexShrink: 0, overflowY: 'auto' }}>
+          {/* ══ EDIT MODE — full body ══ */}
+          {activeTab === 'edit' && (
+            <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', background:'#fff' }}>
+              {/* Edit header */}
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 20px', borderBottom:'1px solid #E2E8F0', flexShrink:0, background:'#F8FAFC', gap:16 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                  <Ic n="edit" size={14} color="#475569" sw={1.5} />
+                  <span style={{ fontSize:11, fontWeight:700, color:'#475569', textTransform:'uppercase', letterSpacing:'0.12em', fontFamily:"'Arvo',serif" }}>Edit Vehicle</span>
+                </div>
 
-              {/* Quick actions — rounded pill buttons (moved to the top of the
-                  sidebar so Sync / Play / View on Map are always one click away) */}
-              <div style={{ padding: '18px 16px 14px' }}>
-                <SectionHeader icon="zap" title="Quick Actions" accent="#0891B2" />
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-                  {[
-                    { label: syncing && syncingId === dv.id ? 'Syncing…' : 'Sync Data',  icon: 'refresh', color: '#0891B2', grad: 'linear-gradient(135deg,#0891B2,#06B6D4)', onClick: () => handleSync(dv), disabled: syncing && syncingId === dv.id },
-                    { label: 'Play Route',   icon: 'play',   color: '#7C3AED', grad: 'linear-gradient(135deg,#7C3AED,#8B5CF6)', onClick: () => openPlayer(dv) },
-                    ...(liveShareEnabled && (isPapaOrDealer || user?.permissions?.canShareLiveLocation) ? [
-                      { label: 'Share Live', icon: 'share',  color: '#2563EB', grad: 'linear-gradient(135deg,#1D4ED8,#3B82F6)', onClick: () => openShareModal('vehicle', dv.id, vehicleDisplayName(dv), dv.vehicleIcon) },
-                    ] : []),
-                    { label: 'View on Map',  icon: 'map',    color: '#059669', grad: 'linear-gradient(135deg,#047857,#10B981)', onClick: () => { setDrawerVehicle(null); setViewMode('map'); selectVehicle(dv); } },
-                    { label: 'Edit Vehicle', icon: 'edit',   color: '#D97706', grad: 'linear-gradient(135deg,#B45309,#F59E0B)', onClick: () => setActiveTab('edit') },
-                    { label: 'Delete Vehicle',icon: 'trash', color: '#DC2626', grad: 'linear-gradient(135deg,#B91C1C,#EF4444)', onClick: () => { setDrawerVehicle(null); handleDelete(dv.id); } },
-                  ].map(a => (
-                    <button key={a.label} onClick={a.onClick} disabled={a.disabled}
-                      className="dv-action"
-                      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: a.grad, border: 'none', borderRadius: 12, cursor: a.disabled ? 'not-allowed' : 'pointer', fontSize: 12.5, fontWeight: 700, color: '#FFFFFF', fontFamily: 'inherit', textAlign: 'left', transition: 'transform 0.15s, box-shadow 0.15s', opacity: a.disabled ? 0.5 : 1, boxShadow: `0 3px 8px ${a.color}30` }}>
-                      <div style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(255,255,255,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        <Ic n={a.icon} size={14} color="#FFFFFF" />
+                {/* Last data received — bold highlighted badge */}
+                {(() => {
+                  const ts = dv.deviceStatus?.lastUpdate || dv.deviceStatus?.gpsData?.timestamp;
+                  if (!ts) return (
+                    <div style={{ display:'flex', alignItems:'center', gap:7, padding:'6px 14px', background:'#FEF2F2', border:'1px solid #FECACA', flex:1 }}>
+                      <Ic n="clock" size={13} color="#DC2626" sw={2} />
+                      <span style={{ fontSize:12, fontWeight:700, color:'#DC2626', fontFamily:"'Arvo',serif" }}>No data received yet</span>
+                    </div>
+                  );
+                  return (
+                    <div style={{ display:'flex', alignItems:'center', gap:7, padding:'6px 14px', background:'#EFF6FF', border:'1px solid #BFDBFE', flex:1 }}>
+                      <Ic n="clock" size={13} color="#1D4ED8" sw={2} />
+                      <div style={{ display:'flex', flexDirection:'column', gap:0 }}>
+                        <span style={{ fontSize:9, fontWeight:700, color:'#3B82F6', textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Arvo',serif", lineHeight:1 }}>Last Data Received</span>
+                        <span style={{ fontSize:14, fontWeight:700, color:'#1D4ED8', fontFamily:"'Arvo',serif", lineHeight:1.3 }}>
+                          {new Date(ts).toLocaleString('en-IN', { dateStyle:'medium', timeStyle:'medium' })}
+                        </span>
                       </div>
-                      {a.label}
-                    </button>
-                  ))}
+                    </div>
+                  );
+                })()}
+
+                <div style={{ display:'flex', gap:8, flexShrink:0 }}>
+                  <button onClick={()=>setActiveTab('overview')}
+                    style={{ padding:'6px 16px', background:'#fff', border:'1px solid #E2E8F0', cursor:'pointer', fontSize:12, fontWeight:700, color:'#64748B', fontFamily:"'Arvo',serif" }}>
+                    Cancel
+                  </button>
+                  <button onClick={handleSaveEdit} disabled={saving}
+                    style={{ padding:'6px 18px', background: saving?'#94A3B8':'#1B2A4A', border:'none', cursor: saving?'not-allowed':'pointer', fontSize:12, fontWeight:700, color:'#fff', fontFamily:"'Arvo',serif", opacity: saving?0.7:1 }}>
+                    {saving ? 'Saving…' : 'Save Changes'}
+                  </button>
                 </div>
               </div>
-
-              {/* Sensors — only when the vehicle has configured sensors */}
-              {drawerSensors.length > 0 && (
-                <div style={{ padding: '0 16px 16px' }}>
-                  <SectionHeader icon="activity" title="Sensors" accent="#6366F1" />
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    {drawerSensors.map(s => {
-                      // Resolve live value from device status
-                      const ds  = dv.deviceStatus || {};
-                      const st  = ds.status  || {};
-                      const g   = ds.gpsData || {};
-                      const f   = ds.fuel    || {};
-                      const io  = g.ioElements || {};
-                      const param = s.mappedParameter || '';
-                      let lv;
-                      if (param.startsWith('status.')) lv = st[param.slice(7)];
-                      else if (param.startsWith('fuel.')) lv = f[param.slice(5)];
-                      else if (['speed','latitude','longitude','altitude','satellites','course','heading','hdop'].includes(param)) lv = g[param];
-                      else { const raw = io[param]; lv = raw !== undefined ? (typeof raw === 'object' && raw !== null ? raw.value : raw) : undefined; }
-
-                      const hasVal = lv !== undefined && lv !== null;
-                      return (
-                        <div key={s.id} style={{
-                          background: hasVal ? 'linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)' : '#F1F5F9',
-                          borderRadius: 12, padding: '12px 14px',
-                          position: 'relative', overflow: 'hidden',
-                          boxShadow: hasVal ? '0 4px 12px rgba(99,102,241,0.32)' : 'none',
-                        }}>
-                          <div style={{ position: 'absolute', right: -8, top: -8, width: 40, height: 40, borderRadius: '50%', background: hasVal ? 'rgba(255,255,255,0.12)' : 'transparent', pointerEvents: 'none' }} />
-                          <div style={{ fontSize: 9, fontWeight: 700, color: hasVal ? 'rgba(255,255,255,0.80)' : '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6, position: 'relative', zIndex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {s.name}
-                          </div>
-                          <div style={{ fontSize: 20, fontWeight: 800, color: hasVal ? '#FFFFFF' : '#CBD5E1', fontVariantNumeric: 'tabular-nums', lineHeight: 1, position: 'relative', zIndex: 1 }}>
-                            {hasVal ? String(lv) : '—'}
-                            {hasVal && s.unit && <span style={{ fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.75)', marginLeft: 3 }}>{s.unit}</span>}
-                          </div>
-                        </div>
-                      );
-                    })}
+              {/* Edit form — scrollable, well-spaced grid */}
+              <div style={{ flex:1, overflow:'auto', padding:'16px 24px' }}>
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:'14px 20px' }}>
+                  {[
+                    { label:'Vehicle Name',       key:'vehicleName',    placeholder:'e.g. Company Truck' },
+                    { label:'Registration No.',   key:'vehicleNumber',  placeholder:'DL01AB1234', mono:true, upper:true },
+                    { label:'Branch',             key:'branch',         placeholder:'e.g. Delhi, North Zone' },
+                    { label:'Chassis Number',     key:'chasisNumber',   placeholder:'', mono:true },
+                    { label:'Engine Number',      key:'engineNumber',   placeholder:'', mono:true },
+                    { label:'SIM 1',              key:'sim1',           placeholder:'e.g. 9876543210', mono:true },
+                    { label:'SIM 2',              key:'sim2',           placeholder:'e.g. 9876543211', mono:true },
+                    { label:'Device Name',        key:'deviceName',     placeholder:'' },
+                  ].map(f=>(
+                    <div key={f.key} style={{ display:'flex', flexDirection:'column', gap:5 }}>
+                      <label style={{ fontSize:9.5, fontWeight:700, color:'#94A3B8', textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Arvo',serif" }}>{f.label}</label>
+                      <input
+                        value={editForm[f.key]||''}
+                        onChange={e => setEditForm({...editForm, [f.key]: f.upper ? e.target.value.toUpperCase() : e.target.value})}
+                        placeholder={f.placeholder}
+                        style={{ padding:'9px 12px', border:'1px solid #E2E8F0', fontSize:13, fontFamily: f.mono?'monospace':"'Arvo',serif", color:'#1E293B', outline:'none', background:'#FAFAFA', fontWeight:600, transition:'border-color .15s' }}
+                        onFocus={e=>e.target.style.borderColor='#1B2A4A'}
+                        onBlur={e=>e.target.style.borderColor='#E2E8F0'}
+                      />
+                    </div>
+                  ))}
+                  {/* Status select */}
+                  <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
+                    <label style={{ fontSize:9.5, fontWeight:700, color:'#94A3B8', textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Arvo',serif" }}>Status</label>
+                    <select value={editForm.status||'active'} onChange={e=>setEditForm({...editForm,status:e.target.value})}
+                      style={{ padding:'9px 12px', border:'1px solid #E2E8F0', fontSize:13, fontFamily:"'Arvo',serif", color:'#1E293B', outline:'none', background:'#FAFAFA', fontWeight:600, cursor:'pointer' }}>
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                    </select>
+                  </div>
+                  {/* Vehicle Icon picker — full row */}
+                  <div style={{ gridColumn:'1 / -1', display:'flex', flexDirection:'column', gap:8 }}>
+                    <label style={{ fontSize:9.5, fontWeight:700, color:'#94A3B8', textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Arvo',serif" }}>Vehicle Icon</label>
+                    <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                      {VEHICLE_ICONS.map(ic=>(
+                        <button key={ic} type="button" onClick={()=>setEditForm({...editForm,vehicleIcon:ic})}
+                          style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:5, padding:'8px 10px', border: editForm.vehicleIcon===ic?'2px solid #1B2A4A':'1px solid #E2E8F0', background: editForm.vehicleIcon===ic?'#EEF2F8':'#fff', cursor:'pointer', fontFamily:"'Arvo',serif", transition:'all .15s' }}>
+                          <div style={{ filter:'brightness(0) invert(0.3)' }}><VehicleIcon type={ic} color="#475569" size={28} /></div>
+                          <span style={{ fontSize:9, fontWeight:700, color: editForm.vehicleIcon===ic?'#1B2A4A':'#94A3B8', fontFamily:"'Arvo',serif" }}>{VEHICLE_ICON_LABELS[ic]||ic}</span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              )}
+              </div>
+            </div>
+          )}
 
-              {/* Device info — card style */}
-              <div style={{ padding: '0 16px 20px' }}>
-                <SectionHeader icon="cpu" title="Device Info" accent="#475569" />
-                <div style={{ background: '#F8FAFC', borderRadius: 12, border: '1px solid #E8ECF2', overflow: 'hidden' }}>
+          {/* ══ NORMAL VIEW — hidden when editing ══ */}
+          {activeTab !== 'edit' && <>
+            {/* LEFT — stat cards + location */}
+            <div style={{ flex:1, display:'flex', flexDirection:'column', padding:'16px 18px', gap:14, overflow:'hidden' }}>
+
+              {/* Big stat row — single tone icons */}
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, flexShrink:0 }}>
+                {[
+                  { ic:'activity', label:'STATUS',   value: ignLabel,                                   accent: ignColor },
+                  { ic:'chart',    label:'SPEED',    value: speed!=null?`${speed}`:'—', unit:'km/h',   accent:'#475569' },
+                  { ic:'zap',      label:'IGNITION', value: ign===true?'ON':ign===false?'OFF':'—',      accent: ign===true?'#059669':ign===false?'#DC2626':'#94A3B8' },
+                  { ic:'droplet',  label:'FUEL',     value: dfuel?.level!=null?`${Math.round(dfuel.level)}`:'—', unit:'%', accent:'#475569' },
+                ].map((c,i)=>(
+                  <div key={i} style={{ background:'#fff', border:'1px solid #E2E8F0', padding:'14px 16px', display:'flex', flexDirection:'column', gap:8 }}>
+                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                      <Ic n={c.ic} size={22} color="#CBD5E1" sw={1.5} />
+                      <span style={{ fontSize:9, fontWeight:700, color:'#94A3B8', letterSpacing:'0.12em', fontFamily:"'Arvo',serif" }}>{c.label}</span>
+                    </div>
+                    <div style={{ fontSize:26, fontWeight:700, color: c.accent, lineHeight:1, fontFamily:"'Arvo',serif", fontVariantNumeric:'tabular-nums' }}>
+                      {c.value}{c.unit&&<span style={{ fontSize:13, fontWeight:400, color:'#94A3B8', marginLeft:4 }}>{c.unit}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Location + secondary metrics */}
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, flex:1, overflow:'hidden' }}>
+
+                {/* Location */}
+                <div style={{ background:'#fff', padding:'14px 16px', display:'flex', flexDirection:'column', gap:8, overflow:'hidden' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:10, fontWeight:700, color:'#94A3B8', letterSpacing:'0.12em', fontFamily:"'Arvo',serif" }}><Ic n="pin" size={12} color="#CBD5E1" sw={1.5}/>LOCATION</div>
+                  {coords ? (
+                    <>
+                      <div style={{ fontSize:12, fontFamily:'monospace', color:'#3A6FA8', fontWeight:700 }}>{coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}</div>
+                      {(() => { const k=`${coords.lat.toFixed(4)},${coords.lng.toFixed(4)}`; const addr=tableGeoMap.get(k); return addr ? <div style={{ fontSize:13, color:'#374151', fontFamily:"'Arvo',serif", lineHeight:1.5 }}>{addr}</div> : <div style={{ fontSize:12, color:'#CBD5E1', fontFamily:"'Arvo',serif" }}>Locating…</div>; })()}
+                    </>
+                  ) : <div style={{ fontSize:13, color:'#CBD5E1', fontFamily:"'Arvo',serif" }}>No GPS fix</div>}
+                </div>
+
+                {/* Sensors panel */}
+                <div style={{ background:'#fff', padding:'14px 16px', display:'flex', flexDirection:'column', gap:8, overflow:'auto' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:10, fontWeight:700, color:'#94A3B8', letterSpacing:'0.12em', fontFamily:"'Arvo',serif" }}><Ic n="radio" size={12} color="#CBD5E1" sw={1.5}/>SENSORS</div>
+                  {drawerSensors.length === 0 ? (
+                    <div style={{ fontSize:12, color:'#CBD5E1', fontFamily:"'Arvo',serif", fontStyle:'italic' }}>No sensors configured</div>
+                  ) : drawerSensors.map(s => {
+                    const g2=dv.deviceStatus?.gpsData||{}, st3=dv.deviceStatus?.status||{}, io2=g2.ioElements||{}, pm2=s.mappedParameter||'';
+                    let lv2; if(pm2.startsWith('status.'))lv2=st3[pm2.slice(7)]; else if(pm2.startsWith('fuel.'))lv2=(dv.deviceStatus?.fuel||{})[pm2.slice(5)]; else if(['speed','latitude','longitude','altitude','satellites'].includes(pm2))lv2=g2[pm2]; else{const rr=io2[pm2];lv2=rr!==undefined?(typeof rr==='object'&&rr!==null?rr.value:rr):undefined;}
+                    return (
+                      <div key={s.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'4px 0', borderBottom:'1px solid #F8FAFC' }}>
+                        <Ic n="activity" size={13} color="#CBD5E1" sw={1.5} />
+                        <span style={{ fontSize:11, color:'#94A3B8', fontFamily:"'Arvo',serif", flex:1 }}>{s.name}</span>
+                        <span style={{ fontSize:14, fontWeight:700, color: lv2!=null?'#1E293B':'#CBD5E1', fontFamily:"'Arvo',serif" }}>
+                          {lv2!=null?`${String(lv2)}${s.unit?' '+s.unit:''}` : '—'}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* DIVIDER */}
+            <div style={{ width:1, background:'#E2E8F0', flexShrink:0 }} />
+
+            {/* RIGHT — Vehicle details + edit button + sensors */}
+            <div style={{ width:300, flexShrink:0, display:'flex', flexDirection:'column', overflow:'auto', background:'#fff' }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 16px 10px', flexShrink:0 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:10, fontWeight:700, color:'#94A3B8', letterSpacing:'0.12em', fontFamily:"'Arvo',serif" }}>
+                  <Ic n="layers" size={13} color="#CBD5E1" sw={1.5} /> VEHICLE DETAILS
+                </div>
+                <button onClick={()=>setActiveTab('edit')}
+                  style={{ display:'flex', alignItems:'center', gap:5, padding:'4px 10px', background:'#F1F5F9', border:'1px solid #E2E8F0', borderRadius:0, cursor:'pointer', fontSize:10, fontWeight:700, color:'#475569', fontFamily:"'Arvo',serif" }}>
+                  <Ic n="edit" size={11} color="#475569" sw={1.5} /> Edit
+                </button>
+              </div>
+              <div style={{ padding:'0 16px 14px', display:'flex', flexDirection:'column', gap:10 }}>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px 14px', alignContent:'start' }}>
                   {[
-                    ['Type',   dv.deviceType || '—'],
-                    ['IMEI',   dv.imei || '—'],
-                    ['Server', dv.serverIp ? `${dv.serverIp}:${dv.serverPort}` : '—'],
-                    ['Name',   dv.deviceName || '—'],
-                  ].map(([k, v], i, arr) => (
-                    <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 13px', borderBottom: i < arr.length - 1 ? '1px solid #EEF0F5' : 'none' }}>
-                      <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 700, letterSpacing: '0.04em', flexShrink: 0 }}>{k}</span>
-                      <span style={{ fontSize: 11, color: '#1E293B', fontWeight: 700, fontFamily: 'monospace', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right' }}>{v}</span>
+                    { label:'Registration', value: dv.vehicleNumber, mono:true, full:true },
+                    { label:'Name',         value: dv.vehicleName },
+                    { label:'Branch',       value: dv.branch },
+                    { label:'Device Type',  value: dv.deviceType },
+                    { label:'IMEI',         value: dv.imei, mono:true, full:true },
+                    { label:'SIM 1',        value: dv.sim1, mono:true },
+                    { label:'SIM 2',        value: dv.sim2, mono:true },
+                    ...customFields.map(f=>({ label: f.fieldName, value: f.fieldValue })),
+                  ].filter(r=>r.value).map((r,i)=>(
+                    <div key={i} style={{ display:'flex', flexDirection:'column', gap:2, gridColumn: r.full?'1 / -1':'auto', overflow:'hidden' }}>
+                      <span style={{ fontSize:9, color:'#B0B8C4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Arvo',serif" }}>{r.label}</span>
+                      <span style={{ fontSize:13, fontWeight:700, color:'#1E293B', fontFamily: r.mono?'monospace':"'Arvo',serif", overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', lineHeight:1.3 }}>{r.value}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Timestamps — highlighted block */}
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'8px 14px' }}>
+                  {[
+                    {
+                      label: 'Registered At',
+                      value: dv.registeredAt || dv.registered_at,
+                      color: '#7c3aed', bg: '#f3f0ff', border: '#ddd6fe',
+                    },
+                    {
+                      label: 'First Data Packet',
+                      value: dv.firstSeenAt || dv.first_seen_at,
+                      color: '#059669', bg: '#f0fdf4', border: '#bbf7d0',
+                      empty: 'No data yet',
+                    },
+                    {
+                      label: 'Last Data Packet',
+                      value: dv.deviceStatus?.lastUpdate || dv.deviceStatus?.gpsData?.timestamp,
+                      color: '#1D4ED8', bg: '#EFF6FF', border: '#BFDBFE',
+                      empty: 'No data yet',
+                    },
+                  ].map((t, i) => (
+                    <div key={i} style={{ padding:'10px 12px', background: t.value ? t.bg : '#F8FAFC', border:`1px solid ${t.value ? t.border : '#E2E8F0'}` }}>
+                      <div style={{ fontSize:9, fontWeight:700, color: t.value ? t.color : '#94A3B8', textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Arvo',serif", marginBottom:4 }}>{t.label}</div>
+                      {t.value ? (
+                        <div style={{ fontSize:13, fontWeight:700, color: t.color, fontFamily:"'Arvo',serif", lineHeight:1.3 }}>
+                          {new Date(t.value).toLocaleString('en-IN', { dateStyle:'medium', timeStyle:'medium' })}
+                        </div>
+                      ) : (
+                        <div style={{ fontSize:11, color:'#94A3B8', fontStyle:'italic', fontFamily:"'Arvo',serif" }}>{t.empty || '—'}</div>
+                      )}
                     </div>
                   ))}
                 </div>
               </div>
             </div>
-
-            {/* ── Right panel: tabs + content ── */}
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, background: '#F8FAFC' }}>
-
-              {/* Tab bar — pill style */}
-              <div style={{ padding: '12px 20px 0', background: '#FFFFFF', borderBottom: '1px solid #E8ECF2', flexShrink: 0, display: 'flex', gap: 4, overflowX: 'auto' }}>
-                {[
-                  { id: 'overview', label: 'Overview', icon: 'activity' },
-                  { id: 'trips',    label: 'Trips',    icon: 'route'    },
-                  { id: 'reports',  label: 'Reports',  icon: 'chart'    },
-                  { id: 'sensors',  label: 'Sensors',  icon: 'radio'    },
-                  { id: 'edit',     label: 'Edit',     icon: 'edit'     },
-                ].map(t => (
-                  <button key={t.id} onClick={() => setActiveTab(t.id)}
-                    className="dv-tab"
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 7, padding: '9px 16px',
-                      border: 'none', borderRadius: '10px 10px 0 0', cursor: 'pointer',
-                      whiteSpace: 'nowrap', fontSize: 13, fontWeight: activeTab === t.id ? 800 : 500,
-                      color: activeTab === t.id ? '#2563EB' : '#64748B',
-                      background: activeTab === t.id ? '#F0F6FF' : 'transparent',
-                      borderBottom: activeTab === t.id ? '2px solid #2563EB' : '2px solid transparent',
-                      fontFamily: 'inherit', transition: 'all 0.15s', marginBottom: -1,
-                    }}>
-                    <Ic n={t.icon} size={13} color={activeTab === t.id ? '#2563EB' : '#94A3B8'} />
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Tab content */}
-              <div style={{ flex: 1, overflow: 'auto', background: '#FFFFFF', borderRadius: '0 0 24px 0' }}>
-                <div style={{ padding: 24 }}>
-                  {activeTab === 'overview' && (
-                    <OverviewTab vehicle={dv} cf={{
-                      fields:   customFields,
-                      showForm: showCfForm,
-                      form:     cfForm,
-                      setForm:  setCfForm,
-                      editing:  editingCf,
-                      saving:   savingCf,
-                      open:     openCfForm,
-                      save:     handleSaveCf,
-                      remove:   handleDeleteCf,
-                      cancel:   () => setShowCfForm(false),
-                    }} />
-                  )}
-                  {activeTab === 'trips' && (
-                    <TripsTab vehicle={dv} reportFrom={reportFrom} reportTo={reportTo}
-                      reportData={reportData} reportLoading={reportLoading} reportPage={reportPage}
-                      setReportFrom={setReportFrom} setReportTo={setReportTo} setReportPage={setReportPage}
-                      fetchReport={fetchReport} openPlayer={openPlayer} />
-                  )}
-                  {activeTab === 'reports' && (
-                    <ReportsTab vehicle={dv} reportTab={reportTab} setReportTab={setReportTab}
-                      reportFrom={reportFrom} reportTo={reportTo} setReportFrom={setReportFrom} setReportTo={setReportTo}
-                      reportData={reportData} reportLoading={reportLoading} reportPage={reportPage} setReportPage={setReportPage}
-                      reportExporting={reportExporting} packetsDownloading={packetsDownloading}
-                      fetchReport={fetchReport} handleExport={handleExport} handleDownloadPackets={handleDownloadPackets} />
-                  )}
-                  {activeTab === 'sensors' && (
-                    <SensorsTab vehicle={dv}
-                      sensors={drawerSensors.length ? drawerSensors : sensors}
-                      loadingSensors={loadingSensors}
-                      showSensorForm={showSensorForm} sensorForm={sensorForm} editingSensor={editingSensor}
-                      savingSensor={savingSensor} setSensorForm={setSensorForm} setShowSensorForm={setShowSensorForm}
-                      openSensorForm={openSensorForm} handleSaveSensor={handleSaveSensor} handleDeleteSensor={handleDeleteSensor} />
-                  )}
-                  {activeTab === 'edit' && (
-                    <EditTab editForm={editForm} setEditForm={setEditForm} saving={saving} handleSaveEdit={handleSaveEdit} currentImei={selectedVehicle?.imei || ''} onRequestImeiEdit={requestImeiEdit} />
-                  )}
-                </div>
-              </div>
-            </div>
+          </>}
           </div>
         </div>
       </div>
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drawerVehicle, activeTab, syncing, syncingId, liveShareEnabled, isPapaOrDealer, user, deviceStatesByType, sensors, drawerSensors, loadingSensors, showSensorForm, sensorForm, editingSensor, savingSensor, editForm, saving, reportFrom, reportTo, reportData, reportLoading, reportPage, reportTab, reportExporting, packetsDownloading, selectedVehicle, customFields, showCfForm, cfForm, editingCf, savingCf]);
+  }, [drawerVehicle, activeTab, syncing, syncingId, liveShareEnabled, isPapaOrDealer, user, deviceStatesByType, sensors, drawerSensors, loadingSensors, showSensorForm, sensorForm, editingSensor, savingSensor, editForm, saving, reportFrom, reportTo, reportData, reportLoading, reportPage, reportTab, reportExporting, packetsDownloading, selectedVehicle, customFields, showCfForm, cfForm, editingCf, savingCf, tableGeoMap]);
 
   /* ══════ TABLE VIEW ══════ */
   if (viewMode === 'table') {
@@ -1965,22 +2295,29 @@ const MyFleet = () => {
 
         {/* Toolbar */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
-          {/* Search */}
-          <div style={{ position: 'relative' }}>
-            <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8', fontSize: '15px', pointerEvents: 'none' }}>⌕</span>
-            <input
-              className="form-control"
-              style={{ paddingLeft: '32px', paddingRight: search ? '26px' : undefined, width: '220px' }}
-              placeholder="Name, reg, IMEI, SIM, device…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
-            {search && (
-              <button onClick={() => setSearch('')} title="Clear search"
-                style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', padding: 2, lineHeight: 1, display: 'flex' }}>
-                <Ic n="x" size={12} color="#94A3B8" />
-              </button>
-            )}
+          {/* Search — type selector + value input */}
+          <div style={{ display: 'flex', alignItems: 'center', border: '1px solid #E2E8F0', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+            <select value={searchType} onChange={e => { setSearchType(e.target.value); setSearch(''); }}
+              style={{ border: 'none', outline: 'none', background: '#F8FAFC', borderRight: '1px solid #E2E8F0', padding: '7px 8px', fontSize: 11, fontWeight: 700, color: '#475569', cursor: 'pointer', flexShrink: 0 }}>
+              <option value="all">All Fields</option>
+              <option value="vehicleNumber">Reg No.</option>
+              <option value="vehicleName">Name</option>
+              <option value="imei">IMEI</option>
+              <option value="sim">SIM</option>
+              <option value="deviceType">Device</option>
+              <option value="branch">Branch</option>
+            </select>
+            <div style={{ position: 'relative' }}>
+              <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8', fontSize: 14, pointerEvents: 'none' }}>⌕</span>
+              <input value={search} onChange={e => setSearch(e.target.value)}
+                placeholder={searchType === 'all' ? 'Search…' : `Search by ${searchType === 'vehicleNumber' ? 'reg no' : searchType === 'vehicleName' ? 'name' : searchType}…`}
+                style={{ border: 'none', outline: 'none', padding: '7px 28px 7px 26px', fontSize: 13, width: 180, fontFamily: 'inherit', background: 'transparent' }} />
+              {search && (
+                <button onClick={() => setSearch('')} style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex' }}>
+                  <Ic n="x" size={11} color="#94A3B8" />
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Client Picker — papa / dealer only: switch whose fleet is displayed (shared with map view) */}
@@ -2185,10 +2522,14 @@ const MyFleet = () => {
           <button onClick={fetchVehicles} disabled={loading} className="btn btn-outline">↺ Refresh</button>
           <div className="view-toggle">
             <button className="view-toggle-btn active">☰ Table</button>
-            <button className="view-toggle-btn inactive" onClick={() => setViewMode('map')}>⊞ Map</button>
+            <button className="view-toggle-btn inactive" onClick={() => { setDrawerVehicle(null); setViewMode('map'); }}>⊞ Map</button>
           </div>
 
           <div style={{ flex: 1 }} />
+          <button onClick={() => setDlModal(true)} title="Download fleet data"
+            className="btn btn-outline" style={{ display:'flex', alignItems:'center', gap:6 }}>
+            <Ic n="download" size={13} color="#64748B" /> Export
+          </button>
           <Link to="/add-vehicle" className="btn btn-primary">+ Add Vehicle</Link>
         </div>
 
@@ -2326,6 +2667,13 @@ const MyFleet = () => {
                               </button>
                             </div>
                           )}
+                        </td>
+                      ),
+                      branch: (
+                        <td key="branch" style={{ textAlign: 'left' }}>
+                          {v.branch
+                            ? <span style={{ fontSize: 12, fontWeight: 600, color: '#7c3aed', background: '#f3f0ff', border: '1px solid #ddd6fe', borderRadius: 6, padding: '2px 8px', whiteSpace: 'nowrap' }}>{v.branch}</span>
+                            : <span style={{ color: '#CBD5E1' }}>—</span>}
                         </td>
                       ),
                       sim: (
@@ -2497,7 +2845,21 @@ const MyFleet = () => {
                       })(),
                       lastUpdate: (
                         <td key="lastUpdate" style={{ color: '#64748b', whiteSpace: 'nowrap' }}>
-                          {lastUpdate ? new Date(lastUpdate).toLocaleString('en-IN', { timeStyle: 'short', dateStyle: 'short' }) : '—'}
+                          {lastUpdate ? new Date(lastUpdate).toLocaleString('en-IN', { timeStyle: 'medium', dateStyle: 'short' }) : '—'}
+                        </td>
+                      ),
+                      firstPacket: (
+                        <td key="firstPacket" style={{ color: '#64748b', whiteSpace: 'nowrap' }}>
+                          {(v.firstSeenAt || v.first_seen_at)
+                            ? new Date(v.firstSeenAt || v.first_seen_at).toLocaleString('en-IN', { timeStyle: 'medium', dateStyle: 'short' })
+                            : <span style={{ color: '#CBD5E1' }}>No data yet</span>}
+                        </td>
+                      ),
+                      registeredAt: (
+                        <td key="registeredAt" style={{ color: '#64748b', whiteSpace: 'nowrap' }}>
+                          {(v.registeredAt || v.registered_at)
+                            ? new Date(v.registeredAt || v.registered_at).toLocaleString('en-IN', { timeStyle: 'medium', dateStyle: 'short' })
+                            : '—'}
                         </td>
                       ),
                       actions: (
@@ -2689,6 +3051,59 @@ const MyFleet = () => {
         )}
 
         {/* ── /table-view-content ── */}
+
+        {/* ── Download format picker modal ── */}
+        {dlModal && (
+          <div style={{ position:'fixed', inset:0, zIndex:9500, display:'flex', alignItems:'center', justifyContent:'center' }} onClick={() => setDlModal(false)}>
+            <div style={{ position:'absolute', inset:0, background:'rgba(15,23,42,0.45)', backdropFilter:'blur(4px)' }} />
+            <div style={{ position:'relative', zIndex:1, background:'#fff', borderRadius:14, width:400, maxWidth:'92vw', overflow:'hidden', boxShadow:'0 24px 80px rgba(0,0,0,0.25)' }} onClick={e => e.stopPropagation()}>
+              <div style={{ background:'var(--theme-sidebar-bg)', padding:'16px 20px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                  <Ic n="download" size={16} color="#fff" />
+                  <span style={{ fontSize:14, fontWeight:700, color:'#fff', fontFamily:"'Arvo',serif" }}>Export Fleet Data</span>
+                </div>
+                <button onClick={() => setDlModal(false)} style={{ background:'rgba(255,255,255,0.15)', border:'none', borderRadius:6, width:28, height:28, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  <Ic n="x" size={13} color="#fff" />
+                </button>
+              </div>
+              <div style={{ padding:'20px' }}>
+                <p style={{ margin:'0 0 6px', fontSize:13, color:'#64748B', fontFamily:"'Arvo',serif" }}>
+                  Exporting <strong style={{ color:'#1E293B' }}>{filteredVehicles.length} vehicle{filteredVehicles.length !== 1 ? 's' : ''}</strong>
+                  {filteredVehicles.length < vehicles.length ? ` (filtered from ${vehicles.length})` : ''}.
+                </p>
+                <p style={{ margin:'0 0 20px', fontSize:12, color:'#94A3B8', fontFamily:"'Arvo',serif" }}>
+                  Includes status, speed, GPS, location, sensors, and custom fields.
+                </p>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+                  <button onClick={exportExcel}
+                    style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:10, padding:'20px 16px', border:'2px solid #E2E8F0', borderRadius:10, cursor:'pointer', background:'#F8FAFC', fontFamily:"'Arvo',serif", transition:'all .15s' }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor='#059669'; e.currentTarget.style.background='#F0FDF4'; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor='#E2E8F0'; e.currentTarget.style.background='#F8FAFC'; }}>
+                    <div style={{ width:44, height:44, borderRadius:10, background:'#059669', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                      <Ic n="download" size={22} color="#fff" />
+                    </div>
+                    <div>
+                      <div style={{ fontSize:14, fontWeight:700, color:'#1E293B' }}>Excel (.xlsx)</div>
+                      <div style={{ fontSize:11, color:'#64748B', marginTop:2 }}>Spreadsheet with all columns</div>
+                    </div>
+                  </button>
+                  <button onClick={exportPdf}
+                    style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:10, padding:'20px 16px', border:'2px solid #E2E8F0', borderRadius:10, cursor:'pointer', background:'#F8FAFC', fontFamily:"'Arvo',serif", transition:'all .15s' }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor='#DC2626'; e.currentTarget.style.background='#FEF2F2'; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor='#E2E8F0'; e.currentTarget.style.background='#F8FAFC'; }}>
+                    <div style={{ width:44, height:44, borderRadius:10, background:'#DC2626', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                      <Ic n="layers" size={22} color="#fff" />
+                    </div>
+                    <div>
+                      <div style={{ fontSize:14, fontWeight:700, color:'#1E293B' }}>PDF</div>
+                      <div style={{ fontSize:11, color:'#64748B', marginTop:2 }}>Print-ready table (landscape)</div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -2722,16 +3137,29 @@ const MyFleet = () => {
             <Ic n="menu" size={13} color="#64748B" /> {panelOpen ? 'Hide List' : 'Show List'}
           </button>
 
-          {/* Search */}
-          <div style={{ position: 'relative' }}>
-            <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8', fontSize: '15px', pointerEvents: 'none' }}>⌕</span>
-            <input className="form-control" style={{ paddingLeft: '32px', paddingRight: search ? '26px' : undefined, width: '220px' }} placeholder="Name, reg, IMEI, SIM, device…" value={search} onChange={e => setSearch(e.target.value)} />
-            {search && (
-              <button onClick={() => setSearch('')} title="Clear search"
-                style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', padding: 2, lineHeight: 1, display: 'flex' }}>
-                <Ic n="x" size={12} color="#94A3B8" />
-              </button>
-            )}
+          {/* Search — type selector + value input */}
+          <div style={{ display: 'flex', alignItems: 'center', border: '1px solid #E2E8F0', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+            <select value={searchType} onChange={e => { setSearchType(e.target.value); setSearch(''); }}
+              style={{ border: 'none', outline: 'none', background: '#F8FAFC', borderRight: '1px solid #E2E8F0', padding: '7px 8px', fontSize: 11, fontWeight: 700, color: '#475569', cursor: 'pointer', flexShrink: 0 }}>
+              <option value="all">All Fields</option>
+              <option value="vehicleNumber">Reg No.</option>
+              <option value="vehicleName">Name</option>
+              <option value="imei">IMEI</option>
+              <option value="sim">SIM</option>
+              <option value="deviceType">Device</option>
+              <option value="branch">Branch</option>
+            </select>
+            <div style={{ position: 'relative' }}>
+              <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8', fontSize: 14, pointerEvents: 'none' }}>⌕</span>
+              <input value={search} onChange={e => setSearch(e.target.value)}
+                placeholder={searchType === 'all' ? 'Search…' : `Search by ${searchType === 'vehicleNumber' ? 'reg no' : searchType === 'vehicleName' ? 'name' : searchType}…`}
+                style={{ border: 'none', outline: 'none', padding: '7px 28px 7px 26px', fontSize: 13, width: 160, fontFamily: 'inherit', background: 'transparent' }} />
+              {search && (
+                <button onClick={() => setSearch('')} style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex' }}>
+                  <Ic n="x" size={11} color="#94A3B8" />
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Group filter */}
@@ -2798,10 +3226,14 @@ const MyFleet = () => {
 
           <button onClick={fetchVehicles} disabled={loading} className="btn btn-outline">↺ Refresh</button>
           <div className="view-toggle">
-            <button className="view-toggle-btn inactive" onClick={() => setViewMode('table')}>☰ Table</button>
+            <button className="view-toggle-btn inactive" onClick={() => { setDrawerVehicle(null); setViewMode('table'); }}>☰ Table</button>
             <button className="view-toggle-btn active">⊞ Map</button>
           </div>
           <div style={{ flex: 1 }} />
+          <button onClick={() => setDlModal(true)} title="Download fleet data"
+            className="btn btn-outline" style={{ display:'flex', alignItems:'center', gap:6 }}>
+            <Ic n="download" size={13} color="#64748B" /> Export
+          </button>
           <Link to="/add-vehicle" className="btn btn-primary">+ Add Vehicle</Link>
         </div>
       </div>
@@ -2864,6 +3296,9 @@ const MyFleet = () => {
             const ageColor   = minsAgo === null ? '#94A3B8' : minsAgo < 5 ? '#16a34a' : minsAgo < 30 ? '#d97706' : '#ef4444';
             const hasCoords  = !!getVehicleCoords(v);
             const ign        = getIgnition(v);
+            const _coords    = getVehicleCoords(v);
+            const geoKey     = _coords ? `${_coords.lat.toFixed(4)},${_coords.lng.toFixed(4)}` : null;
+            const geoAddr    = geoKey ? tableGeoMap.get(geoKey) : null;
             return (
               <div key={v.id}
                 onClick={() => {
@@ -2879,123 +3314,148 @@ const MyFleet = () => {
                 onMouseLeave={() => setHoveredCardId(null)}
                 className="fv-card"
                 style={{
-                  cursor: 'pointer', borderRadius: 10, marginBottom: 7, overflow: 'hidden',
-                  background: '#FFFFFF',
-                  borderLeft: `4px solid ${stColor}`,
-                  border: isSel ? `1.5px solid ${stColor}60` : '1.5px solid #E2E8F0',
-                  borderLeft: `4px solid ${stColor}`,
-                  boxShadow: isSel ? `0 3px 14px ${stColor}22` : '0 1px 4px rgba(0,0,0,0.06)',
+                  cursor: 'pointer', borderRadius: 0, marginBottom: 0, overflow: 'hidden',
+                  background: isSel ? `${stColor}08` : '#FFFFFF',
+                  borderBottom: '1px solid #F1F5F9',
+                  transition: 'all 0.15s',
                 }}>
 
-                {/* ── Compact card body ── */}
-                <div style={{ display: 'flex', alignItems: 'center', padding: '10px 10px 10px 10px', gap: 10 }}>
+                {/* No top bar — list style */}
 
-                  {/* Icon */}
-                  <div style={{ flexShrink: 0 }}>
-                    <VehicleIcon type={v.vehicleIcon} color={stColor} size={40} />
+                <div style={{ padding: '9px 10px 8px', display: 'flex', gap: 9 }}>
+
+                  {/* Left: single truck silhouette, white on state colour */}
+                  <div style={{
+                    flexShrink: 0, width: 44, height: 44, borderRadius: 0,
+                    background: stColor,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <svg width="32" height="22" viewBox="0 0 64 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      {/* Cab */}
+                      <rect x="2" y="10" width="18" height="22" rx="2" fill="white" opacity="0.9"/>
+                      <rect x="4" y="12" width="12" height="10" rx="1" fill={stColor} opacity="0.6"/>
+                      {/* Body/trailer */}
+                      <rect x="20" y="4" width="42" height="28" rx="2" fill="white" opacity="0.9"/>
+                      {/* Chassis */}
+                      <rect x="2" y="30" width="60" height="4" rx="1" fill="white" opacity="0.7"/>
+                      {/* Wheels */}
+                      <circle cx="14" cy="38" r="6" fill="white" opacity="0.9"/>
+                      <circle cx="14" cy="38" r="3" fill={stColor}/>
+                      <circle cx="46" cy="38" r="6" fill="white" opacity="0.9"/>
+                      <circle cx="46" cy="38" r="3" fill={stColor}/>
+                      <circle cx="56" cy="38" r="6" fill="white" opacity="0.9"/>
+                      <circle cx="56" cy="38" r="3" fill={stColor}/>
+                      {/* Headlight */}
+                      <rect x="1" y="22" width="4" height="5" rx="1" fill="white" opacity="0.8"/>
+                    </svg>
                   </div>
 
-                  {/* Name + reg + sensor icons */}
+                  {/* Right: all info */}
                   <div style={{ flex: 1, minWidth: 0 }}>
 
-                    {/* Row 1: name + state */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                      <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 800, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {vehicleDisplayName(v)}
-                      </span>
-                      <span
-                        title={stateConditionTooltip(lvs)}
+                    {/* Row 1: reg number + state pill */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, marginBottom: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+                        <span style={{ fontSize: 13, fontWeight: 800, color: '#0F172A', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {v.vehicleNumber || vehicleDisplayName(v)}
+                        </span>
+                        {v.vehicleNumber && (
+                          <button onClick={e => copyToClip(e, v.vehicleNumber, `${v.id}-reg`)} title="Copy"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: copiedKey === `${v.id}-reg` ? '#10B981' : '#64748b', fontSize: 10, lineHeight: 1, flexShrink: 0 }}>
+                            {copiedKey === `${v.id}-reg` ? '✓' : '⎘'}
+                          </button>
+                        )}
+                      </div>
+                      <span title={stateConditionTooltip(lvs)}
                         style={{
-                          flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4,
-                          padding: '3px 8px', borderRadius: 20,
+                          flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 3,
+                          padding: '2px 7px', borderRadius: 20,
                           background: `${stColor}20`, border: `1px solid ${stColor}50`,
-                          fontSize: 10.5, fontWeight: 800, color: stColor, letterSpacing: '0.05em', cursor: 'help',
+                          fontSize: 9.5, fontWeight: 800, color: stColor, letterSpacing: '0.05em', cursor: 'help',
                         }}>
-                        <span style={{ width: 5, height: 5, borderRadius: '50%', background: stColor, flexShrink: 0, boxShadow: stLabel === 'Running' ? `0 0 5px ${stColor}` : 'none' }} />
+                        <span style={{ width: 4, height: 4, borderRadius: '50%', background: stColor, flexShrink: 0, boxShadow: stLabel === 'Running' ? `0 0 4px ${stColor}` : 'none' }} />
                         {stLabel.toUpperCase()}
                       </span>
                     </div>
 
-                    {/* Row 2: reg (with copy) + sensor icon strip */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      {v.vehicleNumber && (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: '#1D4ED8', fontFamily: 'monospace' }}>
-                            {v.vehicleNumber}
+                    {/* Row 2: vehicle name + branch (if present) */}
+                    {(v.vehicleName || v.branch) && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3, overflow: 'hidden' }}>
+                        {v.vehicleName && (
+                          <span style={{ fontSize: 11, color: '#64748B', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
+                            {v.vehicleName}
                           </span>
-                          <button onClick={e => copyToClip(e, v.vehicleNumber, `${v.id}-reg`)} title="Copy reg"
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: copiedKey === `${v.id}-reg` ? '#10B981' : '#CBD5E1', fontSize: 11, lineHeight: 1 }}>
-                            {copiedKey === `${v.id}-reg` ? '✓' : '⎘'}
-                          </button>
+                        )}
+                        {v.branch && (
+                          <span style={{ fontSize: 9.5, fontWeight: 700, color: '#7c3aed', background: '#f3f0ff', border: '1px solid #ddd6fe', borderRadius: 5, padding: '1px 6px', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                            {v.branch}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Row 3: speed chip + ignition + sensor dots + age */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginTop: v.vehicleName ? 0 : 3 }}>
+                      {/* Speed chip */}
+                      {speed != null && (
+                        <span style={{
+                          fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 6,
+                          background: speed > 80 ? '#FEF2F2' : '#F0FDF4',
+                          color: speed > 80 ? '#DC2626' : '#059669',
+                          border: `1px solid ${speed > 80 ? '#FECACA' : '#BBF7D0'}`,
+                        }}>
+                          {speed} km/h
                         </span>
                       )}
-
-                      {/* Sensor indicator icons ─────────────────────────────────
-                          5 default icons always present. Custom sensors are added
-                          only if their mappedParameter doesn't already correspond
-                          to one of the defaults — avoids duplicate icons.       */}
+                      {/* Ignition pill */}
+                      <span style={{
+                        fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 6,
+                        background: ign === true ? '#F0FDF4' : '#F8FAFC',
+                        color: ign === true ? '#059669' : '#94A3B8',
+                        border: `1px solid ${ign === true ? '#BBF7D0' : '#E2E8F0'}`,
+                      }}>
+                        {ign === true ? 'IGN ON' : ign === false ? 'IGN OFF' : 'IGN —'}
+                      </span>
+                      {/* Sensor dots */}
                       {(() => {
-                        // Parameters covered by the 5 default icons
-                        const COVERED = new Set([
-                          'ignition','status.ignition','engineOn',           // 🔑
-                          'latitude','longitude','hasLocation',               // 📍
-                          'satellites','gpsData.satellites',                  // 🛰️
-                          'gsmSignal','status.gsmSignal','rssi',              // 📶
-                          'battery','status.battery','batteryLevel',          // 🔋
-                        ]);
-                        const customSensors = (vehicleSensorsCache.get(v.id) || [])
-                          .filter(s => !s.mappedParameter || !COVERED.has(s.mappedParameter));
-
-                        return (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
-                            {/* Ignition */}
-                            <span title={`Ignition: ${ign === true ? 'ON' : ign === false ? 'OFF' : 'Unknown'}`}
-                              style={{ fontSize: 14, opacity: ign === true ? 1 : 0.22 }}>🔑</span>
-                            {/* GPS */}
-                            <span title={hasCoords ? 'GPS: Active' : 'GPS: No fix'}
-                              style={{ fontSize: 14, opacity: hasCoords ? 1 : 0.22 }}>📍</span>
-                            {/* Satellites */}
-                            <span title={`Satellites: ${v.deviceStatus?.gpsData?.satellites ?? 'N/A'}`}
-                              style={{ fontSize: 14, opacity: (v.deviceStatus?.gpsData?.satellites ?? 0) >= 4 ? 1 : 0.22 }}>🛰️</span>
-                            {/* GSM */}
-                            <span title={`GSM: ${v.deviceStatus?.status?.gsmSignal ?? 'N/A'}`}
-                              style={{ fontSize: 14, opacity: (v.deviceStatus?.status?.gsmSignal ?? 0) > 0 ? 1 : 0.22 }}>📶</span>
-                            {/* Battery */}
-                            <span title={`Battery: ${battery != null ? battery + 'V' : 'N/A'}`}
-                              style={{ fontSize: 14, opacity: battery != null ? (battery > 11 ? 1 : 0.5) : 0.22 }}>🔋</span>
-
-                            {/* Extra custom sensors (only those not already shown above) */}
-                            {customSensors.map(s => {
-                              const ds = v.deviceStatus || {};
-                              const st = ds.status || {};
-                              const g  = ds.gpsData || {};
-                              const io = g.ioElements || {};
-                              const pm = s.mappedParameter;
-                              let val = undefined;
-                              if (pm) {
-                                if (pm.startsWith('status.')) val = st[pm.slice(7)];
-                                else if (pm.startsWith('fuel.')) val = (ds.fuel || {})[pm.slice(5)];
-                                else if (['speed','latitude','longitude','altitude','satellites'].includes(pm)) val = g[pm];
-                                else { const r = io[pm]; val = r !== undefined ? (typeof r === 'object' && r !== null ? r.value : r) : undefined; }
-                              }
-                              return (
-                                <span key={s.id} title={`${s.name}: ${val !== undefined ? val : 'No data'}`}
-                                  style={{ fontSize: 14, opacity: val !== undefined ? 1 : 0.22 }}>
-                                  {sensorIcon(s.name, s.mappedParameter)}
-                                </span>
-                              );
-                            })}
-
-                            {/* Age */}
-                            {ageLabel && (
-                              <span style={{ fontSize: 10.5, fontWeight: 700, color: ageColor, marginLeft: 2 }}>
-                                {ageLabel}
-                              </span>
-                            )}
-                          </div>
-                        );
+                        const COVERED = new Set(['ignition','status.ignition','engineOn','latitude','longitude','hasLocation','satellites','gpsData.satellites','gsmSignal','status.gsmSignal','rssi','battery','status.battery','batteryLevel']);
+                        const customSensors = (vehicleSensorsCache.get(v.id) || []).filter(s => !s.mappedParameter || !COVERED.has(s.mappedParameter));
+                        return (<>
+                          {[
+                            { icon: '📍', title: hasCoords ? 'GPS: Active' : 'GPS: No fix', active: hasCoords },
+                            { icon: '🛰️', title: `Satellites: ${v.deviceStatus?.gpsData?.satellites ?? 'N/A'}`, active: (v.deviceStatus?.gpsData?.satellites ?? 0) >= 4 },
+                            { icon: '📶', title: `GSM: ${v.deviceStatus?.status?.gsmSignal ?? 'N/A'}`, active: (v.deviceStatus?.status?.gsmSignal ?? 0) > 0 },
+                            { icon: '🔋', title: `Battery: ${battery != null ? battery + 'V' : 'N/A'}`, active: battery != null && battery > 11 },
+                          ].map(s => (
+                            <span key={s.icon} title={s.title} style={{ fontSize: 11, opacity: s.active ? 1 : 0.2 }}>{s.icon}</span>
+                          ))}
+                          {customSensors.slice(0, 3).map(s => {
+                            const g = v.deviceStatus?.gpsData || {}, st2 = v.deviceStatus?.status || {}, io = g.ioElements || {};
+                            const pm = s.mappedParameter; let val;
+                            if (pm) { if (pm.startsWith('status.')) val = st2[pm.slice(7)]; else if (pm.startsWith('fuel.')) val = (v.deviceStatus?.fuel || {})[pm.slice(5)]; else if (['speed','latitude','longitude','altitude','satellites'].includes(pm)) val = g[pm]; else { const r = io[pm]; val = r !== undefined ? (typeof r === 'object' && r !== null ? r.value : r) : undefined; } }
+                            return <span key={s.id} title={`${s.name}: ${val !== undefined ? val : 'No data'}`} style={{ fontSize: 11, opacity: val !== undefined ? 1 : 0.2 }}>{sensorIcon(s.name, s.mappedParameter)}</span>;
+                          })}
+                        </>);
                       })()}
+                      {/* Age */}
+                      {ageLabel && (
+                        <span style={{ fontSize: 10, fontWeight: 700, color: ageColor, marginLeft: 'auto' }}>{ageLabel}</span>
+                      )}
                     </div>
+
+                    {/* Row 4: location */}
+                    {(geoAddr || (geoKey && !geoAddr)) && (
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 3, marginTop: 5, paddingTop: 5, borderTop: '1px solid #F1F5F9' }}>
+                        <Ic n="pin" size={10} color="#94A3B8" sw={2} />
+                        {geoAddr ? (
+                          <span style={{ fontSize: 10.5, color: '#64748B', lineHeight: 1.4 }}>
+                            {geoAddr}
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: 10.5, color: '#CBD5E1', fontStyle: 'italic' }}>Locating…</span>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {/* Actions */}
@@ -3135,7 +3595,7 @@ const MyFleet = () => {
                     <div>
                       <div style={{ fontSize: 10, fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Last Packet</div>
                       <div style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>
-                        {new Date(hvLastTs).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                        {new Date(hvLastTs).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'medium' })}
                       </div>
                     </div>
                     <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, color: (() => { const m = hvMinsAgo; return m === null ? '#94A3B8' : m < 5 ? '#16a34a' : m < 30 ? '#d97706' : '#ef4444'; })() }}>
@@ -3154,10 +3614,11 @@ const MyFleet = () => {
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden', minWidth: 0 }}>
         <MapContainer center={INDIA_CENTER} zoom={5} style={{ position: 'absolute', inset: 0, height: '100%', width: '100%' }} scrollWheelZoom zoomControl={true}>
           <TileLayer
+            key={getMapTileUrl()}
             url={getMapTileUrl()}
-            attribution='&copy; Google Maps'
+            attribution={getMapAttribution()}
             subdomains={getMapSubdomains()}
-            maxZoom={20}
+            maxZoom={getMapMaxZoom()}
           />
           <MapResizer />
           {/* When any vehicles are pinned, disable individual-vehicle tracking so
@@ -3221,6 +3682,8 @@ const MyFleet = () => {
           <span style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.14)' }} />
           <LegendDot color="#94A3B8" label={`${mapVehicles.length} on map`} dark />
         </div>
+        {/* Vehicle detail sheet — absolute inside map area so it never overlaps the panel */}
+        {vehicleDetailModalJsx}
       </div>{/* /map area */}
 
       {/* Vehicle detail popup is vehicleDetailModalJsx (shared with table view) */}
@@ -3463,9 +3926,60 @@ const MyFleet = () => {
           );
       })()}
 
-      {vehicleDetailModalJsx}
-
       </div>{/* /content row */}
+
+      {/* ══════ DOWNLOAD FORMAT MODAL — shared with table view ══════ */}
+      {dlModal && (
+        <div style={{ position:'fixed', inset:0, zIndex:9500, display:'flex', alignItems:'center', justifyContent:'center' }} onClick={() => setDlModal(false)}>
+          <div style={{ position:'absolute', inset:0, background:'rgba(15,23,42,0.45)', backdropFilter:'blur(4px)' }} />
+          <div style={{ position:'relative', zIndex:1, background:'#fff', borderRadius:14, width:400, maxWidth:'92vw', overflow:'hidden', boxShadow:'0 24px 80px rgba(0,0,0,0.25)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ background:'var(--theme-sidebar-bg)', padding:'16px 20px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                <Ic n="download" size={16} color="#fff" />
+                <span style={{ fontSize:14, fontWeight:700, color:'#fff', fontFamily:"'Arvo',serif" }}>Export Fleet Data</span>
+              </div>
+              <button onClick={() => setDlModal(false)} style={{ background:'rgba(255,255,255,0.15)', border:'none', borderRadius:6, width:28, height:28, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                <Ic n="x" size={13} color="#fff" />
+              </button>
+            </div>
+            <div style={{ padding:'20px' }}>
+              <p style={{ margin:'0 0 6px', fontSize:13, color:'#64748B', fontFamily:"'Arvo',serif" }}>
+                Exporting <strong style={{ color:'#1E293B' }}>{filteredVehicles.length} vehicle{filteredVehicles.length !== 1 ? 's' : ''}</strong>
+                {filteredVehicles.length < vehicles.length ? ` (filtered from ${vehicles.length})` : ''}.
+              </p>
+              <p style={{ margin:'0 0 20px', fontSize:12, color:'#94A3B8', fontFamily:"'Arvo',serif" }}>
+                Includes status, speed, GPS, location, sensors, and custom fields.
+              </p>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+                <button onClick={exportExcel}
+                  style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:10, padding:'20px 16px', border:'2px solid #E2E8F0', borderRadius:10, cursor:'pointer', background:'#F8FAFC', fontFamily:"'Arvo',serif", transition:'all .15s' }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor='#059669'; e.currentTarget.style.background='#F0FDF4'; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor='#E2E8F0'; e.currentTarget.style.background='#F8FAFC'; }}>
+                  <div style={{ width:44, height:44, borderRadius:10, background:'#059669', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                    <Ic n="download" size={22} color="#fff" />
+                  </div>
+                  <div>
+                    <div style={{ fontSize:14, fontWeight:700, color:'#1E293B' }}>Excel (.xlsx)</div>
+                    <div style={{ fontSize:11, color:'#64748B', marginTop:2 }}>Spreadsheet with all columns</div>
+                  </div>
+                </button>
+                <button onClick={exportPdf}
+                  style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:10, padding:'20px 16px', border:'2px solid #E2E8F0', borderRadius:10, cursor:'pointer', background:'#F8FAFC', fontFamily:"'Arvo',serif", transition:'all .15s' }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor='#DC2626'; e.currentTarget.style.background='#FEF2F2'; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor='#E2E8F0'; e.currentTarget.style.background='#F8FAFC'; }}>
+                  <div style={{ width:44, height:44, borderRadius:10, background:'#DC2626', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                    <Ic n="layers" size={22} color="#fff" />
+                  </div>
+                  <div>
+                    <div style={{ fontSize:14, fontWeight:700, color:'#1E293B' }}>PDF</div>
+                    <div style={{ fontSize:11, color:'#64748B', marginTop:2 }}>Print-ready table (landscape)</div>
+                  </div>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ══════ DELETE CONFIRMATION MODAL ══════ */}
       {deleteConfirm && (
@@ -4119,7 +4633,7 @@ const TripsTab = ({ vehicle, reportFrom, reportTo, reportData, reportLoading, re
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
                     <span style={{ fontSize: 14, fontWeight: 700, color: C.text }}>
-                      {start ? new Date(start).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
+                      {start ? new Date(start).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'medium' }) : '—'}
                       {end && trip.status !== 'in_progress' && (() => {
                         const s = new Date(start), e = new Date(end);
                         const corrupted = e < s;
@@ -4128,8 +4642,8 @@ const TripsTab = ({ vehicle, reportFrom, reportTo, reportData, reportLoading, re
                           <span style={{ color: corrupted ? '#ef4444' : C.textMuted, fontWeight: 500 }}>
                             {' → '}
                             {crossDay
-                              ? e.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })
-                              : e.toLocaleString('en-IN', { timeStyle: 'short' })}
+                              ? e.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'medium' })
+                              : e.toLocaleString('en-IN', { timeStyle: 'medium' })}
                             {corrupted && <span title="End time is before start — data corrupted, please reprocess" style={{ marginLeft: 5, fontSize: 11, fontWeight: 800, color: '#ef4444' }}>⚠ corrupted</span>}
                           </span>
                         );
@@ -4304,8 +4818,8 @@ const ReportData = ({ type, data, vehicle, reportPage, setReportPage, reportFrom
             </div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>
-                {s.beginning ? new Date(s.beginning).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
-                {s.end && <span style={{ color: C.textMuted, fontWeight: 500 }}> → {new Date(s.end).toLocaleString('en-IN', { timeStyle: 'short' })}</span>}
+                {s.beginning ? new Date(s.beginning).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'medium' }) : '—'}
+                {s.end && <span style={{ color: C.textMuted, fontWeight: 500 }}> → {new Date(s.end).toLocaleString('en-IN', { timeStyle: 'medium' })}</span>}
               </div>
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 8 }}>
                 {[
@@ -4348,8 +4862,8 @@ const ReportData = ({ type, data, vehicle, reportPage, setReportPage, reportFrom
             {trips.map((trip, i) => (
               <tr key={i} style={{ borderBottom: `1px solid ${C.borderLight}`, background: i % 2 === 0 ? C.white : '#fafafa' }}>
                 <td style={{ padding: '7px 10px', color: C.textMuted, fontWeight: 600 }}>{trip.no || i + 1}</td>
-                <td style={{ padding: '7px 10px', fontWeight: 600, color: C.text, whiteSpace: 'nowrap' }}>{trip.beginning ? new Date(trip.beginning).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : '—'}</td>
-                <td style={{ padding: '7px 10px', color: C.textSub, whiteSpace: 'nowrap' }}>{trip.end ? new Date(trip.end).toLocaleString('en-IN', { timeStyle: 'short' }) : '—'}</td>
+                <td style={{ padding: '7px 10px', fontWeight: 600, color: C.text, whiteSpace: 'nowrap' }}>{trip.beginning ? new Date(trip.beginning).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'medium' }) : '—'}</td>
+                <td style={{ padding: '7px 10px', color: C.textSub, whiteSpace: 'nowrap' }}>{trip.end ? new Date(trip.end).toLocaleString('en-IN', { timeStyle: 'medium' }) : '—'}</td>
                 <td style={{ padding: '7px 10px', color: C.textSub }}>{Number(trip.mileage || 0).toFixed(2)} km</td>
                 <td style={{ padding: '7px 10px', color: C.textSub }}>{trip.duration || '—'}</td>
                 <td style={{ padding: '7px 10px', color: C.textSub }}>{trip.consFls ? Number(trip.consFls).toFixed(2) : '—'}</td>
@@ -4381,7 +4895,7 @@ const ReportData = ({ type, data, vehicle, reportPage, setReportPage, reportFrom
               <Ic n="droplet" size={20} color="#FFFFFF" />
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{ev.time ? new Date(ev.time).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{ev.time ? new Date(ev.time).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'medium' }) : '—'}</div>
               <div style={{ display: 'flex', gap: 10, marginTop: 7, flexWrap: 'wrap' }}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#F1F5F9', padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700, color: C.textSub }}>
                   {ev.fuelBefore}% → {ev.fuelAfter}%
@@ -4547,7 +5061,7 @@ const FuelLineChart = ({ readings, tankCapacity }) => {
         <div style={{ fontSize: 12, fontWeight: 700, color: C.textSub, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Fuel Level vs Time</div>
         {hovered && (
           <div style={{ fontSize: 11, color: C.text, fontVariantNumeric: 'tabular-nums' }}>
-            {new Date(hovered.timestamp).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}
+            {new Date(hovered.timestamp).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'medium' })}
             {' · '}
             <strong>{hovered.levelPct.toFixed(1)}%</strong>
             {tankCapacity ? ` (${(hovered.levelPct * tankCapacity / 100).toFixed(1)} L)` : ''}
@@ -4792,6 +5306,10 @@ const EditTab = ({ editForm, setEditForm, saving, handleSaveEdit, currentImei = 
       <div>
         <label className="fv-label">Vehicle Name</label>
         <input className="fv-input" value={editForm.vehicleName || ''} onChange={e => setEditForm({ ...editForm, vehicleName: e.target.value })} placeholder="My Vehicle" />
+      </div>
+      <div>
+        <label className="fv-label">Branch <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 400, textTransform: 'none' }}>(optional)</span></label>
+        <input className="fv-input" value={editForm.branch || ''} onChange={e => setEditForm({ ...editForm, branch: e.target.value })} placeholder="e.g. Delhi, North Zone" />
       </div>
       <div>
         <label className="fv-label">Registration Number</label>

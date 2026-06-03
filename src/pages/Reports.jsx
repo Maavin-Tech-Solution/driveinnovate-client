@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { toast } from 'react-toastify';
 import {
   getSpeedViolationReport,
@@ -25,6 +25,76 @@ import { getClients } from '../services/user.service.jsx';
 import { useAuth } from '../context/AuthContext';
 import { toISTString } from '../utils/dateFormat';
 import './Reports.css';
+
+// ─── Searchable vehicle picker ────────────────────────────────────────────────
+const VehicleSearchSelect = ({ vehicles, value, onChange, inputStyle }) => {
+  const [query, setQuery] = useState('');
+  const [open,  setOpen]  = useState(false);
+  const ref = useRef(null);
+
+  const selected = vehicles.find(v => String(v.id) === String(value));
+  const filtered = query.trim()
+    ? vehicles.filter(v => {
+        const q = query.toLowerCase();
+        return (v.vehicleNumber || '').toLowerCase().includes(q)
+            || (v.vehicleName  || '').toLowerCase().includes(q);
+      })
+    : vehicles;
+
+  useEffect(() => {
+    const handler = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const select = (v) => { onChange(v ? String(v.id) : ''); setQuery(''); setOpen(false); };
+
+  const displayLabel = selected
+    ? (selected.vehicleName && selected.vehicleNumber
+        ? `${selected.vehicleNumber} — ${selected.vehicleName}`
+        : selected.vehicleName || selected.vehicleNumber || `#${selected.id}`)
+    : '';
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <div style={{ position: 'relative' }}>
+        <input
+          type="text"
+          value={open ? query : displayLabel}
+          onChange={e => { setQuery(e.target.value); setOpen(true); }}
+          onFocus={() => { setQuery(''); setOpen(true); }}
+          placeholder="Search by name or reg no…"
+          style={{ ...inputStyle, paddingRight: 28 }}
+        />
+        {value && (
+          <button type="button" onClick={() => select(null)}
+            style={{ position:'absolute', right:6, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'#94A3B8', fontSize:14, lineHeight:1, padding:'2px 3px' }}>
+            ✕
+          </button>
+        )}
+      </div>
+      {open && (
+        <div style={{ position:'absolute', top:'calc(100% + 3px)', left:0, right:0, zIndex:300, background:'#fff', border:'1px solid #E2E8F0', borderRadius:8, boxShadow:'0 8px 24px rgba(0,0,0,0.12)', maxHeight:260, overflowY:'auto' }}>
+          {filtered.length === 0 ? (
+            <div style={{ padding:'12px 14px', color:'#94A3B8', fontSize:13 }}>No vehicles found</div>
+          ) : filtered.map(v => (
+            <div key={v.id} onClick={() => select(v)}
+              style={{ padding:'9px 14px', cursor:'pointer', background: String(v.id) === String(value) ? '#EFF6FF' : 'transparent', borderBottom:'1px solid #F1F5F9', fontSize:13 }}
+              onMouseEnter={e => { if (String(v.id) !== String(value)) e.currentTarget.style.background='#F8FAFC'; }}
+              onMouseLeave={e => { if (String(v.id) !== String(value)) e.currentTarget.style.background='transparent'; }}>
+              <div style={{ fontWeight:700, color:'#1E293B', fontFamily:'monospace' }}>
+                {v.vehicleNumber || `Vehicle #${v.id}`}
+              </div>
+              {v.vehicleName && (
+                <div style={{ fontSize:11, color:'#64748B', marginTop:1 }}>{v.vehicleName}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmtDuration = (sec) => {
@@ -1346,18 +1416,14 @@ const Reports = () => {
           {/* Controls bar */}
           <div className="card" style={{ padding: '16px 20px' }}>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
-              <div style={{ flex: '1 1 180px' }}>
+              <div style={{ flex: '1 1 220px', position: 'relative' }}>
                 <label style={lbl}>Vehicle</label>
-                <select style={sel} value={vr.vehicleId}
-                  onChange={e => setVr(p => ({ ...p, vehicleId: e.target.value, data: null, page: 0 }))}>
-                  <option value="">— Select vehicle —</option>
-                  {vehicles.map(v => (
-                    <option key={v.id} value={v.id}>
-                      {v.vehicleName || v.vehicleNumber || `Vehicle #${v.id}`}
-                      {v.vehicleName && v.vehicleNumber ? ` (${v.vehicleNumber})` : ''}
-                    </option>
-                  ))}
-                </select>
+                <VehicleSearchSelect
+                  vehicles={vehicles}
+                  value={vr.vehicleId}
+                  onChange={id => setVr(p => ({ ...p, vehicleId: id, data: null, page: 0 }))}
+                  inputStyle={sel}
+                />
               </div>
               <div style={{ flex: '1 1 160px' }}>
                 <label style={lbl}>From</label>

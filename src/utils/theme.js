@@ -13,10 +13,17 @@ export const SIDEBAR_PRESETS = {
   gray:    '#475569',
 };
 
+/** Resolve theme-sidebar value — may be a preset key or a raw hex string */
+export const resolveSidebarColor = (val) => {
+  if (!val) return SIDEBAR_PRESETS.navy;
+  if (val.startsWith('#')) return val;
+  return SIDEBAR_PRESETS[val] || SIDEBAR_PRESETS.navy;
+};
+
 export const applyTheme = () => {
   const r = document.documentElement;
   const sidebar = localStorage.getItem('theme-sidebar') || 'navy';
-  r.style.setProperty('--theme-sidebar-bg', SIDEBAR_PRESETS[sidebar] || SIDEBAR_PRESETS.navy);
+  r.style.setProperty('--theme-sidebar-bg', resolveSidebarColor(sidebar));
   const hfs     = localStorage.getItem('theme-table-header-font-size'); if (hfs)     r.style.setProperty('--theme-table-header-font-size', hfs);
   const bfs     = localStorage.getItem('theme-table-body-font-size');   if (bfs)     r.style.setProperty('--theme-table-body-font-size',   bfs);
   const btnFrom = localStorage.getItem('theme-btn-from');               if (btnFrom) r.style.setProperty('--theme-btn-from', btnFrom);

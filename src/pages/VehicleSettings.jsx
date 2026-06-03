@@ -54,8 +54,15 @@ const VehicleSettings = () => {
   const [saving, setSaving] = useState(false);
   const [speedRanges, setSpeedRanges] = useState([]);
   const [speedThreshold, setSpeedThreshold] = useState(80);
-  const [mapStyle, setMapStyle] = useState(() => localStorage.getItem('mapStyle') || 'voyager');
-  const [sidebarTheme,        setSidebarTheme]        = useState(() => localStorage.getItem('theme-sidebar')                || 'navy');
+  const [mapStyle,    setMapStyle]    = useState(() => localStorage.getItem('mapStyle')     || 'voyager');
+  const [focusZoom,   setFocusZoom]   = useState(() => parseInt(localStorage.getItem('mapFocusZoom') || '13', 10));
+  // sidebarTheme stores a hex colour (migrates legacy key → hex on first load)
+  const [sidebarTheme, setSidebarTheme] = useState(() => {
+    const stored = localStorage.getItem('theme-sidebar') || 'navy';
+    if (stored.startsWith('#')) return stored;
+    const PRESETS = { navy:'#1A2F6B', slate:'#1E293B', noir:'#18181B', indigo:'#312E81', ocean:'#1D4ED8', violet:'#6D28D9', forest:'#14532D', teal:'#0D9488', sky:'#0284C7', rose:'#BE185D', amber:'#92400E', gray:'#475569' };
+    return PRESETS[stored] || '#1A2F6B';
+  });
   const [tableHeaderFontSize, setTableHeaderFontSize] = useState(() => localStorage.getItem('theme-table-header-font-size') || '11px');
   const [tableBodyFontSize,   setTableBodyFontSize]   = useState(() => localStorage.getItem('theme-table-body-font-size')   || '14px');
   const [btnFrom, setBtnFrom] = useState(() => localStorage.getItem('theme-btn-from') || '#1D4ED8');
@@ -117,8 +124,11 @@ const VehicleSettings = () => {
         }
       }
       
-      localStorage.setItem('mapStyle', mapStyle);
-      localStorage.setItem('theme-sidebar',                sidebarTheme);
+      localStorage.setItem('mapStyle',     mapStyle);
+      localStorage.setItem('mapFocusZoom', String(focusZoom));
+      localStorage.setItem('theme-sidebar', sidebarTheme);
+      // Apply immediately so the sidebar updates without page reload
+      document.documentElement.style.setProperty('--theme-sidebar-bg', sidebarTheme);
       localStorage.setItem('theme-table-header-font-size', tableHeaderFontSize);
       localStorage.setItem('theme-table-body-font-size',   tableBodyFontSize);
       localStorage.setItem('theme-btn-from', btnFrom);
@@ -159,7 +169,8 @@ const VehicleSettings = () => {
       setSpeedRanges(settingsData.speedRanges || []);
       setSpeedThreshold(settingsData.speedThreshold || 80);
       setMapStyle('voyager');              localStorage.setItem('mapStyle', 'voyager');
-      setSidebarTheme('navy');             localStorage.setItem('theme-sidebar', 'navy');
+      setFocusZoom(13);                    localStorage.setItem('mapFocusZoom', '13');
+      setSidebarTheme('#1A2F6B');           localStorage.setItem('theme-sidebar', '#1A2F6B'); document.documentElement.style.setProperty('--theme-sidebar-bg', '#1A2F6B');
       setTableHeaderFontSize('11px');      localStorage.setItem('theme-table-header-font-size', '11px');
       setTableBodyFontSize('14px');        localStorage.setItem('theme-table-body-font-size', '14px');
       setBtnFrom('#1D4ED8');               localStorage.setItem('theme-btn-from', '#1D4ED8');
@@ -219,37 +230,95 @@ const VehicleSettings = () => {
           </div>
           <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '28px' }}>
 
-            {/* Sidebar color */}
+            {/* App Theme Color */}
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-                <label style={labelStyle}>Sidebar Color</label>
-                <button onClick={() => setSidebarTheme('navy')}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                <div>
+                  <label style={labelStyle}>App Theme Color</label>
+                  <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>Applies to sidebar, header strip, and action buttons</div>
+                </div>
+                <button onClick={() => { setSidebarTheme('#1A2F6B'); document.documentElement.style.setProperty('--theme-sidebar-bg', '#1A2F6B'); }}
                   style={{ fontSize: '11px', color: '#64748b', background: 'none', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '3px 10px', cursor: 'pointer', fontFamily: 'inherit' }}>
-                  ↺ Default
+                  ↺ Reset
                 </button>
               </div>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                {[
-                  { key: 'navy',   label: 'Navy',   color: '#1A2F6B' },
-                  { key: 'slate',  label: 'Slate',  color: '#1E293B' },
-                  { key: 'noir',   label: 'Noir',   color: '#18181B' },
-                  { key: 'indigo', label: 'Indigo', color: '#312E81' },
-                  { key: 'ocean',  label: 'Ocean',  color: '#1D4ED8' },
-                  { key: 'violet', label: 'Violet', color: '#6D28D9' },
-                  { key: 'forest', label: 'Forest', color: '#14532D' },
-                  { key: 'teal',   label: 'Teal',   color: '#0D9488' },
-                  { key: 'sky',    label: 'Sky',    color: '#0284C7' },
-                  { key: 'rose',   label: 'Rose',   color: '#BE185D' },
-                  { key: 'amber',  label: 'Amber',  color: '#92400E' },
-                  { key: 'gray',   label: 'Gray',   color: '#475569' },
-                ].map(opt => (
-                  <button key={opt.key} onClick={() => setSidebarTheme(opt.key)}
-                    style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', padding: '8px 10px', borderRadius: '10px', border: `2px solid ${sidebarTheme === opt.key ? '#2563eb' : '#e2e8f0'}`, background: sidebarTheme === opt.key ? '#eff6ff' : '#f8fafc', cursor: 'pointer', minWidth: '60px', boxShadow: sidebarTheme === opt.key ? '0 0 0 3px rgba(37,99,235,0.12)' : 'none', transition: 'all 0.15s' }}>
-                    <div style={{ width: '40px', height: '26px', borderRadius: '6px', background: opt.color, border: '1px solid rgba(0,0,0,0.12)', boxShadow: `inset 0 1px 0 rgba(255,255,255,0.15)` }} />
-                    <span style={{ fontSize: '10px', fontWeight: 600, color: sidebarTheme === opt.key ? '#2563eb' : '#64748b' }}>{opt.label}</span>
-                    {sidebarTheme === opt.key && <span style={{ fontSize: '9px', color: '#2563eb', fontWeight: 700 }}>✓</span>}
-                  </button>
-                ))}
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                {/* Color picker — large, prominent */}
+                <label style={{ position: 'relative', cursor: 'pointer', flexShrink: 0 }}>
+                  <input
+                    type="color"
+                    value={sidebarTheme}
+                    onChange={e => {
+                      setSidebarTheme(e.target.value);
+                      document.documentElement.style.setProperty('--theme-sidebar-bg', e.target.value);
+                    }}
+                    style={{ position: 'absolute', opacity: 0, width: 0, height: 0, pointerEvents: 'none' }}
+                  />
+                  <div style={{
+                    width: 72, height: 72, borderRadius: '12px', background: sidebarTheme,
+                    border: '3px solid #fff', boxShadow: '0 0 0 1px #e2e8f0, 0 4px 14px rgba(0,0,0,0.18)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'background 0.1s',
+                  }}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.7)" strokeWidth="2" strokeLinecap="round">
+                      <circle cx="13.5" cy="6.5" r="0.5" fill="rgba(255,255,255,0.7)"/><circle cx="17.5" cy="10.5" r="0.5" fill="rgba(255,255,255,0.7)"/><circle cx="8.5" cy="7.5" r="0.5" fill="rgba(255,255,255,0.7)"/><circle cx="6.5" cy="12.5" r="0.5" fill="rgba(255,255,255,0.7)"/>
+                      <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 011.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/>
+                    </svg>
+                  </div>
+                </label>
+
+                {/* Hex input + preview */}
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Hex Color</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <input
+                      type="text"
+                      value={sidebarTheme}
+                      onChange={e => {
+                        const v = e.target.value;
+                        setSidebarTheme(v);
+                        if (/^#[0-9A-Fa-f]{6}$/.test(v)) {
+                          document.documentElement.style.setProperty('--theme-sidebar-bg', v);
+                        }
+                      }}
+                      maxLength={7}
+                      placeholder="#1A2F6B"
+                      style={{ width: '110px', padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '14px', fontFamily: 'monospace', fontWeight: 700, color: '#1e293b', outline: 'none', letterSpacing: '0.05em' }}
+                      onFocus={e => e.target.style.borderColor = '#2563eb'}
+                      onBlur={e => e.target.style.borderColor = '#e2e8f0'}
+                    />
+                    <label style={{ cursor: 'pointer' }}>
+                      <input
+                        type="color"
+                        value={/^#[0-9A-Fa-f]{6}$/.test(sidebarTheme) ? sidebarTheme : '#1A2F6B'}
+                        onChange={e => {
+                          setSidebarTheme(e.target.value);
+                          document.documentElement.style.setProperty('--theme-sidebar-bg', e.target.value);
+                        }}
+                        style={{ width: 36, height: 36, padding: 2, borderRadius: '8px', border: '1px solid #e2e8f0', cursor: 'pointer', background: 'none' }}
+                      />
+                    </label>
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '6px' }}>Click the swatch or type any hex code</div>
+                </div>
+
+                {/* Live sidebar preview */}
+                <div style={{ flexShrink: 0 }}>
+                  <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Preview</div>
+                  <div style={{ width: 80, borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+                    <div style={{ background: sidebarTheme, padding: '8px 10px 24px', display: 'flex', flexDirection: 'column', gap: 5 }}>
+                      {[0.8, 0.5, 0.5, 0.5].map((op, i) => (
+                        <div key={i} style={{ height: 5, borderRadius: 3, background: `rgba(255,255,255,${op})`, width: i === 0 ? '70%' : `${50 + i * 10}%` }} />
+                      ))}
+                    </div>
+                    <div style={{ background: '#f8fafc', padding: '4px 6px', display: 'flex', gap: 4 }}>
+                      {[sidebarTheme, '#94a3b8', '#94a3b8'].map((c, i) => (
+                        <div key={i} style={{ height: 4, borderRadius: 2, background: c, flex: i === 0 ? '1.5' : '1' }} />
+                      ))}
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -354,13 +423,12 @@ const VehicleSettings = () => {
           <div style={{ padding: '20px 24px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '12px' }}>
               {[
-                { id: 'roadmap',  label: 'Roadmap',      desc: 'Google Maps',       preview: 'linear-gradient(135deg,#e8f4f8 0%,#b8d4e8 50%,#7ab3d4 100%)',  badge: '⭐ Default' },
-                { id: 'light',    label: 'Light',         desc: 'Clean minimal',     preview: 'linear-gradient(135deg,#f5f5f5 0%,#e8e8e8 50%,#d0d0d0 100%)',  badge: '' },
-                { id: 'osm',      label: 'Street Map',    desc: 'OpenStreetMap',     preview: 'linear-gradient(135deg,#f0ebe0 0%,#ddd 50%,#c8c8b8 100%)',     badge: '' },
-                { id: 'terrain',  label: 'Terrain',       desc: 'Google Terrain',    preview: 'linear-gradient(135deg,#d4e8c8 0%,#a8c890 50%,#78a060 100%)',  badge: '🏔️' },
-                { id: 'dark',     label: 'Dark',          desc: 'Night mode',        preview: 'linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%)',  badge: '🌙' },
-                { id: 'satellite',label: 'Satellite',     desc: 'Google Satellite',  preview: 'linear-gradient(135deg,#1a3a1a 0%,#2d5a27 50%,#4a7c42 100%)', badge: '🛰️' },
-                { id: 'hybrid',   label: 'Hybrid',        desc: 'Satellite + Labels',preview: 'linear-gradient(135deg,#1a3a2e 0%,#2d4a37 50%,#3a6c52 100%)', badge: '🗺️' },
+                { id: 'voyager',  label: 'Voyager',      desc: 'Carto — Recommended', preview: 'linear-gradient(135deg,#e8f4f8 0%,#c5dff0 50%,#9ec5e0 100%)',  badge: '⭐ Default' },
+                { id: 'light',    label: 'Light',         desc: 'Carto minimal',      preview: 'linear-gradient(135deg,#f5f5f5 0%,#e8e8e8 50%,#d0d0d0 100%)',  badge: '' },
+                { id: 'dark',     label: 'Dark',          desc: 'Night mode',         preview: 'linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%)',  badge: '🌙' },
+                { id: 'osm',      label: 'Street Map',    desc: 'OpenStreetMap',      preview: 'linear-gradient(135deg,#f0ebe0 0%,#ddd 50%,#c8c8b8 100%)',     badge: '' },
+                { id: 'satellite',label: 'Satellite',     desc: 'Google Satellite',   preview: 'linear-gradient(135deg,#1a3a1a 0%,#2d5a27 50%,#4a7c42 100%)',  badge: '🛰️' },
+                { id: 'hybrid',   label: 'Hybrid',        desc: 'Satellite + Labels', preview: 'linear-gradient(135deg,#1a3a2e 0%,#2d4a37 50%,#3a6c52 100%)',  badge: '🗺️' },
               ].map(opt => (
                 <button
                   key={opt.id}
@@ -391,6 +459,31 @@ const VehicleSettings = () => {
               ))}
             </div>
             <p style={{ fontSize: '11px', color: '#94a3b8', marginTop: '12px', margin: '12px 0 0' }}>Map style is saved locally and applies immediately to the Tracking page.</p>
+
+            {/* Focus Zoom */}
+            <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid #f1f5f9' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>Vehicle Click Zoom Level</div>
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>How far in the map zooms when you click a vehicle</div>
+                </div>
+                <button onClick={() => setFocusZoom(13)}
+                  style={{ fontSize: '11px', color: '#64748b', background: 'none', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '3px 10px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                  ↺ Default (13)
+                </button>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <input type="range" min={8} max={18} step={1} value={focusZoom}
+                  onChange={e => setFocusZoom(parseInt(e.target.value, 10))}
+                  style={{ flex: 1, accentColor: '#2563eb', cursor: 'pointer' }} />
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 52, background: '#EFF6FF', border: '1.5px solid #BFDBFE', borderRadius: 8, padding: '4px 0' }}>
+                  <span style={{ fontSize: 18, fontWeight: 800, color: '#2563eb', lineHeight: 1 }}>{focusZoom}</span>
+                  <span style={{ fontSize: 9, color: '#64748b', marginTop: 1 }}>
+                    {focusZoom <= 10 ? 'Country' : focusZoom <= 12 ? 'City' : focusZoom <= 14 ? 'District' : focusZoom <= 16 ? 'Street' : 'Building'}
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
