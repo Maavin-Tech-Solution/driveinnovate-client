@@ -25,7 +25,7 @@ const StatCard = ({ title, value, icon, bgColor, change, accent: accentProp }) =
   return (
     <div style={{
       background: accent.bg,
-      borderRadius: '10px',
+      borderRadius: '5px',
       padding: '20px 22px',
       flex: '1',
       minWidth: '195px',

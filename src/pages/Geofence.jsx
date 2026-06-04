@@ -663,7 +663,7 @@ function StatCard({ label, value, icon, gradient, shadow }) {
       display: 'flex', alignItems: 'center', gap: 8,
       padding: '11px 17px',
       background: gradient,
-      borderRadius: 10,
+      borderRadius: 5,
       boxShadow: shadow,
       flex: '0 0 auto',
       cursor: 'default',

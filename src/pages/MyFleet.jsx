@@ -2323,7 +2323,7 @@ const MyFleet = () => {
         {/* Stat cards — driven by fleetChips (dynamic from Master-Settings states) */}
         <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
           {visibleFleetChips.map(c => (
-            <div key={c.id} onClick={() => setChipFilter(chipFilter === c.id ? null : c.id)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '11px 17px', background: c.gradient, borderRadius: 10, boxShadow: chipFilter === c.id ? `0 0 0 2px #fff, ${c.shadow}` : c.shadow, position: 'relative', overflow: 'hidden', flex: '0 0 auto', cursor: 'pointer', opacity: chipFilter && chipFilter !== c.id ? 0.55 : 1, transition: 'all 0.15s', transform: chipFilter === c.id ? 'scale(1.03)' : 'none' }}>
+            <div key={c.id} onClick={() => setChipFilter(chipFilter === c.id ? null : c.id)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '11px 17px', background: c.gradient, borderRadius: 5, boxShadow: chipFilter === c.id ? `0 0 0 2px #fff, ${c.shadow}` : c.shadow, position: 'relative', overflow: 'hidden', flex: '0 0 auto', cursor: 'pointer', opacity: chipFilter && chipFilter !== c.id ? 0.55 : 1, transition: 'all 0.15s', transform: chipFilter === c.id ? 'scale(1.03)' : 'none' }}>
               <span style={{ fontSize: '18px', lineHeight: 1, flexShrink: 0 }}>{c.icon}</span>
               <span style={{ fontSize: '22px', fontWeight: 800, color: '#fff', lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.01em' }}>{CHIP_COUNTS[c.id]}</span>
               <span style={{ fontSize: '11px', fontWeight: 700, color: 'rgba(255,255,255,0.82)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>{c.label}</span>
@@ -3160,7 +3160,7 @@ const MyFleet = () => {
         {/* Stat cards — identical to table view */}
         <div style={{ display: 'flex', gap: '12px', marginBottom: '10px', flexWrap: 'wrap' }}>
           {visibleFleetChips.map(c => (
-            <div key={c.id} onClick={() => setChipFilter(chipFilter === c.id ? null : c.id)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '11px 17px', background: c.gradient, borderRadius: 10, boxShadow: chipFilter === c.id ? `0 0 0 2px #fff, ${c.shadow}` : c.shadow, position: 'relative', overflow: 'hidden', flex: '0 0 auto', cursor: 'pointer', opacity: chipFilter && chipFilter !== c.id ? 0.55 : 1, transition: 'all 0.15s', transform: chipFilter === c.id ? 'scale(1.03)' : 'none' }}>
+            <div key={c.id} onClick={() => setChipFilter(chipFilter === c.id ? null : c.id)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '11px 17px', background: c.gradient, borderRadius: 5, boxShadow: chipFilter === c.id ? `0 0 0 2px #fff, ${c.shadow}` : c.shadow, position: 'relative', overflow: 'hidden', flex: '0 0 auto', cursor: 'pointer', opacity: chipFilter && chipFilter !== c.id ? 0.55 : 1, transition: 'all 0.15s', transform: chipFilter === c.id ? 'scale(1.03)' : 'none' }}>
               <span style={{ fontSize: '18px', lineHeight: 1, flexShrink: 0 }}>{c.icon}</span>
               <span style={{ fontSize: '22px', fontWeight: 800, color: '#fff', lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.01em' }}>{CHIP_COUNTS[c.id]}</span>
               <span style={{ fontSize: '11px', fontWeight: 700, color: 'rgba(255,255,255,0.82)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>{c.label}</span>

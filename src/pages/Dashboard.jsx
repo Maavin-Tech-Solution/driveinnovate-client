@@ -57,7 +57,7 @@ const StatCard = ({ label, value, Icon, gradient, to, subtitle, trend }) => {
     <div style={{
       background: gradient,
       border: 'none',
-      borderRadius: 16,
+      borderRadius: 5,
       padding: '26px 28px',
       display: 'flex',
       flexDirection: 'column',
@@ -168,6 +168,51 @@ const Donut = ({ slices, size = 150 }) => {
         <div style={{ fontSize: 22, fontWeight: 800, color: '#0F172A', fontVariantNumeric: 'tabular-nums' }}>{fmtInt(total)}</div>
         <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total</div>
       </div>
+    </div>
+  );
+};
+
+// ── Radar / spider chart (fleet health) ─────────────────────────────────
+const Radar = ({ axes, size = 240, color = '#2563EB' }) => {
+  const cx = size / 2, cy = size / 2;
+  const R = size / 2 - 46;            // leave room for outer labels
+  const n = axes.length || 1;
+  const ang = i => (Math.PI * 2 * i) / n - Math.PI / 2; // start at top
+  const pt = (i, r) => [cx + Math.cos(ang(i)) * R * r, cy + Math.sin(ang(i)) * R * r];
+  const polyFor = r => axes.map((_, i) => pt(i, r).join(',')).join(' ');
+  const clamp = v => Math.max(0.02, Math.min(1, v || 0));
+  const dataPoly = axes.map((a, i) => pt(i, clamp(a.value)).join(',')).join(' ');
+  const score = axes.length
+    ? Math.round((axes.reduce((s, a) => s + Math.max(0, Math.min(1, a.value || 0)), 0) / axes.length) * 100)
+    : 0;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ display: 'block', flexShrink: 0 }}>
+      {[0.25, 0.5, 0.75, 1].map((r, i) => (
+        <polygon key={i} points={polyFor(r)} fill="none" stroke="#E2E8F0" strokeWidth="1" />
+      ))}
+      {axes.map((_, i) => { const [x, y] = pt(i, 1); return <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke="#E2E8F0" strokeWidth="1" />; })}
+      <polygon points={dataPoly} fill={`${color}28`} stroke={color} strokeWidth="2" strokeLinejoin="round" />
+      {axes.map((a, i) => { const [x, y] = pt(i, clamp(a.value)); return <circle key={i} cx={x} cy={y} r="3" fill={color} />; })}
+      {axes.map((a, i) => {
+        const [x, y] = pt(i, 1.2);
+        const anchor = Math.abs(x - cx) < 8 ? 'middle' : x > cx ? 'start' : 'end';
+        return <text key={i} x={x} y={y} fontSize="9.5" fontWeight="700" fill="#475569" textAnchor={anchor} dominantBaseline="middle">{a.label}</text>;
+      })}
+      <text x={cx} y={cy - 3} fontSize="24" fontWeight="800" fill="#0F172A" textAnchor="middle">{score}</text>
+      <text x={cx} y={cy + 13} fontSize="8" fontWeight="700" fill="#94A3B8" textAnchor="middle" letterSpacing="0.1em">HEALTH</text>
+    </svg>
+  );
+};
+
+// ── Legend row for donut panels ─────────────────────────────────────────
+const LegendRow = ({ color, label, value, total }) => {
+  const pct = total > 0 ? Math.round((value / total) * 100) : 0;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 12.5 }}>
+      <span style={{ width: 11, height: 11, borderRadius: 3, background: color, flexShrink: 0 }} />
+      <span style={{ flex: 1, color: '#334155', fontWeight: 600 }}>{label}</span>
+      <span style={{ fontWeight: 800, color: '#0F172A', fontVariantNumeric: 'tabular-nums' }}>{fmtInt(value)}</span>
+      {total > 0 && <span style={{ color: '#94A3B8', fontSize: 10.5, fontWeight: 700, width: 34, textAlign: 'right' }}>{pct}%</span>}
     </div>
   );
 };
@@ -286,6 +331,33 @@ const Dashboard = () => {
     { label: 'Active',   value: active,   color: '#059669' },
     { label: 'Inactive', value: inactive, color: '#D97706' },
     { label: 'Deleted',  value: deleted,  color: '#94A3B8' },
+  ];
+
+  // ── derived: graph datasets for the redesigned dashboard ──
+  const gpsActive = stats?.gpsActive ?? 0;
+  const noGps     = Math.max(0, totalReg - gpsActive);
+  const challans  = stats?.pendingChallans ?? 0;
+  const renewals  = stats?.upcomingRenewals ?? 0;
+  const issues    = Math.min(totalReg, challans + renewals);
+  const clear     = Math.max(0, totalReg - issues);
+
+  const ratio = (num, den) => (den > 0 ? Math.max(0, Math.min(1, num / den)) : 0);
+  // Fleet-health radar — each axis normalised 0..1 (higher = healthier).
+  const healthAxes = [
+    { label: 'Active',       value: ratio(active, totalReg) },
+    { label: 'GPS Coverage', value: ratio(gpsActive, totalReg) },
+    { label: 'Renewals OK',  value: totalReg ? 1 - ratio(renewals, totalReg) : 0 },
+    { label: 'Challan-Free', value: totalReg ? 1 - ratio(challans, totalReg) : 0 },
+    { label: 'Activity',     value: Math.min(1, weekTotal / Math.max(8, totalReg)) },
+  ];
+  const connectivitySlices = [
+    { label: 'Reporting GPS',    value: gpsActive, color: '#0EA5E9' },
+    { label: 'No recent signal', value: noGps,     color: '#CBD5E1' },
+  ];
+  const complianceSlices = [
+    { label: 'Clear',            value: clear,    color: '#16A34A' },
+    { label: 'Pending Challans', value: challans, color: '#F59E0B' },
+    { label: 'Renewals (30d)',   value: renewals, color: '#A855F7' },
   ];
 
   if (loading) {
@@ -454,112 +526,85 @@ const Dashboard = () => {
         );
       })()}
 
-      {/* ══ Middle row: fleet status donut + weekly chart ══ */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14, marginBottom: 18 }}>
+      {/* ══ Row 1: Fleet-health radar + fleet-status donut ══ */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: 14, marginBottom: 14 }}>
 
-        {/* Fleet status breakdown */}
+        {/* Fleet health — spider/radar */}
         <div style={panelStyle}>
           <div style={panelHeader}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <ShieldCheckIcon style={{ width: 16, height: 16, color: '#2563EB' }} />
+              <ArrowTrendingUpIcon style={{ width: 16, height: 16, color: '#2563EB' }} />
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>Fleet Health</div>
+            </div>
+            <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600 }}>across {healthAxes.length} dimensions</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 18, padding: '14px 18px', flexWrap: 'wrap', justifyContent: 'center' }}>
+            <Radar axes={healthAxes} color="#2563EB" />
+            <div style={{ flex: 1, minWidth: 170, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {healthAxes.map(a => (
+                <ProgressRow key={a.label} label={a.label} value={Math.round(a.value * 100)} total={100} color="#2563EB" />
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Fleet status — donut */}
+        <div style={panelStyle}>
+          <div style={panelHeader}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <ShieldCheckIcon style={{ width: 16, height: 16, color: '#059669' }} />
               <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>Fleet Status</div>
             </div>
             <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600 }}>{fmtInt(totalReg)} vehicles</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 22, padding: '16px 18px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 22, padding: '20px 18px' }}>
             <Donut slices={donutSlices} />
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <ProgressRow label="Active"   value={active}   total={totalReg} color="#059669" />
-              <ProgressRow label="Inactive" value={inactive} total={totalReg} color="#D97706" />
-              <ProgressRow label="Deleted"  value={deleted}  total={totalReg} color="#94A3B8" />
+              <LegendRow color="#059669" label="Active"   value={active}   total={totalReg} />
+              <LegendRow color="#D97706" label="Inactive" value={inactive} total={totalReg} />
+              <LegendRow color="#94A3B8" label="Deleted"  value={deleted}  total={totalReg} />
             </div>
-          </div>
-        </div>
-
-        {/* 7-day activity chart */}
-        <div style={panelStyle}>
-          <div style={panelHeader}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <ChartBarIcon style={{ width: 16, height: 16, color: '#7C3AED' }} />
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>Last 7 Days · Activity</div>
-            </div>
-            <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600 }}>{fmtInt(weekTotal)} events</span>
-          </div>
-          <div style={{ padding: '14px 16px 16px' }}>
-            <BarChart data={weekActivity} accent="#7C3AED" />
           </div>
         </div>
       </div>
 
-      {/* ══ Bottom row: overspeed list + recent activity ══ */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14 }}>
+      {/* ══ Row 2: connectivity donut + compliance donut ══ */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: 14 }}>
 
-        {/* Overspeed violators */}
+        {/* GPS connectivity — donut */}
         <div style={panelStyle}>
           <div style={panelHeader}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <ExclamationTriangleIcon style={{ width: 16, height: 16, color: '#EF4444' }} />
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>Overspeed Violators (24h)</div>
+              <ShieldCheckIcon style={{ width: 16, height: 16, color: '#0EA5E9' }} />
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>GPS Connectivity</div>
             </div>
-            <Link to="/reports" style={linkStyle}>View all →</Link>
+            <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600 }}>{totalReg ? Math.round(ratio(gpsActive, totalReg) * 100) : 0}% reporting</span>
           </div>
-          <div style={{ maxHeight: 260, overflow: 'auto' }}>
-            {overspeedVehicles.length === 0 ? (
-              <div style={{ padding: '36px 18px', textAlign: 'center', color: '#94A3B8', fontSize: 13 }}>
-                <CheckCircleIcon style={{ width: 30, height: 30, color: '#86EFAC', margin: '0 auto 8px' }} />
-                <div style={{ fontWeight: 700, color: '#059669', marginBottom: 3 }}>All clear</div>
-                <div style={{ fontSize: 12 }}>No overspeeding detected in the last 24 hours.</div>
-              </div>
-            ) : (
-              overspeedVehicles.slice(0, 6).map(v => (
-                <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 18px', borderBottom: '1px solid #F1F5F9' }}>
-                  <div style={{ width: 34, height: 34, borderRadius: 8, background: '#FEE2E2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <BoltIcon style={{ width: 16, height: 16, color: '#DC2626' }} />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.vehicleNumber || `Vehicle #${v.id}`}</div>
-                    <div style={{ fontSize: 11, color: '#64748B', marginTop: 1 }}>
-                      {v.overspeedCount} violation{v.overspeedCount !== 1 ? 's' : ''} · {fmtRelative(v.lastOverspeedTime)}
-                    </div>
-                  </div>
-                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <div style={{ fontSize: 15, fontWeight: 800, color: '#DC2626', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{v.maxSpeed}</div>
-                    <div style={{ fontSize: 9.5, color: '#94A3B8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 2 }}>km/h</div>
-                  </div>
-                </div>
-              ))
-            )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 22, padding: '20px 18px' }}>
+            <Donut slices={connectivitySlices} />
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <LegendRow color="#0EA5E9" label="Reporting GPS"     value={gpsActive} total={totalReg} />
+              <LegendRow color="#CBD5E1" label="No recent signal"  value={noGps}     total={totalReg} />
+            </div>
           </div>
         </div>
 
-        {/* Recent activity */}
+        {/* Compliance snapshot — donut */}
         <div style={panelStyle}>
           <div style={panelHeader}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <BellAlertIcon style={{ width: 16, height: 16, color: '#0891B2' }} />
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>Recent Activity</div>
+              <DocumentTextIcon style={{ width: 16, height: 16, color: '#F59E0B' }} />
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>Compliance</div>
             </div>
-            <Link to="/activity" style={linkStyle}>View all →</Link>
+            <Link to="/challans" style={linkStyle}>Manage →</Link>
           </div>
-          <div style={{ maxHeight: 260, overflow: 'auto' }}>
-            {activities.length === 0 ? (
-              <div style={{ padding: '36px 18px', textAlign: 'center', color: '#94A3B8', fontSize: 13 }}>
-                <ClockIcon style={{ width: 30, height: 30, color: '#CBD5E1', margin: '0 auto 8px' }} />
-                <div>No activity yet.</div>
-              </div>
-            ) : (
-              activities.slice(0, 8).map((a, i) => (
-                <div key={a.id || i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 18px', borderBottom: '1px solid #F1F5F9' }}>
-                  <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#0891B2', marginTop: 6, flexShrink: 0 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 600, color: '#0F172A', lineHeight: 1.35 }}>{a.message || a.description || a.action || a.type || 'Activity'}</div>
-                    <div style={{ fontSize: 10.5, color: '#94A3B8', fontWeight: 600, marginTop: 2 }}>
-                      {a.createdAt ? `${fmtDateShort(a.createdAt)} · ${fmtRelative(a.createdAt)}` : ''}
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 22, padding: '20px 18px' }}>
+            <Donut slices={complianceSlices} />
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <LegendRow color="#16A34A" label="Clear"            value={clear}    total={totalReg} />
+              <LegendRow color="#F59E0B" label="Pending Challans" value={challans} total={totalReg} />
+              <LegendRow color="#A855F7" label="Renewals (30d)"   value={renewals} total={totalReg} />
+            </div>
           </div>
         </div>
       </div>

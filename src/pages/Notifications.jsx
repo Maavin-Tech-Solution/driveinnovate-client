@@ -29,7 +29,7 @@ const fmtFull = (d) => d ? new Date(d).toLocaleString('en-IN', { dateStyle: 'med
 
 // ─── Stat Card ────────────────────────────────────────────────────────────────
 const StatCard = ({ icon, label, value, accent, sub }) => (
-  <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
+  <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 5, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
     <div style={{ width: 46, height: 46, borderRadius: 11, background: `${accent}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>{icon}</div>
     <div>
       <div style={{ fontSize: 22, fontWeight: 800, color: '#0f172a', lineHeight: 1.1 }}>{value}</div>

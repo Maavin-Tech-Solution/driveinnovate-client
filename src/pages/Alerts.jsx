@@ -56,7 +56,7 @@ const Ic = ({ n, size = 14, color = 'currentColor', sw = 1.75 }) => {
 
 // ─── Stat Card ────────────────────────────────────────────────────────────────
 const StatCard = ({ icon, label, value, sub, accent }) => (
-  <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16 }}>
+  <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 5, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16 }}>
     <div style={{ width: 48, height: 48, borderRadius: 12, background: `${accent}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>{icon}</div>
     <div>
       <div style={{ fontSize: 22, fontWeight: 800, color: '#0f172a', lineHeight: 1.1 }}>{value}</div>
