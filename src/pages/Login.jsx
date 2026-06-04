@@ -316,7 +316,7 @@ const Login = () => {
   const [loading,  setLoading]  = useState(false);
   const [showPass, setShowPass] = useState(false);
   const [authMode, setAuthMode] = useState('password'); // 'password' | 'otp' | 'forgot'
-  const [layout,   setLayout]   = useState(() => localStorage.getItem('login-layout')  || 'poster');
+  const [layout,   setLayout]   = useState('poster'); // locked to Poster — picker hidden
   const [theme,    setTheme]    = useState(() => localStorage.getItem('login-theme')   || 'night');
   const [forgotOtpRequested,  setForgotOtpRequested]  = useState(false);
   const [loginOtpSentTo,      setLoginOtpSentTo]      = useState('');
@@ -451,8 +451,11 @@ const Login = () => {
     textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px',
   };
 
-  /* â”€â”€ Reusable theme+layout picker â”€â”€ */
-  const themePicker = (
+  /* â”€â”€ Reusable theme+layout picker â”€â”€
+     Hidden per product decision — the login always uses the Poster layout.
+     Set SHOW_LOGIN_THEME_PICKER to true to bring the selector back. */
+  const SHOW_LOGIN_THEME_PICKER = false;
+  const themePicker = !SHOW_LOGIN_THEME_PICKER ? null : (
     <div style={{ position:'fixed', bottom:20, left:20, zIndex:9000, display:'flex', flexDirection:'column', gap:10 }}>
       <div style={{ background:'rgba(255,255,255,0.10)', backdropFilter:'blur(16px)', border:'1px solid rgba(255,255,255,0.18)', borderRadius:14, padding:'12px 14px', boxShadow:'0 8px 32px rgba(0,0,0,0.28)' }}>
         <div style={{ fontSize:9, fontWeight:800, color:'rgba(255,255,255,0.50)', textTransform:'uppercase', letterSpacing:'0.12em', marginBottom:10 }}>Theme</div>
@@ -484,7 +487,13 @@ const Login = () => {
   /* The formPanel JSX is shared across all layouts */
   const formPanel = (extraStyle = {}) => (
     <div style={{ background:'#fff', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'36px 40px', overflowY:'auto', ...extraStyle }}>
-      <div style={{ width:'100%', maxWidth: isFloatCard||isSplit ? '380px' : '100%' }}>
+      <div style={{
+        width:'100%', maxWidth: 400,
+        // Elevated card so the form reads as a panel, not floating on flat white.
+        background:'#fff', borderRadius:18, border:'1px solid #eef2f7',
+        boxShadow:'0 18px 50px rgba(15,23,42,0.12), 0 2px 8px rgba(15,23,42,0.05)',
+        padding:'30px 30px',
+      }}>
         <div style={{ marginBottom:32 }}>
           <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom: isSplit ? 16 : 28 }}>
             <div style={{ width:38, height:38, borderRadius:10, background:'linear-gradient(135deg,#2563eb,#1d4ed8)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, boxShadow:'0 4px 12px rgba(37,99,235,.35)' }}>DI</div>
@@ -667,8 +676,21 @@ const Login = () => {
         </div>
       </div>
 
-      {/* â”€â”€ RIGHT: Login form (reuses shared formPanel) â”€â”€ */}
-      {formPanel({ width:'480px', flexShrink:0, boxShadow:'-8px 0 48px rgba(0,0,0,0.10)', padding:'40px 48px' })}
+      {/* â”€â”€ RIGHT: Login form on a tinted, decorated panel â”€â”€ */}
+      <div style={{
+        width:'480px', flexShrink:0, position:'relative', overflow:'hidden', display:'flex',
+        background:'linear-gradient(160deg,#eef2ff 0%,#f8fafc 45%,#e0e7ff 100%)',
+        borderTop:`4px solid ${poster.accent}`,
+        boxShadow:'-8px 0 48px rgba(15,23,42,0.12)',
+        transition:'border-color 0.8s ease',
+      }}>
+        {/* Soft decorative glows behind the form card */}
+        <div style={{ position:'absolute', top:-80, right:-70, width:240, height:240, borderRadius:'50%', background:`${poster.accent}22`, filter:'blur(48px)', pointerEvents:'none', transition:'background 0.8s ease' }} />
+        <div style={{ position:'absolute', bottom:-100, left:-60, width:280, height:280, borderRadius:'50%', background:'rgba(37,99,235,0.12)', filter:'blur(60px)', pointerEvents:'none' }} />
+        {/* Faint dotted texture */}
+        <div style={{ position:'absolute', inset:0, backgroundImage:'radial-gradient(rgba(37,99,235,0.10) 1px, transparent 1px)', backgroundSize:'22px 22px', opacity:0.5, pointerEvents:'none' }} />
+        {formPanel({ flex:1, position:'relative', zIndex:1, background:'transparent', padding:'40px 40px' })}
+      </div>
       {themePicker}
     </div>
   );
