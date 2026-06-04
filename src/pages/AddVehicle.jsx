@@ -12,6 +12,7 @@ import { addVehicle } from '../services/vehicle.service';
 import { createCustomField } from '../services/vehicle.service';
 import { getClientTree } from '../services/user.service';
 import { useAuth } from '../context/AuthContext';
+import { DEVICE_TYPE_OPTIONS, portForDeviceType, PORT_LABELS } from '../utils/deviceTypes';
 
 const inputStyle = {
   width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0',
@@ -255,13 +256,12 @@ const AddVehicle = () => {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    // Device type hints the port default — user can still override via the port dropdown.
+    // Device type fully determines the port — it is auto-filled and not editable.
     if (name === 'deviceType') {
-      const portByType = { GT06: '5023', GT06N: '5023', FMB125: '5024', FMB920: '5024', FMB130: '5024', AIS140: '5025' };
       setForm(prev => ({
         ...prev,
         deviceType: value,
-        serverPort: portByType[value] || prev.serverPort,
+        serverPort: portForDeviceType(value),
       }));
     } else {
       setForm(prev => ({ ...prev, [name]: value }));
@@ -405,15 +405,9 @@ const AddVehicle = () => {
                   <label style={labelStyle}>Device Type <span style={{ color: '#ef4444' }}>*</span></label>
                   <select name="deviceType" style={{ ...inputStyle, cursor: 'pointer' }} value={form.deviceType} onChange={handleChange} required>
                     <option value="">Select Device Type</option>
-                    <option value="GT06">GT06</option>
-                    <option value="GT06N">GT06N</option>
-                    <option value="FMB125">FMB125</option>
-                    <option value="FMB920">FMB920</option>
-                    <option value="FMB130">FMB130</option>
-                    <option value="AIS140">AIS140 (VLTD)</option>
-                    <option value="WeTrack2">WeTrack2</option>
-                    <option value="TK103">TK103</option>
-                    <option value="other">Other</option>
+                    {DEVICE_TYPE_OPTIONS.map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -432,19 +426,18 @@ const AddVehicle = () => {
                   />
                 </div>
                 <div style={fieldStyle}>
-                  <label style={labelStyle}>Port <span style={{ color: '#ef4444' }}>*</span></label>
-                  <select
+                  <label style={labelStyle}>
+                    Port <span style={{ color: '#ef4444' }}>*</span>
+                    <span style={{ marginLeft: '6px', fontSize: '10px', background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: '6px', padding: '1px 6px', fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}>Auto</span>
+                  </label>
+                  <input
                     name="serverPort"
-                    style={{ ...inputStyle, fontFamily: 'monospace', cursor: 'pointer' }}
-                    value={form.serverPort}
-                    onChange={handleChange}
-                    required
-                  >
-                    <option value="">Select port</option>
-                    <option value="5023">5023 (GT06)</option>
-                    <option value="5024">5024 (FMB125)</option>
-                    <option value="5025">5025 (AIS140)</option>
-                  </select>
+                    style={{ ...inputStyle, fontFamily: 'monospace', background: '#f8fafc', color: '#475569', cursor: 'not-allowed' }}
+                    value={form.serverPort ? (PORT_LABELS[form.serverPort] || form.serverPort) : ''}
+                    placeholder={form.deviceType ? 'No port for this device type' : 'Select a device type first'}
+                    readOnly
+                  />
+                  <span style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px', display: 'block' }}>Set automatically from the device type</span>
                 </div>
               </div>
 

@@ -11,7 +11,7 @@ function haversineDistance(lat1, lon1, lat2, lon2) {
 }
 
 import React, { useState, useEffect, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Polyline, Popup, Tooltip, useMap } from 'react-leaflet';
 import { toast } from 'react-toastify';
 import { getLocationPlayerData, getVehicleReportTrips } from '../../services/vehicle.service';
 import { getSettings } from '../../services/settings.service';
@@ -231,6 +231,7 @@ const LocationPlayer = ({ vehicle, onClose, initialFrom, initialTo }) => {
         positions: [[src[i].latitude, src[i].longitude], [src[i+1].latitude, src[i+1].longitude]],
         color: getSpeedColor(src[i].speed || 0),
         key: `s${i}`,
+        idx: i, // src is sliced from 0, so this maps straight back into `locations`
       });
     }
     return segs;
@@ -390,7 +391,21 @@ const LocationPlayer = ({ vehicle, onClose, initialFrom, initialTo }) => {
               <MapPan center={isPlaying ? mapCenter : null} />
 
               {pathSegments.map(seg => (
-                <Polyline key={seg.key} positions={seg.positions} color={seg.color} weight={4} opacity={0.85} />
+                <Polyline
+                  key={seg.key}
+                  positions={seg.positions}
+                  color={seg.color}
+                  weight={5}
+                  opacity={0.85}
+                  eventHandlers={{
+                    mouseover: () => setHoveredIndex(seg.idx),
+                    mouseout:  () => setHoveredIndex(null),
+                  }}
+                >
+                  <Tooltip sticky direction="top" offset={[0, -4]} opacity={1}>
+                    <PointInfo loc={locations[seg.idx]} />
+                  </Tooltip>
+                </Polyline>
               ))}
 
               {locations.length > 0 && (
@@ -569,6 +584,37 @@ const LocationPlayer = ({ vehicle, onClose, initialFrom, initialTo }) => {
       {/* Spin animation */}
       <style>{`@keyframes lp-spin{to{transform:rotate(360deg)}}`}</style>
     </>
+  );
+};
+
+// Hover tooltip for any point on the path — shows whatever telemetry is present.
+const PointInfo = ({ loc }) => {
+  if (!loc) return null;
+  const ign = loc.ignition != null ? loc.ignition : loc.acc;
+  const fuel = loc.fuel != null ? loc.fuel : loc.fuelLevel;
+  const batt = loc.battery != null ? loc.battery : loc.batteryLevel;
+  const rows = [
+    ['Time',       loc.timestamp != null ? toISTString(loc.timestamp) : null],
+    ['Speed',      loc.speed != null ? `${loc.speed} km/h` : null],
+    ['Location',   (loc.latitude != null && loc.longitude != null) ? `${Number(loc.latitude).toFixed(5)}, ${Number(loc.longitude).toFixed(5)}` : null],
+    ['Ignition',   ign != null ? (ign ? 'ON' : 'OFF') : null],
+    ['Satellites', loc.satellites != null ? String(loc.satellites) : null],
+    ['Altitude',   loc.altitude != null ? `${loc.altitude} m` : null],
+    ['Course',     loc.course != null ? `${loc.course}°` : null],
+    ['Fuel',       fuel != null ? `${fuel}%` : null],
+    ['Voltage',    loc.voltage != null ? `${loc.voltage} V` : null],
+    ['Battery',    batt != null ? `${batt}%` : null],
+    ['GSM',        loc.gsmSignal != null ? String(loc.gsmSignal) : null],
+  ].filter(([, v]) => v != null && v !== '');
+  return (
+    <div style={{ minWidth: 150, fontFamily: "'Plus Jakarta Sans',-apple-system,sans-serif" }}>
+      {rows.map(([k, v]) => (
+        <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 11, lineHeight: 1.6 }}>
+          <span style={{ color: '#64748b' }}>{k}</span>
+          <span style={{ fontWeight: 700, color: '#0f172a' }}>{v}</span>
+        </div>
+      ))}
+    </div>
   );
 };
 

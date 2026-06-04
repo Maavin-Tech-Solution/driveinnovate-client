@@ -24,11 +24,12 @@ import {
   DISPLAY_LAG_MS,
 } from '../utils/positionBuffer';
 import { getDeviceConfigs, getSystemSettings } from '../services/master.service';
+import { DEVICE_TYPE_OPTIONS, portForDeviceType, PORT_LABELS } from '../utils/deviceTypes';
 import { getGroups, createGroup, updateGroup, deleteGroup, addVehicleToGroup, removeVehicleFromGroup } from '../services/group.service';
 import { createTripShare, createLiveShare } from '../services/share.service';
 import LocationPlayer from '../components/common/LocationPlayer';
 import BottomSheet from '../components/common/BottomSheet';
-import { getISTToday, getISTDaysAgo, getISTNow, getISTDaysAgoDatetime } from '../utils/dateFormat';
+import { getISTToday, getISTDaysAgo, getISTNow, getISTStartOfToday } from '../utils/dateFormat';
 import { SIDEBAR_PRESETS, resolveSidebarColor } from '../utils/theme';
 import * as XLSX from 'xlsx';
 
@@ -39,7 +40,8 @@ const REPORT_PAGE_SIZE = 20;
 const GROUP_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899'];
 const DEVICE_TYPES = ['GT06', 'GT06N', 'FMB125', 'FMB130', 'FMB920', 'FMB140', 'AIS140', 'WeTrack2', 'TK103'];
 const SENSOR_TYPES = ['number', 'boolean', 'text'];
-const PANEL_W = 513;   // 446 +15% per user request
+const PANEL_W = 410;   // 513 -20% per user request
+const PANEL_W_HALF = Math.round(PANEL_W * 0.5);   // shrunk list width while a vehicle-detail panel is open
 
 // Pick a recognisable icon for any custom sensor based on its name / mapped param.
 const sensorIcon = (name = '', param = '') => {
@@ -835,8 +837,8 @@ const MyFleet = () => {
   const [savingCf, setSavingCf] = useState(false);
 
   const [reportTab, setReportTab] = useState('summary');
-  const [reportFrom, setReportFrom] = useState(getISTDaysAgoDatetime(7));
-  const [reportTo, setReportTo] = useState(getISTNow());
+  const [reportFrom, setReportFrom] = useState(getISTStartOfToday()); // start of today (00:00)
+  const [reportTo, setReportTo] = useState(getISTNow());              // current date & time
   const [reportData, setReportData] = useState(null);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportPage, setReportPage] = useState(0);
@@ -867,15 +869,12 @@ const MyFleet = () => {
     if (!tableGeoQueue.current.length) { tableGeoActive.current = false; return; }
     tableGeoActive.current = true;
     const { key, lat, lng } = tableGeoQueue.current.shift();
+    // Use the full display_name so the list card, detail card and table all show
+    // the same complete address that the card-hover popover shows.
     fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=16`)
       .then(r => r.json())
       .then(d => {
-        const a = d.address || {};
-        const text = [a.road, a.suburb || a.neighbourhood || a.county,
-                      a.city || a.town || a.village || a.state_district]
-          .filter(Boolean).join(', ')
-          || d.display_name?.split(',').slice(0, 2).join(',').trim()
-          || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+        const text = d.display_name?.trim() || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
         setTableGeoMap(m => new Map(m).set(key, text));
       })
       .catch(() => setTableGeoMap(m => new Map(m).set(key, `${lat.toFixed(4)}, ${lng.toFixed(4)}`)))
@@ -2018,6 +2017,8 @@ const MyFleet = () => {
                 { ic:'refresh', label: syncing&&syncingId===dv.id?'…':'Sync',  onClick:()=>handleSync(dv), disabled:syncing&&syncingId===dv.id },
                 { ic:'play',    label:'Play',   onClick:()=>openPlayer(dv) },
                 { ic:'map',     label:'Track',  onClick:()=>{ setDrawerVehicle(null); setViewMode('map'); selectVehicle(dv); } },
+                { ic:'route',   label:'Trips',   onClick:()=>setActiveTab('trips') },
+                { ic:'chart',   label:'Reports', onClick:()=>setActiveTab('reports') },
                 { ic:'edit',    label:'Edit',   onClick:()=>setActiveTab('edit') },
                 ...(liveShareEnabled&&(isPapaOrDealer||user?.permissions?.canShareLiveLocation)?[{ ic:'share', label:'Share', onClick:()=>openShareModal('vehicle',dv.id,vehicleDisplayName(dv),dv.vehicleIcon) }]:[]),
                 { ic:'trash',   label:'Delete', onClick:()=>{ setDrawerVehicle(null); handleDelete(dv.id); }, del:true },
@@ -2042,7 +2043,7 @@ const MyFleet = () => {
           </div>
 
           {/* ── Body ── */}
-          <div style={{ height:320, display:'flex', background:'#F8FAFC', fontFamily:"'Arvo', Georgia, serif", overflow:'hidden' }}>
+          <div style={{ height: (activeTab==='trips'||activeTab==='reports'||activeTab==='edit') ? 460 : 320, display:'flex', background:'#F8FAFC', fontFamily:"'Arvo', Georgia, serif", overflow:'hidden' }}>
 
           {/* ══ EDIT MODE — full body ══ */}
           {activeTab === 'edit' && (
@@ -2121,6 +2122,22 @@ const MyFleet = () => {
                       <option value="inactive">Inactive</option>
                     </select>
                   </div>
+                  {/* Device Type — changing it re-derives the (non-editable) port */}
+                  <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
+                    <label style={{ fontSize:9.5, fontWeight:700, color:'#94A3B8', textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Arvo',serif" }}>Device Type</label>
+                    <select value={editForm.deviceType||''} onChange={e=>setEditForm({...editForm, deviceType:e.target.value, serverPort:portForDeviceType(e.target.value)})}
+                      style={{ padding:'9px 12px', border:'1px solid #E2E8F0', fontSize:13, fontFamily:"'Arvo',serif", color:'#1E293B', outline:'none', background:'#FAFAFA', fontWeight:600, cursor:'pointer' }}>
+                      <option value="">Select Device Type</option>
+                      {DEVICE_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                  {/* Port — auto-filled from device type, not editable */}
+                  <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
+                    <label style={{ fontSize:9.5, fontWeight:700, color:'#94A3B8', textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Arvo',serif" }}>Port <span style={{ fontWeight:600, color:'#2563eb', letterSpacing:0, textTransform:'none' }}>(Auto)</span></label>
+                    <input value={editForm.serverPort ? (PORT_LABELS[editForm.serverPort] || editForm.serverPort) : ''} readOnly
+                      placeholder={editForm.deviceType ? 'No port for this device type' : 'Select a device type'}
+                      style={{ padding:'9px 12px', border:'1px solid #E2E8F0', fontSize:13, fontFamily:'monospace', color:'#475569', outline:'none', background:'#F1F5F9', fontWeight:600, cursor:'not-allowed' }} />
+                  </div>
                   {/* Vehicle Icon picker — full row */}
                   <div style={{ gridColumn:'1 / -1', display:'flex', flexDirection:'column', gap:8 }}>
                     <label style={{ fontSize:9.5, fontWeight:700, color:'#94A3B8', textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Arvo',serif" }}>Vehicle Icon</label>
@@ -2139,8 +2156,29 @@ const MyFleet = () => {
             </div>
           )}
 
-          {/* ══ NORMAL VIEW — hidden when editing ══ */}
-          {activeTab !== 'edit' && <>
+          {/* ══ TRIPS ══ */}
+          {activeTab === 'trips' && (
+            <div style={{ flex:1, overflow:'auto', background:'#fff', padding:'14px 18px' }}>
+              <TripsTab vehicle={dv} reportFrom={reportFrom} reportTo={reportTo}
+                reportData={reportData} reportLoading={reportLoading} reportPage={reportPage}
+                setReportFrom={setReportFrom} setReportTo={setReportTo} setReportPage={setReportPage}
+                fetchReport={fetchReport} openPlayer={openPlayer} />
+            </div>
+          )}
+
+          {/* ══ REPORTS ══ */}
+          {activeTab === 'reports' && (
+            <div style={{ flex:1, overflow:'auto', background:'#fff', padding:'14px 18px' }}>
+              <ReportsTab vehicle={dv} reportTab={reportTab} setReportTab={setReportTab}
+                reportFrom={reportFrom} reportTo={reportTo} setReportFrom={setReportFrom} setReportTo={setReportTo}
+                reportData={reportData} reportLoading={reportLoading} reportPage={reportPage} setReportPage={setReportPage}
+                reportExporting={reportExporting} packetsDownloading={packetsDownloading}
+                fetchReport={fetchReport} handleExport={handleExport} handleDownloadPackets={handleDownloadPackets} />
+            </div>
+          )}
+
+          {/* ══ NORMAL VIEW — overview only ══ */}
+          {activeTab === 'overview' && <>
             {/* LEFT — stat cards + location */}
             <div style={{ flex:1, display:'flex', flexDirection:'column', padding:'16px 18px', gap:14, overflow:'hidden' }}>
 
@@ -2672,7 +2710,7 @@ const MyFleet = () => {
                       branch: (
                         <td key="branch" style={{ textAlign: 'left' }}>
                           {v.branch
-                            ? <span style={{ fontSize: 12, fontWeight: 600, color: '#7c3aed', background: '#f3f0ff', border: '1px solid #ddd6fe', borderRadius: 6, padding: '2px 8px', whiteSpace: 'nowrap' }}>{v.branch}</span>
+                            ? v.branch
                             : <span style={{ color: '#CBD5E1' }}>—</span>}
                         </td>
                       ),
@@ -3241,10 +3279,12 @@ const MyFleet = () => {
       {/* ══════ CONTENT ROW: left panel + map + right panel ══════ */}
       <div style={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden' }}>
 
-      {/* ── LEFT PANEL — light bright vehicle list ── */}
+      {/* ── LEFT PANEL — light bright vehicle list ──
+          Width collapses to 0 when hidden, and shrinks to 50% while a
+          vehicle-detail panel is open so the detail view gets more room. */}
       <div style={{
         flexShrink: 0,
-        width: panelOpen ? PANEL_W : 0,
+        width: panelOpen ? (drawerVehicle ? PANEL_W_HALF : PANEL_W) : 0,
         overflow: 'hidden',
         transition: 'width 0.28s cubic-bezier(0.4,0,0.2,1)',
         background: 'linear-gradient(175deg, #FAFBFF 0%, #F3F4F8 100%)',
@@ -3253,8 +3293,8 @@ const MyFleet = () => {
         display: 'flex',
         flexDirection: 'column',
       }}>
-      {/* Inner fixed-width wrapper so content doesn't reflow during transition */}
-      <div style={{ width: PANEL_W, flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* Inner wrapper width follows the panel so cards reflow to the narrower layout */}
+      <div style={{ width: drawerVehicle ? PANEL_W_HALF : PANEL_W, flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'width 0.28s cubic-bezier(0.4,0,0.2,1)' }}>
 
 
         {/* Multi-select clear — only shown when vehicles are selected */}
@@ -3322,15 +3362,15 @@ const MyFleet = () => {
 
                 {/* No top bar — list style */}
 
-                <div style={{ padding: '9px 10px 8px', display: 'flex', gap: 9 }}>
+                <div style={{ padding: '7px 8px 6px', display: 'flex', gap: 7 }}>
 
                   {/* Left: single truck silhouette, white on state colour */}
                   <div style={{
-                    flexShrink: 0, width: 44, height: 44, borderRadius: 0,
+                    flexShrink: 0, width: 36, height: 36, borderRadius: 0,
                     background: stColor,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}>
-                    <svg width="32" height="22" viewBox="0 0 64 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <svg width="26" height="18" viewBox="0 0 64 44" fill="none" xmlns="http://www.w3.org/2000/svg">
                       {/* Cab */}
                       <rect x="2" y="10" width="18" height="22" rx="2" fill="white" opacity="0.9"/>
                       <rect x="4" y="12" width="12" height="10" rx="1" fill={stColor} opacity="0.6"/>
@@ -3378,19 +3418,13 @@ const MyFleet = () => {
                       </span>
                     </div>
 
-                    {/* Row 2: vehicle name + branch (if present) */}
-                    {(v.vehicleName || v.branch) && (
+                    {/* Row 2: vehicle name (branch is intentionally NOT shown here —
+                        it appears only in the table view and the vehicle-detail panel) */}
+                    {v.vehicleName && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3, overflow: 'hidden' }}>
-                        {v.vehicleName && (
-                          <span style={{ fontSize: 11, color: '#64748B', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
-                            {v.vehicleName}
-                          </span>
-                        )}
-                        {v.branch && (
-                          <span style={{ fontSize: 9.5, fontWeight: 700, color: '#7c3aed', background: '#f3f0ff', border: '1px solid #ddd6fe', borderRadius: 5, padding: '1px 6px', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                            {v.branch}
-                          </span>
-                        )}
+                        <span style={{ fontSize: 11, color: '#64748B', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
+                          {v.vehicleName}
+                        </span>
                       </div>
                     )}
 
@@ -4591,7 +4625,7 @@ const TripsTab = ({ vehicle, reportFrom, reportTo, reportData, reportLoading, re
       const url = `${window.location.origin}/share/${token}`;
       await navigator.clipboard.writeText(url);
       toast.success('Share link copied to clipboard!');
-    } catch { toast.error('Failed to create share link'); }
+    } catch (err) { toast.error(err?.response?.data?.message || 'Failed to create share link'); }
     finally { setSharingIdx(null); }
   };
   const inpSq = { ...inp, borderRadius: 0, fontSize: 14, padding: '8px 12px' };
@@ -4600,9 +4634,9 @@ const TripsTab = ({ vehicle, reportFrom, reportTo, reportData, reportLoading, re
       {/* Toolbar — flat row, no card box */}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '0 0 12px 0', borderBottom: `2px solid ${C.primary}` }}>
         <Ic n="calendar" size={16} color={C.primary} />
-        <input type="date" value={reportFrom} onChange={e => setReportFrom(e.target.value)} style={{ ...inpSq, width: 'auto' }} />
+        <input type="datetime-local" value={reportFrom} onChange={e => setReportFrom(e.target.value)} style={{ ...inpSq, width: 'auto' }} />
         <span style={{ color: C.textLight, fontSize: 13, fontWeight: 600 }}>to</span>
-        <input type="date" value={reportTo} onChange={e => setReportTo(e.target.value)} style={{ ...inpSq, width: 'auto' }} />
+        <input type="datetime-local" value={reportTo} onChange={e => setReportTo(e.target.value)} style={{ ...inpSq, width: 'auto' }} />
         <button onClick={handleLoad} style={{ ...btn(C.primary), borderRadius: 0, padding: '9px 18px', fontSize: 13, letterSpacing: '0.04em' }}>LOAD</button>
         {trips.length > 0 && <span style={{ fontSize: 13, color: C.textSub, fontWeight: 700 }}>{total} TRIP{total !== 1 ? 'S' : ''}</span>}
         {user?.role === 'papa' && (
@@ -5405,6 +5439,20 @@ const EditTab = ({ editForm, setEditForm, saving, handleSaveEdit, currentImei = 
       <div>
         <label className="fv-label">SIM 2 <span style={{ color: '#94a3b8', fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}>(Optional)</span></label>
         <input className="fv-input fv-mono" value={editForm.sim2 || ''} onChange={e => setEditForm({ ...editForm, sim2: e.target.value })} maxLength={20} placeholder="e.g. 9876543211" />
+      </div>
+      <div>
+        <label className="fv-label">Device Type</label>
+        <select className="fv-input" value={editForm.deviceType || ''}
+          onChange={e => setEditForm({ ...editForm, deviceType: e.target.value, serverPort: portForDeviceType(e.target.value) })}>
+          <option value="">Select Device Type</option>
+          {DEVICE_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      </div>
+      <div>
+        <label className="fv-label">Port <span style={{ color: '#2563eb', fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}>(Auto)</span></label>
+        <input className="fv-input fv-mono" readOnly style={{ background: '#F1F5F9', color: '#475569', cursor: 'not-allowed' }}
+          value={editForm.serverPort ? (PORT_LABELS[editForm.serverPort] || editForm.serverPort) : ''}
+          placeholder={editForm.deviceType ? 'No port for this device type' : 'Select a device type'} />
       </div>
 
       {/* ── Fuel Sensor ────────────────────────────────────────────────── */}

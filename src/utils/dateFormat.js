@@ -136,6 +136,12 @@ export const getISTNow = () =>
   new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 16);
 
 /**
+ * Start of today in IST (midnight) as 'YYYY-MM-DDT00:00' — use as datetime-local
+ * "from" default so a report defaults to "since the start of today".
+ */
+export const getISTStartOfToday = () => `${getISTToday()}T00:00`;
+
+/**
  * IST date+time N days ago as 'YYYY-MM-DDTHH:MM' — use as datetime-local picker default.
  */
 export const getISTDaysAgoDatetime = (days) =>

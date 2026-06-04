@@ -21,28 +21,39 @@ import {
   getVehicleReportFuelFillings, exportVehicleReportExcel,
 } from '../services/vehicle.service.jsx';
 import { getSettings } from '../services/settings.service.jsx';
-import { getClients } from '../services/user.service.jsx';
+import { getClientTree } from '../services/user.service.jsx';
 import { useAuth } from '../context/AuthContext';
-import { toISTString } from '../utils/dateFormat';
+import { toISTString, getISTNow, getISTStartOfToday } from '../utils/dateFormat';
 import './Reports.css';
 
+// ─── Flatten the recursive client tree into a depth-tagged list ───────────────
+// Mirrors the My Clients page so the scope picker shows the full nested network,
+// not just direct children.
+const flattenClientTree = (nodes, depth = 0) => {
+  const out = [];
+  for (const n of nodes || []) {
+    out.push({ ...n, depth });
+    if (n.children?.length) out.push(...flattenClientTree(n.children, depth + 1));
+  }
+  return out;
+};
+
 // ─── Searchable vehicle picker ────────────────────────────────────────────────
-const VehicleSearchSelect = ({ vehicles, value, onChange, inputStyle }) => {
+const VehicleSearchSelect = ({ vehicles, value, onChange, inputStyle, allowAll = false }) => {
   const [query, setQuery] = useState('');
   const [open,  setOpen]  = useState(false);
   const ref = useRef(null);
 
   const selected = vehicles.find(v => String(v.id) === String(value));
-  const filtered = query.trim()
-    ? vehicles.filter(v => {
-        const q = query.toLowerCase();
-        return (v.vehicleNumber || '').toLowerCase().includes(q)
-            || (v.vehicleName  || '').toLowerCase().includes(q);
-      })
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? vehicles.filter(v =>
+        (v.vehicleNumber || '').toLowerCase().includes(q) ||
+        (v.vehicleName  || '').toLowerCase().includes(q))
     : vehicles;
 
   useEffect(() => {
-    const handler = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const handler = e => { if (ref.current && !ref.current.contains(e.target)) { setOpen(false); setQuery(''); } };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
@@ -55,6 +66,10 @@ const VehicleSearchSelect = ({ vehicles, value, onChange, inputStyle }) => {
         : selected.vehicleName || selected.vehicleNumber || `#${selected.id}`)
     : '';
 
+  // Row styling shared by the All-vehicles row and each vehicle row, matched to
+  // the blue scope-card theme (blue accent, #EFF6FF selected, #F1F5F9 hover).
+  const rowBase = { padding: '9px 14px', cursor: 'pointer', borderBottom: '1px solid #EEF3FB', fontSize: 13 };
+
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <div style={{ position: 'relative' }}>
@@ -63,33 +78,44 @@ const VehicleSearchSelect = ({ vehicles, value, onChange, inputStyle }) => {
           value={open ? query : displayLabel}
           onChange={e => { setQuery(e.target.value); setOpen(true); }}
           onFocus={() => { setQuery(''); setOpen(true); }}
-          placeholder="Search by name or reg no…"
+          placeholder={allowAll ? `All vehicles (${vehicles.length})` : 'Search by name or reg no…'}
           style={{ ...inputStyle, paddingRight: 28 }}
         />
         {value && (
-          <button type="button" onClick={() => select(null)}
+          <button type="button" onClick={() => select(null)} title="Clear"
             style={{ position:'absolute', right:6, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'#94A3B8', fontSize:14, lineHeight:1, padding:'2px 3px' }}>
             ✕
           </button>
         )}
       </div>
       {open && (
-        <div style={{ position:'absolute', top:'calc(100% + 3px)', left:0, right:0, zIndex:300, background:'#fff', border:'1px solid #E2E8F0', borderRadius:8, boxShadow:'0 8px 24px rgba(0,0,0,0.12)', maxHeight:260, overflowY:'auto' }}>
+        <div style={{ position:'absolute', top:'calc(100% + 4px)', left:0, right:0, zIndex:300, background:'#fff', border:'1px solid #BFDBFE', borderRadius:8, boxShadow:'0 10px 28px rgba(30,64,175,0.14)', maxHeight:280, overflowY:'auto' }}>
+          {allowAll && (
+            <div onClick={() => select(null)}
+              style={{ ...rowBase, display:'flex', alignItems:'center', gap:8, fontWeight:700, color: !value ? '#1D4ED8' : '#334155', background: !value ? '#EFF6FF' : 'transparent' }}
+              onMouseEnter={e => { if (value) e.currentTarget.style.background = '#F1F5F9'; }}
+              onMouseLeave={e => { if (value) e.currentTarget.style.background = 'transparent'; }}>
+              🚛 All vehicles <span style={{ fontWeight:600, color:'#94A3B8' }}>({vehicles.length})</span>
+            </div>
+          )}
           {filtered.length === 0 ? (
             <div style={{ padding:'12px 14px', color:'#94A3B8', fontSize:13 }}>No vehicles found</div>
-          ) : filtered.map(v => (
-            <div key={v.id} onClick={() => select(v)}
-              style={{ padding:'9px 14px', cursor:'pointer', background: String(v.id) === String(value) ? '#EFF6FF' : 'transparent', borderBottom:'1px solid #F1F5F9', fontSize:13 }}
-              onMouseEnter={e => { if (String(v.id) !== String(value)) e.currentTarget.style.background='#F8FAFC'; }}
-              onMouseLeave={e => { if (String(v.id) !== String(value)) e.currentTarget.style.background='transparent'; }}>
-              <div style={{ fontWeight:700, color:'#1E293B', fontFamily:'monospace' }}>
-                {v.vehicleNumber || `Vehicle #${v.id}`}
+          ) : filtered.map(v => {
+            const isSel = String(v.id) === String(value);
+            return (
+              <div key={v.id} onClick={() => select(v)}
+                style={{ ...rowBase, background: isSel ? '#EFF6FF' : 'transparent' }}
+                onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = '#F1F5F9'; }}
+                onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = 'transparent'; }}>
+                <div style={{ fontWeight:700, color: isSel ? '#1D4ED8' : '#1E293B', fontFamily:'monospace' }}>
+                  {v.vehicleNumber || `Vehicle #${v.id}`}
+                </div>
+                {v.vehicleName && (
+                  <div style={{ fontSize:11, color:'#64748B', marginTop:1 }}>{v.vehicleName}</div>
+                )}
               </div>
-              {v.vehicleName && (
-                <div style={{ fontSize:11, color:'#64748B', marginTop:1 }}>{v.vehicleName}</div>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -139,18 +165,19 @@ const Reports = () => {
   // ── Vehicle-specific reports (new) ──────────────────────────────────────────
   const [vr, setVr] = useState({
     vehicleId: '',
-    from: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16),
-    to:   new Date().toISOString().slice(0, 16),
+    from: getISTStartOfToday(),   // start of today (00:00)
+    to:   getISTNow(),            // current date & time
     tab:  'summary',
     data: null,
     loading: false,
     page: 0,
   });
 
-  // Common Filters
+  // Common Filters — date fields carry a timestamp; default span is "today so far":
+  // from = start of today (00:00), to = now.
   const [filters, setFilters] = useState({
-    startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    endDate: new Date().toISOString().split('T')[0],
+    startDate: getISTStartOfToday(),
+    endDate: getISTNow(),
     vehicleIds: [],
     severity: '',
     acknowledged: '',
@@ -160,8 +187,8 @@ const Reports = () => {
   useEffect(() => {
     fetchSettings();
     if (isNetworkUser) {
-      getClients()
-        .then(r => setClients(r.data || []))
+      getClientTree()
+        .then(r => setClients(flattenClientTree(r.data || [])))
         .catch(err => console.error('Failed to load clients:', err));
     }
   }, [isNetworkUser]);
@@ -180,18 +207,9 @@ const Reports = () => {
     setFilters(f => ({ ...f, vehicleIds: ids }));
   }, [scopeVehicleId, vehicles]);
 
-  useEffect(() => {
-    if (activeTab === 'speed-violations') {
-      fetchSpeedViolationReport();
-      fetchVehicleSummary();
-    } else if (activeTab === 'trip-reports') {
-      fetchTripReport();
-    } else if (activeTab === 'stops-parking') {
-      fetchStopReport();
-    } else if (activeTab === 'engine-hours') {
-      fetchEngineHoursReport();
-    }
-  }, [activeTab, filters.vehicleIds, filters.startDate, filters.endDate]); // eslint-disable-line react-hooks/exhaustive-deps
+  // NOTE: report data is intentionally NOT auto-loaded on mount, tab change, or
+  // filter change. Each tab stays blank until the user picks a date range and
+  // clicks its Search / Generate button.
 
   const fetchVehicles = async (clientId) => {
     try {
@@ -497,7 +515,7 @@ const Reports = () => {
               <option value="">My own fleet</option>
               {clients.map(c => (
                 <option key={c.id} value={c.id}>
-                  {c.name || c.email || `Client #${c.id}`}
+                  {`${' '.repeat(c.depth * 3)}${c.depth > 0 ? '└ ' : ''}${c.name || c.email || `Client #${c.id}`}`}
                 </option>
               ))}
             </select>
@@ -506,19 +524,15 @@ const Reports = () => {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <label style={{ fontSize: 10.5, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Vehicle</label>
-          <select
-            value={scopeVehicleId}
-            onChange={e => setScopeVehicleId(e.target.value)}
-            style={{ padding: '7px 10px', border: '1px solid #93C5FD', borderRadius: 7, background: '#fff', fontSize: 13, fontWeight: 600, color: '#0F172A', outline: 'none', minWidth: 240, cursor: 'pointer' }}
-          >
-            <option value="">All vehicles ({vehicles.length})</option>
-            {vehicles.map(v => (
-              <option key={v.id} value={v.id}>
-                {v.vehicleNumber || `#${v.id}`}
-                {v.vehicleName ? ` — ${v.vehicleName}` : ''}
-              </option>
-            ))}
-          </select>
+          <div style={{ width: 260 }}>
+            <VehicleSearchSelect
+              vehicles={vehicles}
+              value={scopeVehicleId}
+              onChange={setScopeVehicleId}
+              allowAll
+              inputStyle={{ width: '100%', padding: '7px 10px', border: '1px solid #93C5FD', borderRadius: 7, background: '#fff', fontSize: 13, fontWeight: 600, color: '#0F172A', outline: 'none' }}
+            />
+          </div>
         </div>
 
         <div style={{ flex: 1 }} />
@@ -657,10 +671,10 @@ const Reports = () => {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '16px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#64748b', marginBottom: '6px' }}>
-                  Start Date
+                  From
                 </label>
                 <input
-                  type="date"
+                  type="datetime-local"
                   className="form-control"
                   value={filters.startDate}
                   onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
@@ -668,10 +682,10 @@ const Reports = () => {
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#64748b', marginBottom: '6px' }}>
-                  End Date
+                  To
                 </label>
                 <input
-                  type="date"
+                  type="datetime-local"
                   className="form-control"
                   value={filters.endDate}
                   onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
@@ -711,7 +725,7 @@ const Reports = () => {
             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
               <button
                 className="btn btn-primary"
-                onClick={fetchSpeedViolationReport}
+                onClick={() => { fetchSpeedViolationReport(); fetchVehicleSummary(); }}
                 disabled={loading}
               >
                 {loading ? '⏳ Loading...' : '🔍 Search'}
@@ -938,10 +952,10 @@ const Reports = () => {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '16px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#64748b', marginBottom: '6px' }}>
-                  Start Date
+                  From
                 </label>
                 <input
-                  type="date"
+                  type="datetime-local"
                   className="form-control"
                   value={filters.startDate}
                   onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
@@ -949,10 +963,10 @@ const Reports = () => {
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#64748b', marginBottom: '6px' }}>
-                  End Date
+                  To
                 </label>
                 <input
-                  type="date"
+                  type="datetime-local"
                   className="form-control"
                   value={filters.endDate}
                   onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
@@ -1108,10 +1122,10 @@ const Reports = () => {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '16px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#64748b', marginBottom: '6px' }}>
-                  Start Date
+                  From
                 </label>
                 <input
-                  type="date"
+                  type="datetime-local"
                   className="form-control"
                   value={filters.startDate}
                   onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
@@ -1119,10 +1133,10 @@ const Reports = () => {
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#64748b', marginBottom: '6px' }}>
-                  End Date
+                  To
                 </label>
                 <input
-                  type="date"
+                  type="datetime-local"
                   className="form-control"
                   value={filters.endDate}
                   onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
@@ -1294,10 +1308,10 @@ const Reports = () => {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '16px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#64748b', marginBottom: '6px' }}>
-                  Start Date
+                  From
                 </label>
                 <input
-                  type="date"
+                  type="datetime-local"
                   className="form-control"
                   value={filters.startDate}
                   onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
@@ -1305,10 +1319,10 @@ const Reports = () => {
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#64748b', marginBottom: '6px' }}>
-                  End Date
+                  To
                 </label>
                 <input
-                  type="date"
+                  type="datetime-local"
                   className="form-control"
                   value={filters.endDate}
                   onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}

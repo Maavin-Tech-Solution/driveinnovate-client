@@ -12,7 +12,7 @@ function haversineDistance(lat1, lon1, lat2, lon2) {
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Polyline, Popup, Tooltip, useMap } from 'react-leaflet';
 import { getShareData } from '../services/share.service';
 import { toISTString } from '../utils/dateFormat';
 import { vehicleMarkerHtml, VehicleIcon } from '../utils/vehicleIcons';
@@ -40,6 +40,33 @@ const SPEED_RANGES = [
 const getColorForSpeed = (speed) => {
   const range = SPEED_RANGES.find(r => speed >= r.min && speed < r.max);
   return range ? range.color : '#3b82f6';
+};
+
+// Hover tooltip for any point on the shared trip path — shows whatever telemetry is present.
+const PointInfo = ({ loc }) => {
+  if (!loc) return null;
+  const ign = loc.ignition != null ? loc.ignition : loc.acc;
+  const fuel = loc.fuel != null ? loc.fuel : loc.fuelLevel;
+  const time = loc.timestamp != null
+    ? new Date(loc.timestamp).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })
+    : null;
+  const rows = [
+    ['Time',       time],
+    ['Speed',      loc.speed != null ? `${loc.speed} km/h` : null],
+    ['Location',   (loc.latitude != null && loc.longitude != null) ? `${Number(loc.latitude).toFixed(5)}, ${Number(loc.longitude).toFixed(5)}` : null],
+    ['Ignition',   ign != null ? (ign ? 'ON' : 'OFF') : null],
+    ['Fuel',       fuel != null ? `${fuel}%` : null],
+  ].filter(([, v]) => v != null && v !== '');
+  return (
+    <div style={{ minWidth: 150, fontFamily: "'Plus Jakarta Sans',sans-serif" }}>
+      {rows.map(([k, v]) => (
+        <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 11, lineHeight: 1.6 }}>
+          <span style={{ color: '#64748b' }}>{k}</span>
+          <span style={{ fontWeight: 700, color: '#0f172a' }}>{v}</span>
+        </div>
+      ))}
+    </div>
+  );
 };
 
 const MapUpdater = ({ center }) => {
@@ -141,6 +168,7 @@ const SharePlayer = () => {
       positions: [[displayLocations[i].latitude, displayLocations[i].longitude], [displayLocations[i+1].latitude, displayLocations[i+1].longitude]],
       color: getColorForSpeed(displayLocations[i].speed || 0),
       key: `seg-${i}`,
+      idx: i, // displayLocations is sliced from 0, so this maps straight into `locations`
     });
   }
 
@@ -222,7 +250,21 @@ const SharePlayer = () => {
             <MapUpdater center={mapCenter} />
 
             {pathSegments.map(seg => (
-              <Polyline key={seg.key} positions={seg.positions} color={seg.color} weight={4} opacity={0.85} />
+              <Polyline
+                key={seg.key}
+                positions={seg.positions}
+                color={seg.color}
+                weight={5}
+                opacity={0.85}
+                eventHandlers={{
+                  mouseover: () => setHoveredIndex(seg.idx),
+                  mouseout:  () => setHoveredIndex(null),
+                }}
+              >
+                <Tooltip sticky direction="top" offset={[0, -4]} opacity={1}>
+                  <PointInfo loc={locations[seg.idx]} />
+                </Tooltip>
+              </Polyline>
             ))}
 
             {/* Start marker */}
