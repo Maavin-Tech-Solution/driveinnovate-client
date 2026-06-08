@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { VehicleIcon, VEHICLE_ICONS, VEHICLE_ICON_LABELS, vehicleMarkerHtml } from '../utils/vehicleIcons';
 import { toast } from 'react-toastify';
 import { MapContainer, TileLayer, Marker, Polyline, Tooltip, useMap } from 'react-leaflet';
@@ -41,7 +41,6 @@ const GROUP_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4
 const DEVICE_TYPES = ['GT06', 'GT06N', 'FMB125', 'FMB130', 'FMB920', 'FMB140', 'AIS140', 'WeTrack2', 'TK103'];
 const SENSOR_TYPES = ['number', 'boolean', 'text'];
 const PANEL_W = 410;   // 513 -20% per user request
-const PANEL_W_HALF = Math.round(PANEL_W * 0.5);   // shrunk list width while a vehicle-detail panel is open
 
 // Pick a recognisable icon for any custom sensor based on its name / mapped param.
 const sensorIcon = (name = '', param = '') => {
@@ -806,6 +805,18 @@ const MyFleet = () => {
   const [searchType, setSearchType] = useState('all'); // 'all'|'vehicleNumber'|'vehicleName'|'imei'|'sim'|'deviceType'|'branch'
   const [statusFilter, setStatusFilter] = useState(new Set(['Running', 'Stopped', 'Unknown']));
   const [chipFilter, setChipFilter] = useState(null); // null = all, or chip id string
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Deep-link support: /my-fleet?chip=nodata (e.g. from the dashboard "No GPS"
+  // card) pre-selects that fleet chip filter on mount, then clears the param.
+  useEffect(() => {
+    const chip = searchParams.get('chip');
+    if (chip) {
+      setChipFilter(chip);
+      const next = new URLSearchParams(searchParams);
+      next.delete('chip');
+      setSearchParams(next, { replace: true });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [showStatusDrop, setShowStatusDrop] = useState(false);
   const [showColPicker, setShowColPicker] = useState(false);
   const [sortCol, setSortCol] = useState(null);
@@ -993,6 +1004,16 @@ const MyFleet = () => {
   const [deleting, setDeleting] = useState(false);
 
   const [drawerVehicle, setDrawerVehicle] = useState(null);
+  // Map-view left panel is user-resizable (drag the divider) instead of auto
+  // shrinking to 50% when a vehicle detail sheet opens.
+  const [panelWidth, setPanelWidth] = useState(PANEL_W);
+  // Detail sheet is a free-floating panel on the map view: drag the top strip to
+  // move it, drag the right/bottom/corner grips to resize. null → use defaults
+  // (bottom-anchored, full width, per-tab height).
+  const [sheetHeight, setSheetHeight] = useState(null);
+  const [sheetWidth, setSheetWidth]   = useState(null);          // px, null = full width
+  const [sheetPos, setSheetPos]       = useState(null);          // {left, top} px in map area, null = bottom-anchored
+  const sheetRef = useRef(null);
   const [drawerEditForm, setDrawerEditForm] = useState({});
   const [drawerSensors, setDrawerSensors] = useState([]);
   const [drawerSaving, setDrawerSaving] = useState(false);
@@ -1246,6 +1267,12 @@ const MyFleet = () => {
       .then(r => setDrawerSensors(r.data || []))
       .catch(() => setDrawerSensors([]));
   }, [drawerVehicle?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reset the detail sheet's floating position/size when it closes so the next
+  // open starts from the clean bottom-anchored default.
+  useEffect(() => {
+    if (!drawerVehicle) { setSheetPos(null); setSheetWidth(null); setSheetHeight(null); }
+  }, [drawerVehicle]);
 
   // SmoothMotionController reads the selected vehicle's interpolated position
   // straight from the buffer; trackedPosition / trackedVehicleId state is kept
@@ -1912,6 +1939,146 @@ const MyFleet = () => {
   const panelBg = '#FFFFFF';
   const panelBorder = '1px solid #E2E8F0';
 
+  // ─── Drag-to-resize handlers ─────────────────────────────────────────────────
+  // Left list panel — drag the vertical divider to set its width (delta based).
+  const startPanelResize = (e) => {
+    e.preventDefault();
+    const startX = e.touches ? e.touches[0].clientX : e.clientX;
+    const startW = panelWidth;
+    const move = (ev) => {
+      const x = ev.touches ? ev.touches[0].clientX : ev.clientX;
+      setPanelWidth(Math.min(760, Math.max(300, startW + (x - startX))));
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      window.removeEventListener('touchmove', move);
+      window.removeEventListener('touchend', up);
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+    window.addEventListener('touchmove', move, { passive: false });
+    window.addEventListener('touchend', up);
+    document.body.style.userSelect = 'none';
+  };
+
+  const SHEET_DEFAULT_H = () => (activeTab === 'trips' || activeTab === 'reports' || activeTab === 'edit') ? 460 : 320;
+
+  // Detail sheet — drag the top strip to reposition the whole panel anywhere over
+  // the map. The first drag pins it to its current rendered spot (it starts
+  // bottom-anchored) and from then on it follows the cursor, clamped to its parent.
+  const startSheetMove = (e) => {
+    e.preventDefault();
+    const el = sheetRef.current;
+    if (!el) return;
+    const parent = el.offsetParent || el.parentElement;
+    const prect = parent.getBoundingClientRect();
+    const rect = el.getBoundingClientRect();
+    const startX = e.touches ? e.touches[0].clientX : e.clientX;
+    const startY = e.touches ? e.touches[0].clientY : e.clientY;
+    const baseLeft = rect.left - prect.left;
+    const baseTop  = rect.top - prect.top;
+    setSheetWidth(w => w ?? rect.width);   // lock width so it stops stretching full-bleed
+    setSheetPos({ left: baseLeft, top: baseTop });
+    const move = (ev) => {
+      const x = ev.touches ? ev.touches[0].clientX : ev.clientX;
+      const y = ev.touches ? ev.touches[0].clientY : ev.clientY;
+      const maxL = Math.max(0, prect.width - rect.width);
+      const maxT = Math.max(0, prect.height - 40);
+      setSheetPos({
+        left: Math.min(Math.max(0, baseLeft + (x - startX)), maxL),
+        top:  Math.min(Math.max(0, baseTop  + (y - startY)), maxT),
+      });
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      window.removeEventListener('touchmove', move);
+      window.removeEventListener('touchend', up);
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+    window.addEventListener('touchmove', move, { passive: false });
+    window.addEventListener('touchend', up);
+    document.body.style.userSelect = 'none';
+  };
+
+  // Detail sheet — drag an edge/corner grip to resize. dir: 'e' (width),
+  // 's' (height), 'se' (both). Delta-based from the grab point.
+  const startSheetEdgeResize = (e, dir) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = sheetRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const startX = e.touches ? e.touches[0].clientX : e.clientX;
+    const startY = e.touches ? e.touches[0].clientY : e.clientY;
+    const startW = rect.width;
+    const startH = sheetHeight ?? SHEET_DEFAULT_H();
+    setSheetWidth(startW);   // lock current width before resizing
+    const move = (ev) => {
+      const x = ev.touches ? ev.touches[0].clientX : ev.clientX;
+      const y = ev.touches ? ev.touches[0].clientY : ev.clientY;
+      if (dir.includes('e')) setSheetWidth(Math.min(window.innerWidth - 40, Math.max(420, startW + (x - startX))));
+      if (dir.includes('s')) setSheetHeight(Math.min(window.innerHeight - 120, Math.max(150, startH + (y - startY))));
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      window.removeEventListener('touchmove', move);
+      window.removeEventListener('touchend', up);
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+    window.addEventListener('touchmove', move, { passive: false });
+    window.addEventListener('touchend', up);
+    document.body.style.userSelect = 'none';
+  };
+
+  // Detail sheet — pull the top strip up/down to resize height. When the sheet is
+  // bottom-anchored (default) pulling up grows it; when it has been moved (top-
+  // anchored) the top edge follows the cursor while the bottom edge stays put.
+  const startSheetTopResize = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = sheetRef.current;
+    if (!el) return;
+    const startY = e.touches ? e.touches[0].clientY : e.clientY;
+    const startH = sheetHeight ?? SHEET_DEFAULT_H();
+    const movingTop = !!sheetPos;
+    let baseTop = 0, baseLeft = 0;
+    if (movingTop) {
+      const rect = el.getBoundingClientRect();
+      const parent = el.offsetParent || el.parentElement;
+      const prect = parent.getBoundingClientRect();
+      baseTop  = rect.top - prect.top;
+      baseLeft = rect.left - prect.left;
+    }
+    const clampH = (h) => Math.min(window.innerHeight - 120, Math.max(150, h));
+    const move = (ev) => {
+      const y = ev.touches ? ev.touches[0].clientY : ev.clientY;
+      const dy = y - startY;
+      const newH = clampH(startH - dy);   // pulling up (dy<0) grows the sheet
+      setSheetHeight(newH);
+      if (movingTop) setSheetPos({ left: baseLeft, top: baseTop + (startH - newH) });
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      window.removeEventListener('touchmove', move);
+      window.removeEventListener('touchend', up);
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+    window.addEventListener('touchmove', move, { passive: false });
+    window.addEventListener('touchend', up);
+    document.body.style.userSelect = 'none';
+  };
+
   // ─── RENDER ─────────────────────────────────────────────────────────────────
 
   /* ══════ SHARED VEHICLE DETAIL MODAL (useMemo — computed every render) ══════ */
@@ -1956,8 +2123,21 @@ const MyFleet = () => {
     );
 
     return (
-      <div style={{ position:'absolute', bottom:14, left:12, right:12, zIndex:500, pointerEvents:'auto' }}>
+      <div ref={sheetRef} style={{
+        zIndex: viewMode === 'table' ? 9400 : 500, pointerEvents:'auto',
+        // Map view: absolute inside the map area so it never covers the side panel.
+        // Table view: fixed + centered to the viewport so it always opens on-screen.
+        ...(sheetPos
+              ? { position:'absolute', left: sheetPos.left, top: sheetPos.top }
+              : viewMode === 'table'
+                ? { position:'fixed', bottom:14, left:12, right:12 }
+                : { position:'absolute', bottom:14, left:12 }),
+        ...(sheetWidth
+              ? { width: sheetWidth }
+              : sheetPos ? {} : viewMode === 'table' ? {} : { right:12 }),
+      }}>
         <div style={{
+          position:'relative',
           background:'#fff',
           boxShadow:'0 -4px 32px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.10)',
           animation:'sheetIn .2s cubic-bezier(.22,1,.36,1)',
@@ -1965,11 +2145,24 @@ const MyFleet = () => {
         }}
         onClick={e => e.stopPropagation()}>
 
+          {/* ── Top strip — pull up/down to resize the popup height ── */}
+          <div
+            onMouseDown={startSheetTopResize}
+            onTouchStart={startSheetTopResize}
+            title="Pull to resize height"
+            style={{ height:16, background:stripColor, cursor:'ns-resize', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, touchAction:'none' }}>
+            <div style={{ width:46, height:4, borderRadius:2, background:'rgba(255,255,255,0.55)' }} />
+          </div>
+
           {/* ── Header strip — matches sidebar menu colour ── */}
           <div style={{ background:stripColor, borderBottom:`2px solid ${stripColor}`, display:'flex', alignItems:'stretch' }}>
 
-            {/* LEFT: Identity — all white on dark */}
-            <div style={{ display:'flex', alignItems:'center', gap:14, padding:'14px 20px', borderRight:'1px solid rgba(255,255,255,0.15)', flexShrink:0 }}>
+            {/* LEFT: Identity — also the drag handle to move the popup */}
+            <div
+              onMouseDown={startSheetMove}
+              onTouchStart={startSheetMove}
+              title="Drag to move"
+              style={{ display:'flex', alignItems:'center', gap:14, padding:'14px 20px', borderRight:'1px solid rgba(255,255,255,0.15)', flexShrink:0, cursor:'move', touchAction:'none' }}>
               <div style={{ width:54, height:54, borderRadius:12, background:'rgba(255,255,255,0.15)', border:'1.5px solid rgba(255,255,255,0.25)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
                 <div style={{ filter:'brightness(0) invert(1)', opacity:0.9 }}>
                   <VehicleIcon icon={dv.vehicleIcon} color="#fff" size={36} />
@@ -1989,27 +2182,8 @@ const MyFleet = () => {
               </div>
             </div>
 
-            {/* CENTRE: Metric tiles — white icons + text */}
-            <div style={{ flex:1, display:'flex', alignItems:'stretch', overflow:'hidden' }}>
-              {[
-                { ic:'activity', value: ignLabel,                                                           label:'Status' },
-                { ic:'chart',    value: speed!=null?`${speed}`:'—',     unit:'km/h',                       label:'Speed' },
-                { ic:'zap',      value: ign===true?'ON':ign===false?'OFF':'—',                              label:'Ignition' },
-                { ic:'droplet',  value: dfuel?.level!=null?`${Math.round(dfuel.level)}`:'—', unit:'%',     label:'Fuel' },
-                { ic:'battery',  value: dst?.battery!=null?`${dst.battery}`:null, unit: dv.deviceType==='AIS140'?'V':'%', label:'Battery', show: dst?.battery!=null },
-                { ic:'radio',    value: dst?.gsmSignal!=null?`${dst.gsmSignal}`:null,                       label:'GSM',   show: dst?.gsmSignal!=null },
-                { ic:'pin',      value: coords?'Active':'No Fix',                                           label:'GPS' },
-                { ic:'clock',    value: ageStr||'—',                                                        label:'Updated' },
-              ].filter(c=>c.show!==false&&c.value).map((c,i,arr)=>(
-                <div key={i} style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'10px 16px', borderRight: i<arr.length-1?'1px solid rgba(255,255,255,0.12)':'none', gap:4, minWidth:72, flexShrink:0 }}>
-                  <Ic n={c.ic} size={20} color="rgba(255,255,255,0.75)" sw={1.5} />
-                  <div style={{ fontSize:15, fontWeight:700, color:'#fff', lineHeight:1, whiteSpace:'nowrap', fontVariantNumeric:'tabular-nums', fontFamily:"'Arvo',serif" }}>
-                    {c.value}{c.unit&&<span style={{ fontSize:11, fontWeight:400, color:'rgba(255,255,255,0.60)', marginLeft:2 }}>{c.unit}</span>}
-                  </div>
-                  <div style={{ fontSize:9, fontWeight:700, color:'rgba(255,255,255,0.50)', textTransform:'uppercase', letterSpacing:'0.09em', fontFamily:"'Arvo',serif" }}>{c.label}</div>
-                </div>
-              ))}
-            </div>
+            {/* CENTRE: spacer — metric tiles now live in the body content area */}
+            <div style={{ flex:1 }} />
 
             {/* RIGHT: Actions — white icons + labels */}
             <div style={{ display:'flex', alignItems:'center', gap:2, padding:'0 12px', borderLeft:'1px solid rgba(255,255,255,0.15)', flexShrink:0 }}>
@@ -2043,7 +2217,7 @@ const MyFleet = () => {
           </div>
 
           {/* ── Body ── */}
-          <div style={{ height: (activeTab==='trips'||activeTab==='reports'||activeTab==='edit') ? 460 : 320, display:'flex', background:'#F8FAFC', fontFamily:"'Arvo', Georgia, serif", overflow:'hidden' }}>
+          <div style={{ height: sheetHeight ?? ((activeTab==='trips'||activeTab==='reports'||activeTab==='edit') ? 460 : 320), display:'flex', background:'#F8FAFC', fontFamily:"'Arvo', Georgia, serif", overflow:'hidden' }}>
 
           {/* ══ EDIT MODE — full body ══ */}
           {activeTab === 'edit' && (
@@ -2183,13 +2357,16 @@ const MyFleet = () => {
             <div style={{ flex:1, display:'flex', flexDirection:'column', padding:'16px 18px', gap:14, overflow:'hidden' }}>
 
               {/* Big stat row — single tone icons */}
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, flexShrink:0 }}>
-                {[
+              {(() => { const statCards = [
                   { ic:'activity', label:'STATUS',   value: ignLabel,                                   accent: ignColor },
                   { ic:'chart',    label:'SPEED',    value: speed!=null?`${speed}`:'—', unit:'km/h',   accent:'#475569' },
                   { ic:'zap',      label:'IGNITION', value: ign===true?'ON':ign===false?'OFF':'—',      accent: ign===true?'#059669':ign===false?'#DC2626':'#94A3B8' },
                   { ic:'droplet',  label:'FUEL',     value: dfuel?.level!=null?`${Math.round(dfuel.level)}`:'—', unit:'%', accent:'#475569' },
-                ].map((c,i)=>(
+                  ...(dst?.battery!=null ? [{ ic:'battery', label:'BATTERY', value:`${dst.battery}`, unit: dv.deviceType==='AIS140'?'V':'%', accent:'#475569' }] : []),
+                  ...(dst?.gsmSignal!=null ? [{ ic:'radio', label:'GSM', value:`${dst.gsmSignal}`, accent:'#475569' }] : []),
+                ]; return (
+              <div style={{ display:'grid', gridTemplateColumns:`repeat(${statCards.length},1fr)`, gap:10, flexShrink:0 }}>
+                {statCards.map((c,i)=>(
                   <div key={i} style={{ background:'#fff', border:'1px solid #E2E8F0', padding:'14px 16px', display:'flex', flexDirection:'column', gap:8 }}>
                     <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
                       <Ic n={c.ic} size={22} color="#CBD5E1" sw={1.5} />
@@ -2201,19 +2378,54 @@ const MyFleet = () => {
                   </div>
                 ))}
               </div>
+              ); })()}
 
               {/* Location + secondary metrics */}
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, flex:1, overflow:'hidden' }}>
 
-                {/* Location */}
-                <div style={{ background:'#fff', padding:'14px 16px', display:'flex', flexDirection:'column', gap:8, overflow:'hidden' }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:10, fontWeight:700, color:'#94A3B8', letterSpacing:'0.12em', fontFamily:"'Arvo',serif" }}><Ic n="pin" size={12} color="#CBD5E1" sw={1.5}/>LOCATION</div>
+                {/* Location & data timeline */}
+                <div style={{ background:'#fff', padding:'14px 16px', display:'flex', flexDirection:'column', gap:10, overflow:'auto' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:10, fontWeight:700, color:'#94A3B8', letterSpacing:'0.12em', fontFamily:"'Arvo',serif" }}><Ic n="pin" size={12} color="#CBD5E1" sw={1.5}/>LOCATION &amp; DATA</div>
                   {coords ? (
                     <>
                       <div style={{ fontSize:12, fontFamily:'monospace', color:'#3A6FA8', fontWeight:700 }}>{coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}</div>
                       {(() => { const k=`${coords.lat.toFixed(4)},${coords.lng.toFixed(4)}`; const addr=tableGeoMap.get(k); return addr ? <div style={{ fontSize:13, color:'#374151', fontFamily:"'Arvo',serif", lineHeight:1.5 }}>{addr}</div> : <div style={{ fontSize:12, color:'#CBD5E1', fontFamily:"'Arvo',serif" }}>Locating…</div>; })()}
                     </>
                   ) : <div style={{ fontSize:13, color:'#CBD5E1', fontFamily:"'Arvo',serif" }}>No GPS fix</div>}
+
+                  {/* Timestamps — registered / first / last data packet */}
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))', gap:'8px 10px', marginTop:2 }}>
+                    {[
+                      {
+                        label: 'Registered At',
+                        value: dv.registeredAt || dv.registered_at,
+                        color: '#7c3aed', bg: '#f3f0ff', border: '#ddd6fe',
+                      },
+                      {
+                        label: 'First Data Packet',
+                        value: dv.firstSeenAt || dv.first_seen_at,
+                        color: '#059669', bg: '#f0fdf4', border: '#bbf7d0',
+                        empty: 'No data yet',
+                      },
+                      {
+                        label: 'Last Data Packet',
+                        value: dv.deviceStatus?.lastUpdate || dv.deviceStatus?.gpsData?.timestamp,
+                        color: '#1D4ED8', bg: '#EFF6FF', border: '#BFDBFE',
+                        empty: 'No data yet',
+                      },
+                    ].map((t, i) => (
+                      <div key={i} style={{ padding:'10px 12px', background: t.value ? t.bg : '#F8FAFC', border:`1px solid ${t.value ? t.border : '#E2E8F0'}` }}>
+                        <div style={{ fontSize:9, fontWeight:700, color: t.value ? t.color : '#94A3B8', textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Arvo',serif", marginBottom:4 }}>{t.label}</div>
+                        {t.value ? (
+                          <div style={{ fontSize:13, fontWeight:700, color: t.color, fontFamily:"'Arvo',serif", lineHeight:1.3 }}>
+                            {new Date(t.value).toLocaleString('en-IN', { dateStyle:'medium', timeStyle:'medium' })}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize:11, color:'#94A3B8', fontStyle:'italic', fontFamily:"'Arvo',serif" }}>{t.empty || '—'}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 {/* Sensors panel */}
@@ -2252,7 +2464,7 @@ const MyFleet = () => {
                   <Ic n="edit" size={11} color="#475569" sw={1.5} /> Edit
                 </button>
               </div>
-              <div style={{ padding:'0 16px 14px', display:'flex', flexDirection:'column', gap:10 }}>
+              <div style={{ padding:'0 16px 14px', display:'flex', flexDirection:'column', gap:12 }}>
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px 14px', alignContent:'start' }}>
                   {[
                     { label:'Registration', value: dv.vehicleNumber, mono:true, full:true },
@@ -2262,7 +2474,6 @@ const MyFleet = () => {
                     { label:'IMEI',         value: dv.imei, mono:true, full:true },
                     { label:'SIM 1',        value: dv.sim1, mono:true },
                     { label:'SIM 2',        value: dv.sim2, mono:true },
-                    ...customFields.map(f=>({ label: f.fieldName, value: f.fieldValue })),
                   ].filter(r=>r.value).map((r,i)=>(
                     <div key={i} style={{ display:'flex', flexDirection:'column', gap:2, gridColumn: r.full?'1 / -1':'auto', overflow:'hidden' }}>
                       <span style={{ fontSize:9, color:'#B0B8C4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Arvo',serif" }}>{r.label}</span>
@@ -2271,48 +2482,166 @@ const MyFleet = () => {
                   ))}
                 </div>
 
-                {/* Timestamps — highlighted block */}
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'8px 14px' }}>
-                  {[
-                    {
-                      label: 'Registered At',
-                      value: dv.registeredAt || dv.registered_at,
-                      color: '#7c3aed', bg: '#f3f0ff', border: '#ddd6fe',
-                    },
-                    {
-                      label: 'First Data Packet',
-                      value: dv.firstSeenAt || dv.first_seen_at,
-                      color: '#059669', bg: '#f0fdf4', border: '#bbf7d0',
-                      empty: 'No data yet',
-                    },
-                    {
-                      label: 'Last Data Packet',
-                      value: dv.deviceStatus?.lastUpdate || dv.deviceStatus?.gpsData?.timestamp,
-                      color: '#1D4ED8', bg: '#EFF6FF', border: '#BFDBFE',
-                      empty: 'No data yet',
-                    },
-                  ].map((t, i) => (
-                    <div key={i} style={{ padding:'10px 12px', background: t.value ? t.bg : '#F8FAFC', border:`1px solid ${t.value ? t.border : '#E2E8F0'}` }}>
-                      <div style={{ fontSize:9, fontWeight:700, color: t.value ? t.color : '#94A3B8', textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Arvo',serif", marginBottom:4 }}>{t.label}</div>
-                      {t.value ? (
-                        <div style={{ fontSize:13, fontWeight:700, color: t.color, fontFamily:"'Arvo',serif", lineHeight:1.3 }}>
-                          {new Date(t.value).toLocaleString('en-IN', { dateStyle:'medium', timeStyle:'medium' })}
-                        </div>
-                      ) : (
-                        <div style={{ fontSize:11, color:'#94A3B8', fontStyle:'italic', fontFamily:"'Arvo',serif" }}>{t.empty || '—'}</div>
-                      )}
+                {/* ── Custom fields — view + add / edit / delete ── */}
+                <div style={{ borderTop:'1px solid #F1F5F9', paddingTop:12, display:'flex', flexDirection:'column', gap:8 }}>
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                    <span style={{ fontSize:10, fontWeight:700, color:'#94A3B8', letterSpacing:'0.12em', fontFamily:"'Arvo',serif" }}>CUSTOM FIELDS</span>
+                    <button onClick={()=>openCfForm(null)} title="Add custom field"
+                      style={{ display:'flex', alignItems:'center', gap:4, padding:'3px 9px', background:'#2563EB', border:'none', borderRadius:4, cursor:'pointer', fontSize:10, fontWeight:700, color:'#fff', fontFamily:"'Arvo',serif" }}>
+                      <Ic n="plus" size={10} color="#fff" /> ADD
+                    </button>
+                  </div>
+
+                  {showCfForm && (
+                    <div style={{ display:'flex', flexDirection:'column', gap:6, background:'#F8FAFC', border:'1px solid #E2E8F0', padding:8 }}>
+                      <input value={cfForm.fieldName} onChange={e=>setCfForm({...cfForm, fieldName:e.target.value})} placeholder="Field name"
+                        style={{ padding:'7px 10px', border:'1px solid #E2E8F0', fontSize:12, outline:'none', fontFamily:"'Arvo',serif" }} />
+                      <input value={cfForm.fieldValue} onChange={e=>setCfForm({...cfForm, fieldValue:e.target.value})} placeholder="Value"
+                        onKeyDown={e=>{ if(e.key==='Enter' && cfForm.fieldName.trim()) handleSaveCf(); }}
+                        style={{ padding:'7px 10px', border:'1px solid #E2E8F0', fontSize:12, outline:'none', fontFamily:"'Arvo',serif" }} />
+                      <div style={{ display:'flex', gap:6 }}>
+                        <button onClick={handleSaveCf} disabled={savingCf || !cfForm.fieldName.trim()}
+                          style={{ flex:1, padding:'7px', background:'#2563EB', color:'#fff', border:'none', fontSize:11, fontWeight:700, cursor: savingCf||!cfForm.fieldName.trim()?'not-allowed':'pointer', opacity: savingCf||!cfForm.fieldName.trim()?0.5:1, fontFamily:"'Arvo',serif" }}>{savingCf?'…':editingCf?'SAVE':'ADD'}</button>
+                        <button onClick={()=>setShowCfForm(false)}
+                          style={{ padding:'7px 12px', background:'#fff', border:'1px solid #E2E8F0', cursor:'pointer', fontSize:11, fontWeight:600, color:'#64748B', fontFamily:"'Arvo',serif" }}>Cancel</button>
+                      </div>
                     </div>
-                  ))}
+                  )}
+
+                  {customFields.length === 0 && !showCfForm ? (
+                    <div style={{ fontSize:11, color:'#CBD5E1', fontStyle:'italic', fontFamily:"'Arvo',serif" }}>No custom fields yet</div>
+                  ) : (
+                    <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                      {customFields.map(cf=>(
+                        <div key={cf.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 8px', background:'#F8FAFC', border:'1px solid #EEF0F5' }}>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ fontSize:9, color:'#B0B8C4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em', fontFamily:"'Arvo',serif" }}>{cf.fieldName}</div>
+                            <div style={{ fontSize:12, fontWeight:700, color:'#1E293B', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontFamily:"'Arvo',serif" }}>{cf.fieldValue || '—'}</div>
+                          </div>
+                          <button onClick={()=>openCfForm(cf)} title="Edit" style={{ background:'none', border:'none', cursor:'pointer', padding:2, display:'flex', flexShrink:0 }}><Ic n="edit" size={12} color="#64748B" sw={1.5} /></button>
+                          <button onClick={()=>handleDeleteCf(cf.id)} title="Delete" style={{ background:'none', border:'none', cursor:'pointer', padding:2, display:'flex', flexShrink:0 }}><Ic n="trash" size={12} color="#DC2626" sw={1.5} /></button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
           </>}
           </div>
+
+          {/* ── Resize grips — right edge (width), bottom edge (height), corner (both) ── */}
+          <div onMouseDown={e => startSheetEdgeResize(e, 'e')} onTouchStart={e => startSheetEdgeResize(e, 'e')}
+            title="Drag to resize width"
+            style={{ position:'absolute', top:16, right:0, width:7, height:'calc(100% - 16px)', cursor:'ew-resize', touchAction:'none', zIndex:20 }} />
+          <div onMouseDown={e => startSheetEdgeResize(e, 's')} onTouchStart={e => startSheetEdgeResize(e, 's')}
+            title="Drag to resize height"
+            style={{ position:'absolute', bottom:0, left:0, width:'100%', height:7, cursor:'ns-resize', touchAction:'none', zIndex:20 }} />
+          <div onMouseDown={e => startSheetEdgeResize(e, 'se')} onTouchStart={e => startSheetEdgeResize(e, 'se')}
+            title="Drag to resize"
+            style={{ position:'absolute', bottom:0, right:0, width:16, height:16, cursor:'nwse-resize', touchAction:'none', zIndex:21 }} />
         </div>
       </div>
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drawerVehicle, activeTab, syncing, syncingId, liveShareEnabled, isPapaOrDealer, user, deviceStatesByType, sensors, drawerSensors, loadingSensors, showSensorForm, sensorForm, editingSensor, savingSensor, editForm, saving, reportFrom, reportTo, reportData, reportLoading, reportPage, reportTab, reportExporting, packetsDownloading, selectedVehicle, customFields, showCfForm, cfForm, editingCf, savingCf, tableGeoMap]);
+  }, [drawerVehicle, activeTab, syncing, syncingId, liveShareEnabled, isPapaOrDealer, user, deviceStatesByType, sensors, drawerSensors, loadingSensors, showSensorForm, sensorForm, editingSensor, savingSensor, editForm, saving, reportFrom, reportTo, reportData, reportLoading, reportPage, reportTab, reportExporting, packetsDownloading, selectedVehicle, customFields, showCfForm, cfForm, editingCf, savingCf, tableGeoMap, sheetHeight, sheetWidth, sheetPos, viewMode]);
+
+  /* ══════ DELETE / IMEI CONFIRM MODALS (fixed-position — shared by both views) ══════ */
+  const confirmModalsJsx = (
+    <>
+      {deleteConfirm && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 7200, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => !deleting && setDeleteConfirm(null)}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)' }} />
+          <div style={{ position: 'relative', zIndex: 1, background: '#fff', borderRadius: 14, width: 420, maxWidth: '95vw', boxShadow: '0 24px 80px rgba(0,0,0,0.3)', fontFamily: "'Plus Jakarta Sans',sans-serif", overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
+            <div style={{ background: 'linear-gradient(135deg,#B91C1C,#DC2626)', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(255,255,255,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
+                <Ic n="trash" size={20} color="#fff" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: '#fff' }}>Delete Vehicle</div>
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>{deleteConfirm.vehicleName}</div>
+              </div>
+              <button onClick={() => setDeleteConfirm(null)} disabled={deleting} style={{ width: 30, height: 30, background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 7, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Ic n="x" size={14} color="#fff" />
+              </button>
+            </div>
+            <div style={{ padding: '20px' }}>
+              <div style={{ background: '#FEF2F2', border: '1px solid #FECDD3', borderRadius: 8, padding: '12px 14px', marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#991B1B', marginBottom: 4 }}>This action cannot be undone.</div>
+                <div style={{ fontSize: 11, color: '#B91C1C', lineHeight: 1.5 }}>This will permanently delete the vehicle and all associated tracking data, trips, sensors, and custom fields.</div>
+              </div>
+              <div style={{ fontSize: 12, color: '#374151', marginBottom: 8 }}>
+                To confirm, type <strong style={{ background: '#FEF3C7', padding: '2px 8px', borderRadius: 4, fontFamily: 'monospace', fontSize: 13, color: '#92400E', letterSpacing: '0.05em' }}>{deleteConfirm.phrase}</strong> below:
+              </div>
+              <input
+                autoFocus
+                style={{ width: '100%', padding: '10px 12px', border: '2px solid #E2E8F0', borderRadius: 8, fontSize: 14, fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box', letterSpacing: '0.05em', transition: 'border-color 0.15s', borderColor: deleteTyped === deleteConfirm.phrase ? '#22c55e' : deleteTyped.length > 0 ? '#f59e0b' : '#E2E8F0' }}
+                placeholder={deleteConfirm.phrase}
+                value={deleteTyped}
+                onChange={e => setDeleteTyped(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && deleteTyped === deleteConfirm.phrase) executeDelete(); }}
+              />
+              <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                <button onClick={() => setDeleteConfirm(null)} disabled={deleting} style={{ flex: 1, padding: '10px', border: '1px solid #E2E8F0', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#64748B', fontFamily: 'inherit' }}>Cancel</button>
+                <button onClick={executeDelete} disabled={deleteTyped !== deleteConfirm.phrase || deleting} style={{ flex: 1, padding: '10px', border: 'none', borderRadius: 8, background: deleteTyped === deleteConfirm.phrase ? '#DC2626' : '#FCA5A5', cursor: deleteTyped === deleteConfirm.phrase ? 'pointer' : 'not-allowed', fontSize: 13, fontWeight: 700, color: '#fff', fontFamily: 'inherit', transition: 'background 0.15s' }}>
+                  {deleting ? 'Deleting…' : 'Delete Permanently'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════ IMEI CHANGE CONFIRMATION MODAL ══════ */}
+      {imeiEditConfirm && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 7200, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => !savingImei && setImeiEditConfirm(null)}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)' }} />
+          <div style={{ position: 'relative', zIndex: 1, background: '#fff', borderRadius: 14, width: 460, maxWidth: '95vw', boxShadow: '0 24px 80px rgba(0,0,0,0.3)', fontFamily: "'Plus Jakarta Sans',sans-serif", overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
+            <div style={{ background: 'linear-gradient(135deg,#B45309,#D97706)', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(255,255,255,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Ic n="radio" size={20} color="#fff" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: '#fff' }}>Change IMEI</div>
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', marginTop: 2 }}>Rebind vehicle to a different GPS device</div>
+              </div>
+              <button onClick={() => setImeiEditConfirm(null)} disabled={savingImei} style={{ width: 30, height: 30, background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 7, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Ic n="x" size={14} color="#fff" />
+              </button>
+            </div>
+            <div style={{ padding: '20px' }}>
+              <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, padding: '12px 14px', marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#92400E', marginBottom: 6 }}>This will reassign the vehicle to a new tracking device.</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr', gap: '4px 10px', fontSize: 11, color: '#78350F' }}>
+                  <div style={{ fontWeight: 700 }}>From:</div>
+                  <div style={{ fontFamily: 'monospace', letterSpacing: '0.05em' }}>{imeiEditConfirm.oldImei || '— (none)'}</div>
+                  <div style={{ fontWeight: 700 }}>To:</div>
+                  <div style={{ fontFamily: 'monospace', letterSpacing: '0.05em', color: '#B45309', fontWeight: 700 }}>{imeiEditConfirm.newImei}</div>
+                </div>
+              </div>
+              <div style={{ fontSize: 12, color: '#374151', marginBottom: 8 }}>
+                To confirm, type <strong style={{ background: '#FEF3C7', padding: '2px 8px', borderRadius: 4, fontFamily: 'monospace', fontSize: 13, color: '#92400E', letterSpacing: '0.05em' }}>{imeiEditConfirm.phrase}</strong> below:
+              </div>
+              <input
+                autoFocus
+                style={{ width: '100%', padding: '10px 12px', border: '2px solid #E2E8F0', borderRadius: 8, fontSize: 14, fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box', letterSpacing: '0.05em', transition: 'border-color 0.15s', borderColor: imeiTyped === imeiEditConfirm.phrase ? '#22c55e' : imeiTyped.length > 0 ? '#f59e0b' : '#E2E8F0' }}
+                placeholder={imeiEditConfirm.phrase}
+                value={imeiTyped}
+                onChange={e => setImeiTyped(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && imeiTyped === imeiEditConfirm.phrase) executeImeiEdit(); }}
+              />
+              <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                <button onClick={() => setImeiEditConfirm(null)} disabled={savingImei} style={{ flex: 1, padding: '10px', border: '1px solid #E2E8F0', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#64748B', fontFamily: 'inherit' }}>Cancel</button>
+                <button onClick={executeImeiEdit} disabled={imeiTyped !== imeiEditConfirm.phrase || savingImei} style={{ flex: 1, padding: '10px', border: 'none', borderRadius: 8, background: imeiTyped === imeiEditConfirm.phrase ? '#D97706' : '#FCD34D', cursor: imeiTyped === imeiEditConfirm.phrase ? 'pointer' : 'not-allowed', fontSize: 13, fontWeight: 700, color: '#fff', fontFamily: 'inherit', transition: 'background 0.15s' }}>
+                  {savingImei ? 'Updating…' : 'Update IMEI'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
 
   /* ══════ TABLE VIEW ══════ */
   if (viewMode === 'table') {
@@ -2563,12 +2892,15 @@ const MyFleet = () => {
             <button className="view-toggle-btn inactive" onClick={() => { setDrawerVehicle(null); setViewMode('map'); }}>⊞ Map</button>
           </div>
 
-          <div style={{ flex: 1 }} />
-          <button onClick={() => setDlModal(true)} title="Download fleet data"
-            className="btn btn-outline" style={{ display:'flex', alignItems:'center', gap:6 }}>
-            <Ic n="download" size={13} color="#64748B" /> Export
-          </button>
-          <Link to="/add-vehicle" className="btn btn-primary">+ Add Vehicle</Link>
+          {/* Export + Add Vehicle — right-aligned but allowed to wrap onto their own
+              line (instead of being pushed off-screen) so they stay visible. */}
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <button onClick={() => setDlModal(true)} title="Download fleet data"
+              className="btn btn-outline" style={{ display:'flex', alignItems:'center', gap:6 }}>
+              <Ic n="download" size={13} color="#64748B" /> Export
+            </button>
+            <Link to="/add-vehicle" className="btn btn-primary">+ Add Vehicle</Link>
+          </div>
         </div>
 
         {/* Sensor table */}
@@ -3090,6 +3422,9 @@ const MyFleet = () => {
 
         {/* ── /table-view-content ── */}
 
+        {/* Delete / IMEI confirm modals — fixed-position, shared with map view */}
+        {confirmModalsJsx}
+
         {/* ── Download format picker modal ── */}
         {dlModal && (
           <div style={{ position:'fixed', inset:0, zIndex:9500, display:'flex', alignItems:'center', justifyContent:'center' }} onClick={() => setDlModal(false)}>
@@ -3280,21 +3615,23 @@ const MyFleet = () => {
       <div style={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden' }}>
 
       {/* ── LEFT PANEL — light bright vehicle list ──
-          Width collapses to 0 when hidden, and shrinks to 50% while a
-          vehicle-detail panel is open so the detail view gets more room. */}
+          Width collapses to 0 when hidden, otherwise uses the user-set
+          panelWidth (drag the divider to resize). It no longer auto-shrinks
+          when a vehicle-detail sheet opens. */}
       <div style={{
         flexShrink: 0,
-        width: panelOpen ? (drawerVehicle ? PANEL_W_HALF : PANEL_W) : 0,
+        width: panelOpen ? panelWidth : 0,
         overflow: 'hidden',
-        transition: 'width 0.28s cubic-bezier(0.4,0,0.2,1)',
+        // No width transition while dragging so the divider tracks the cursor.
+        transition: 'none',
         background: 'linear-gradient(175deg, #FAFBFF 0%, #F3F4F8 100%)',
         borderRight: '1px solid #E2E8F0',
         boxShadow: '2px 0 16px rgba(15,23,42,0.08)',
         display: 'flex',
         flexDirection: 'column',
       }}>
-      {/* Inner wrapper width follows the panel so cards reflow to the narrower layout */}
-      <div style={{ width: drawerVehicle ? PANEL_W_HALF : PANEL_W, flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'width 0.28s cubic-bezier(0.4,0,0.2,1)' }}>
+      {/* Inner wrapper width follows the panel so cards reflow to the layout */}
+      <div style={{ width: panelWidth, flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
 
         {/* Multi-select clear — only shown when vehicles are selected */}
@@ -3643,6 +3980,19 @@ const MyFleet = () => {
         })()}
       </div>{/* /inner wrapper */}
       </div>{/* /outer left panel */}
+
+      {/* ── RESIZE DIVIDER — drag to set the vehicle-list width; map reflows ── */}
+      {panelOpen && (
+        <div
+          onMouseDown={startPanelResize}
+          onTouchStart={startPanelResize}
+          title="Drag to resize the vehicle list"
+          style={{ flexShrink: 0, width: 6, cursor: 'ew-resize', background: '#E2E8F0', borderRight: '1px solid #CBD5E1', position: 'relative', zIndex: 5, touchAction: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onMouseEnter={e => { e.currentTarget.style.background = '#CBD5E1'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = '#E2E8F0'; }}>
+          <div style={{ width: 2, height: 28, borderRadius: 2, background: '#94A3B8' }} />
+        </div>
+      )}
 
       {/* ── MAP AREA — flex:1, takes remaining space between panels ── */}
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden', minWidth: 0 }}>
@@ -4016,97 +4366,8 @@ const MyFleet = () => {
       )}
 
       {/* ══════ DELETE CONFIRMATION MODAL ══════ */}
-      {deleteConfirm && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 7200, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => !deleting && setDeleteConfirm(null)}>
-          <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)' }} />
-          <div style={{ position: 'relative', zIndex: 1, background: '#fff', borderRadius: 14, width: 420, maxWidth: '95vw', boxShadow: '0 24px 80px rgba(0,0,0,0.3)', fontFamily: "'Plus Jakarta Sans',sans-serif", overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
-            <div style={{ background: 'linear-gradient(135deg,#B91C1C,#DC2626)', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(255,255,255,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
-                <Ic n="trash" size={20} color="#fff" />
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 15, fontWeight: 800, color: '#fff' }}>Delete Vehicle</div>
-                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>{deleteConfirm.vehicleName}</div>
-              </div>
-              <button onClick={() => setDeleteConfirm(null)} disabled={deleting} style={{ width: 30, height: 30, background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 7, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Ic n="x" size={14} color="#fff" />
-              </button>
-            </div>
-            <div style={{ padding: '20px' }}>
-              <div style={{ background: '#FEF2F2', border: '1px solid #FECDD3', borderRadius: 8, padding: '12px 14px', marginBottom: 16 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#991B1B', marginBottom: 4 }}>This action cannot be undone.</div>
-                <div style={{ fontSize: 11, color: '#B91C1C', lineHeight: 1.5 }}>This will permanently delete the vehicle and all associated tracking data, trips, sensors, and custom fields.</div>
-              </div>
-              <div style={{ fontSize: 12, color: '#374151', marginBottom: 8 }}>
-                To confirm, type <strong style={{ background: '#FEF3C7', padding: '2px 8px', borderRadius: 4, fontFamily: 'monospace', fontSize: 13, color: '#92400E', letterSpacing: '0.05em' }}>{deleteConfirm.phrase}</strong> below:
-              </div>
-              <input
-                autoFocus
-                style={{ width: '100%', padding: '10px 12px', border: '2px solid #E2E8F0', borderRadius: 8, fontSize: 14, fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box', letterSpacing: '0.05em', transition: 'border-color 0.15s', borderColor: deleteTyped === deleteConfirm.phrase ? '#22c55e' : deleteTyped.length > 0 ? '#f59e0b' : '#E2E8F0' }}
-                placeholder={deleteConfirm.phrase}
-                value={deleteTyped}
-                onChange={e => setDeleteTyped(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && deleteTyped === deleteConfirm.phrase) executeDelete(); }}
-              />
-              <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-                <button onClick={() => setDeleteConfirm(null)} disabled={deleting} style={{ flex: 1, padding: '10px', border: '1px solid #E2E8F0', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#64748B', fontFamily: 'inherit' }}>Cancel</button>
-                <button onClick={executeDelete} disabled={deleteTyped !== deleteConfirm.phrase || deleting} style={{ flex: 1, padding: '10px', border: 'none', borderRadius: 8, background: deleteTyped === deleteConfirm.phrase ? '#DC2626' : '#FCA5A5', cursor: deleteTyped === deleteConfirm.phrase ? 'pointer' : 'not-allowed', fontSize: 13, fontWeight: 700, color: '#fff', fontFamily: 'inherit', transition: 'background 0.15s' }}>
-                  {deleting ? 'Deleting…' : 'Delete Permanently'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ══════ IMEI CHANGE CONFIRMATION MODAL ══════ */}
-      {imeiEditConfirm && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 7200, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => !savingImei && setImeiEditConfirm(null)}>
-          <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)' }} />
-          <div style={{ position: 'relative', zIndex: 1, background: '#fff', borderRadius: 14, width: 460, maxWidth: '95vw', boxShadow: '0 24px 80px rgba(0,0,0,0.3)', fontFamily: "'Plus Jakarta Sans',sans-serif", overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
-            <div style={{ background: 'linear-gradient(135deg,#B45309,#D97706)', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(255,255,255,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Ic n="radio" size={20} color="#fff" />
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 15, fontWeight: 800, color: '#fff' }}>Change IMEI</div>
-                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', marginTop: 2 }}>Rebind vehicle to a different GPS device</div>
-              </div>
-              <button onClick={() => setImeiEditConfirm(null)} disabled={savingImei} style={{ width: 30, height: 30, background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 7, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Ic n="x" size={14} color="#fff" />
-              </button>
-            </div>
-            <div style={{ padding: '20px' }}>
-              <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, padding: '12px 14px', marginBottom: 16 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#92400E', marginBottom: 6 }}>This will reassign the vehicle to a new tracking device.</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr', gap: '4px 10px', fontSize: 11, color: '#78350F' }}>
-                  <div style={{ fontWeight: 700 }}>From:</div>
-                  <div style={{ fontFamily: 'monospace', letterSpacing: '0.05em' }}>{imeiEditConfirm.oldImei || '— (none)'}</div>
-                  <div style={{ fontWeight: 700 }}>To:</div>
-                  <div style={{ fontFamily: 'monospace', letterSpacing: '0.05em', color: '#B45309', fontWeight: 700 }}>{imeiEditConfirm.newImei}</div>
-                </div>
-              </div>
-              <div style={{ fontSize: 12, color: '#374151', marginBottom: 8 }}>
-                To confirm, type <strong style={{ background: '#FEF3C7', padding: '2px 8px', borderRadius: 4, fontFamily: 'monospace', fontSize: 13, color: '#92400E', letterSpacing: '0.05em' }}>{imeiEditConfirm.phrase}</strong> below:
-              </div>
-              <input
-                autoFocus
-                style={{ width: '100%', padding: '10px 12px', border: '2px solid #E2E8F0', borderRadius: 8, fontSize: 14, fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box', letterSpacing: '0.05em', transition: 'border-color 0.15s', borderColor: imeiTyped === imeiEditConfirm.phrase ? '#22c55e' : imeiTyped.length > 0 ? '#f59e0b' : '#E2E8F0' }}
-                placeholder={imeiEditConfirm.phrase}
-                value={imeiTyped}
-                onChange={e => setImeiTyped(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && imeiTyped === imeiEditConfirm.phrase) executeImeiEdit(); }}
-              />
-              <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-                <button onClick={() => setImeiEditConfirm(null)} disabled={savingImei} style={{ flex: 1, padding: '10px', border: '1px solid #E2E8F0', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#64748B', fontFamily: 'inherit' }}>Cancel</button>
-                <button onClick={executeImeiEdit} disabled={imeiTyped !== imeiEditConfirm.phrase || savingImei} style={{ flex: 1, padding: '10px', border: 'none', borderRadius: 8, background: imeiTyped === imeiEditConfirm.phrase ? '#D97706' : '#FCD34D', cursor: imeiTyped === imeiEditConfirm.phrase ? 'pointer' : 'not-allowed', fontSize: 13, fontWeight: 700, color: '#fff', fontFamily: 'inherit', transition: 'background 0.15s' }}>
-                  {savingImei ? 'Updating…' : 'Update IMEI'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Delete / IMEI confirm modals — fixed-position, shared with table view */}
+      {confirmModalsJsx}
 
       {/* ══════ MODALS (fixed — work anywhere in DOM) ══════ */}
       {showGroupModal && (

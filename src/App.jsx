@@ -73,8 +73,12 @@ function App() {
             <Route path="alerts"           element={<G p="canSetAlerts"><Alerts /></G>} />
             <Route path="notifications"    element={<G p="canViewNotifications"><Notifications /></G>} />
             <Route path="add-vehicle"      element={<G p="canAddVehicle"><AddVehicle /></G>} />
-            <Route path="rto-details"      element={<G p="canViewRTO"><RtoDetails /></G>} />
-            <Route path="challans"         element={<G p="canViewChallans"><Challans /></G>} />
+            {/* RTO Details handles its own permission + service-enabled gating
+                so it can show the proper modal / message instead of redirecting. */}
+            <Route path="rto-details"      element={<RtoDetails />} />
+            {/* Challans handles its own permission + service-enabled gating
+                so it can show the proper modal / message instead of redirecting. */}
+            <Route path="challans"         element={<Challans />} />
             <Route path="reports"          element={<G p="canViewReports"><Reports /></G>} />
             <Route path="my-clients"        element={<G role="dealer_or_papa"><MyClients /></G>} />
             <Route path="my-clients/:id"   element={<G role="dealer_or_papa"><ClientDetail /></G>} />

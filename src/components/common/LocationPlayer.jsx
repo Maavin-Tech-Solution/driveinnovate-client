@@ -27,6 +27,9 @@ L.Icon.Default.mergeOptions({
   shadowUrl:     'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 });
 
+// Reverse-geocode cache keyed by rounded lat,lng so each spot is fetched once.
+const _geoCache = new Map();
+
 const FitBounds = ({ locations }) => {
   const map = useMap();
   useEffect(() => {
@@ -237,6 +240,22 @@ const LocationPlayer = ({ vehicle, onClose, initialFrom, initialTo }) => {
     return segs;
   })();
 
+  // Full path as a single positions array — backs one transparent hover-line so
+  // the tooltip never flickers crossing per-segment boundaries when zoomed out.
+  const hoverPositions = locations.map(l => [l.latitude, l.longitude]);
+
+  // Nearest sample index to a map latlng (squared degrees — fine for picking).
+  const nearestIndex = (latlng) => {
+    let best = null, bestD = Infinity;
+    for (let i = 0; i < locations.length; i++) {
+      const dlat = locations[i].latitude - latlng.lat;
+      const dlng = locations[i].longitude - latlng.lng;
+      const d = dlat * dlat + dlng * dlng;
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return best;
+  };
+
   const activeIdx     = hoveredIndex ?? currentIndex;
   const currentLoc    = locations[activeIdx];
   const mapCenter     = currentLoc ? [currentLoc.latitude, currentLoc.longitude] : [22.9734, 78.6569];
@@ -390,6 +409,7 @@ const LocationPlayer = ({ vehicle, onClose, initialFrom, initialTo }) => {
               <FitBounds locations={locations} />
               <MapPan center={isPlaying ? mapCenter : null} />
 
+              {/* Colored speed segments — display only, no hover handling */}
               {pathSegments.map(seg => (
                 <Polyline
                   key={seg.key}
@@ -397,16 +417,26 @@ const LocationPlayer = ({ vehicle, onClose, initialFrom, initialTo }) => {
                   color={seg.color}
                   weight={5}
                   opacity={0.85}
+                  interactive={false}
+                />
+              ))}
+
+              {/* Single transparent hover-line — one sticky tooltip, no flicker.
+                  A non-'none' stroke colour keeps it event-catchable at opacity 0. */}
+              {hoverPositions.length > 1 && (
+                <Polyline
+                  positions={hoverPositions}
+                  pathOptions={{ color: '#000', opacity: 0, weight: 16 }}
                   eventHandlers={{
-                    mouseover: () => setHoveredIndex(seg.idx),
+                    mousemove: (e) => { const idx = nearestIndex(e.latlng); if (idx != null) setHoveredIndex(idx); },
                     mouseout:  () => setHoveredIndex(null),
                   }}
                 >
                   <Tooltip sticky direction="top" offset={[0, -4]} opacity={1}>
-                    <PointInfo loc={locations[seg.idx]} />
+                    <PointInfo loc={hoveredIndex != null ? locations[hoveredIndex] : null} active={hoveredIndex != null} />
                   </Tooltip>
                 </Polyline>
-              ))}
+              )}
 
               {locations.length > 0 && (
                 <Marker position={[locations[0].latitude, locations[0].longitude]} icon={startIcon}>
@@ -588,15 +618,43 @@ const LocationPlayer = ({ vehicle, onClose, initialFrom, initialTo }) => {
 };
 
 // Hover tooltip for any point on the path — shows whatever telemetry is present.
-const PointInfo = ({ loc }) => {
+const PointInfo = ({ loc, active }) => {
+  const hasCoords = loc && loc.latitude != null && loc.longitude != null;
+  const [address, setAddress] = useState(null);
+  const [geoLoading, setGeoLoading] = useState(false);
+
+  // Reverse-geocode the hovered point into a street address (cached per spot).
+  // Debounced so dragging the cursor along the path doesn't fire a request per
+  // point — it only resolves once the pointer settles on a spot.
+  useEffect(() => {
+    if (!active || !hasCoords) return;
+    const key = `${Number(loc.latitude).toFixed(4)},${Number(loc.longitude).toFixed(4)}`;
+    if (_geoCache.has(key)) { setAddress(_geoCache.get(key)); setGeoLoading(false); return; }
+    let cancelled = false;
+    setAddress(null);
+    setGeoLoading(true);
+    const t = setTimeout(() => {
+      fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${loc.latitude}&lon=${loc.longitude}&zoom=16&addressdetails=0`)
+        .then(r => r.json())
+        .then(d => {
+          const a = d.display_name || null;
+          if (a) _geoCache.set(key, a);
+          if (!cancelled) setAddress(a);
+        })
+        .catch(() => {})
+        .finally(() => { if (!cancelled) setGeoLoading(false); });
+    }, 400);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [active, hasCoords, loc?.latitude, loc?.longitude]);
+
   if (!loc) return null;
   const ign = loc.ignition != null ? loc.ignition : loc.acc;
   const fuel = loc.fuel != null ? loc.fuel : loc.fuelLevel;
   const batt = loc.battery != null ? loc.battery : loc.batteryLevel;
+  const coordStr = hasCoords ? `${Number(loc.latitude).toFixed(5)}, ${Number(loc.longitude).toFixed(5)}` : null;
   const rows = [
     ['Time',       loc.timestamp != null ? toISTString(loc.timestamp) : null],
     ['Speed',      loc.speed != null ? `${loc.speed} km/h` : null],
-    ['Location',   (loc.latitude != null && loc.longitude != null) ? `${Number(loc.latitude).toFixed(5)}, ${Number(loc.longitude).toFixed(5)}` : null],
     ['Ignition',   ign != null ? (ign ? 'ON' : 'OFF') : null],
     ['Satellites', loc.satellites != null ? String(loc.satellites) : null],
     ['Altitude',   loc.altitude != null ? `${loc.altitude} m` : null],
@@ -607,7 +665,15 @@ const PointInfo = ({ loc }) => {
     ['GSM',        loc.gsmSignal != null ? String(loc.gsmSignal) : null],
   ].filter(([, v]) => v != null && v !== '');
   return (
-    <div style={{ minWidth: 150, fontFamily: "'Plus Jakarta Sans',-apple-system,sans-serif" }}>
+    <div style={{ minWidth: 160, maxWidth: 260, fontFamily: "'Plus Jakarta Sans',-apple-system,sans-serif" }}>
+      {hasCoords && (
+        <div style={{ marginBottom: 5, paddingBottom: 5, borderBottom: '1px solid #e2e8f0' }}>
+          <div style={{ fontSize: 10, color: '#64748b', marginBottom: 2 }}>Location</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#0f172a', lineHeight: 1.4, whiteSpace: 'normal' }}>
+            {address || (geoLoading ? 'Locating…' : coordStr)}
+          </div>
+        </div>
+      )}
       {rows.map(([k, v]) => (
         <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 11, lineHeight: 1.6 }}>
           <span style={{ color: '#64748b' }}>{k}</span>

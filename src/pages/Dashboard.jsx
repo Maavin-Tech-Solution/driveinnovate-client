@@ -28,7 +28,6 @@ import {
 // ── Utility ─────────────────────────────────────────────────────────────
 // Default ids — must match VehicleSettings.jsx DEFAULT_DASH_CARDS.
 const DEFAULT_DASH_CARDS = ['registered','active','overspeed','inactive','gps_active','challans','renewals'];
-const STATE_CARD_PREFIX  = 'state_';
 
 const readVisibleCards = () => {
   try {
@@ -239,15 +238,11 @@ const Dashboard = () => {
     };
   }, []);
 
-  // ── Live vehicle list — fetched only when at least one state_* card is on ─
-  const needsStateCounts = useMemo(
-    () => visibleCards.some(id => id.startsWith(STATE_CARD_PREFIX)),
-    [visibleCards]
-  );
+  // ── Live vehicle list — fetched on mount (needed for state counts and the
+  //    "No GPS" section that lists never-reported vehicles). ────────────────
   const [vehicles, setVehicles] = useState([]);
   const [deviceStatesByType, setDeviceStatesByType] = useState({});
   useEffect(() => {
-    if (!needsStateCounts) return;
     Promise.allSettled([getVehicles(), getDeviceConfigs()]).then(([vRes, cRes]) => {
       if (vRes.status === 'fulfilled') {
         const data = vRes.value?.data;
@@ -259,7 +254,7 @@ const Dashboard = () => {
         setDeviceStatesByType(m);
       }
     });
-  }, [needsStateCounts]);
+  }, []);
 
   // ── Computed state counts (lower-cased state names from evaluator) ──────
   const stateCounts = useMemo(() => {
@@ -273,6 +268,18 @@ const Dashboard = () => {
     });
     return counts;
   }, [vehicles, deviceStatesByType]);
+
+  // ── "No GPS" vehicles — not a single packet has ever arrived from the device.
+  // (No GPS fix AND no server-recorded update timestamp.) ────────────────────
+  const noGpsVehicles = useMemo(() => {
+    // Matches the MyFleet "No Data" chip exactly so the dashboard count and the
+    // /my-fleet?chip=nodata filtered list agree: no lastUpdate, no gps timestamp,
+    // and no latitude — i.e. not a single packet has ever arrived.
+    return vehicles.filter(v => {
+      const g = v.deviceStatus?.gpsData || {};
+      return !v.deviceStatus?.lastUpdate && !g.timestamp && (g.latitude ?? g.lat) == null;
+    });
+  }, [vehicles]);
 
   useEffect(() => {
     const tasks = [
@@ -608,6 +615,59 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
+
+      {/* ══ No GPS — devices that have never sent a single packet ══ */}
+      {noGpsVehicles.length > 0 && (() => {
+        const fleetTotal = vehicles.length || noGpsVehicles.length;
+        const noGpsCount = noGpsVehicles.length;
+        const reporting  = Math.max(0, fleetTotal - noGpsCount);
+        const pct        = fleetTotal > 0 ? Math.round((noGpsCount / fleetTotal) * 100) : 0;
+        const noGpsSlices = [
+          { label: 'No GPS',    value: noGpsCount, color: '#94A3B8' },
+          { label: 'Reporting', value: reporting,  color: '#0EA5E9' },
+        ];
+        return (
+          <div style={{ ...panelStyle, marginTop: 14 }}>
+            <div style={panelHeader}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <ExclamationTriangleIcon style={{ width: 16, height: 16, color: '#94A3B8' }} />
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>No GPS</div>
+                <span style={{ fontSize: 11, fontWeight: 800, color: '#64748B', background: '#E2E8F0', borderRadius: 20, padding: '2px 9px' }}>
+                  {noGpsCount}
+                </span>
+              </div>
+              <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600 }}>not a single packet received</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 22, padding: '20px 18px', flexWrap: 'wrap' }}>
+              <Donut slices={noGpsSlices} />
+              <div style={{ flex: 1, minWidth: 220, display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <span style={{ fontSize: 34, fontWeight: 800, color: '#475569', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{fmtInt(noGpsCount)}</span>
+                  <span style={{ fontSize: 13, color: '#94A3B8', fontWeight: 600 }}>of {fmtInt(fleetTotal)} vehicles ({pct}%)</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <LegendRow color="#94A3B8" label="No GPS — never reported" value={noGpsCount} total={fleetTotal} />
+                  <LegendRow color="#0EA5E9" label="Reporting"               value={reporting}  total={fleetTotal} />
+                </div>
+                <div style={{ fontSize: 12.5, color: '#64748B', lineHeight: 1.5 }}>
+                  These devices have never reported — check installation, power and SIM connectivity.
+                </div>
+                <Link
+                  to="/my-fleet?chip=nodata"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
+                    padding: '9px 16px', background: '#1B2A4A', color: '#fff', borderRadius: 8,
+                    fontSize: 12.5, fontWeight: 700, textDecoration: 'none',
+                  }}
+                >
+                  <TruckIcon style={{ width: 15, height: 15 }} />
+                  Track No GPS vehicles →
+                </Link>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

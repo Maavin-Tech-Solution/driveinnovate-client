@@ -1,7 +1,9 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { getScChallanData } from '../services/smartchallan.service';
 import { toISTDateString } from '../utils/dateFormat';
+import { useAuth } from '../context/AuthContext';
 
 const STATUS_META = {
   pending:  { cls: 'badge-warning', label: 'Pending',  color: '#D97706' },
@@ -101,10 +103,64 @@ const DetailModal = ({ row, onClose }) => {
 
 const STATUS_FILTERS = ['all', 'pending', 'paid', 'disputed', 'waived'];
 
+// Modal box shown when the dealer has not granted Challan permission to this client.
+const NoPermissionModal = () => {
+  const navigate = useNavigate();
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+      <div style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 440, padding: '32px 28px', textAlign: 'center', boxShadow: '0 24px 80px rgba(0,0,0,0.3)' }}>
+        <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#FEF2F2', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+          <span style={{ fontSize: 30 }}>🔒</span>
+        </div>
+        <div style={{ fontSize: 18, fontWeight: 800, color: '#0F172A', marginBottom: 8 }}>Access not permitted</div>
+        <div style={{ fontSize: 13.5, color: '#64748B', lineHeight: 1.5, marginBottom: 6 }}>
+          Your dealer has not enabled <strong>Challans</strong> for your account.
+        </div>
+        <div style={{ fontSize: 13.5, color: '#64748B', lineHeight: 1.5, marginBottom: 22 }}>
+          Please contact your dealer / service provider to request access to challan data.
+        </div>
+        <button
+          onClick={() => navigate('/dashboard')}
+          style={{ padding: '10px 22px', background: '#1B2A4A', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+          Back to Dashboard
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// Shown when the SmartChallan challan service is not enabled on the user's profile.
+const ServiceNotEnabledBox = ({ message }) => (
+  <div style={{ maxWidth: 520, margin: '40px auto', background: '#fff', border: '1px solid #FDE68A', borderRadius: 16, padding: '32px 28px', textAlign: 'center', boxShadow: '0 8px 24px rgba(0,0,0,0.06)' }}>
+    <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#FFFBEB', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+      <span style={{ fontSize: 30 }}>🚦</span>
+    </div>
+    <div style={{ fontSize: 18, fontWeight: 800, color: '#0F172A', marginBottom: 8 }}>Challan service not enabled</div>
+    <div style={{ fontSize: 13.5, color: '#64748B', lineHeight: 1.5, marginBottom: 6 }}>
+      {message || 'The challan service is not enabled on your profile.'}
+    </div>
+    <div style={{ fontSize: 13.5, color: '#64748B', lineHeight: 1.5, marginBottom: 22 }}>
+      Go to <strong>Profile → RTO &amp; Challan</strong>, turn on the service and add your
+      SmartChallan credentials to start fetching challan data.
+    </div>
+    <Link
+      to="/profile?tab=rto-challan"
+      style={{ display: 'inline-block', padding: '10px 22px', background: '#1B2A4A', color: '#fff', borderRadius: 8, fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>
+      Go to Profile → RTO &amp; Challan
+    </Link>
+  </div>
+);
+
 const Challans = () => {
+  const { user } = useAuth();
+  const isPapa = user?.role === 'papa' || Number(user?.parentId) === 0 || Number(user?.parent_id) === 0;
+  const hasPermission = isPapa || user?.permissions?.canViewChallans === true;
+
   const [rows,    setRows]    = useState([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
+  const [notEnabled,    setNotEnabled]    = useState(false);
+  const [notEnabledMsg, setNotEnabledMsg] = useState(null);
   const [search,  setSearch]  = useState('');
   const [filter,  setFilter]  = useState('all');
   const [sortCol, setSortCol] = useState('challanDate');
@@ -112,17 +168,26 @@ const Challans = () => {
   const [detail,  setDetail]  = useState(null);
 
   useEffect(() => {
+    // No dealer permission → don't call the API; the modal box is shown instead.
+    if (!hasPermission) { setLoading(false); return; }
     getScChallanData()
       .then(res => {
         if (res?.success === false) throw new Error(res.message || 'API error');
+        // Server returns disabled:true when SmartChallan / challan is off on the profile.
+        if (res?.disabled) { setNotEnabled(true); return; }
         setRows(normalise(Array.isArray(res?.data) ? res.data : []));
       })
       .catch(err => {
         const msg = err?.response?.data?.message || err?.message || 'Failed to load challan data';
-        setError(msg); toast.error(msg);
+        // Credentials not configured / not enabled → show the enable-service guidance.
+        if (/credential|not configured|not enabled/i.test(msg)) {
+          setNotEnabled(true); setNotEnabledMsg(msg);
+        } else {
+          setError(msg); toast.error(msg);
+        }
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [hasPermission]);
 
   const handleSort = (col) => {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -154,6 +219,12 @@ const Challans = () => {
       {children}<SortIcon col={col} sortCol={sortCol} sortDir={sortDir} />
     </th>
   );
+
+  // No dealer permission → show the modal box and nothing else.
+  if (!hasPermission) return <NoPermissionModal />;
+
+  // SmartChallan / challan service not enabled on the profile → guidance message.
+  if (notEnabled) return <ServiceNotEnabledBox message={notEnabledMsg} />;
 
   return (
     <div>

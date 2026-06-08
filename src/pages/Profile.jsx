@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { getProfile, updateProfile, updatePassword, updateNotifications } from '../services/user.service';
 import { getScSettings, saveScSettings, testScCredentials } from '../services/smartchallan.service';
@@ -49,7 +50,9 @@ const Profile = () => {
   const [pwForm, setPwForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [notifs, setNotifs] = useState({ emailNotifications: true, smsNotifications: false, marketingNotifications: false });
   const [loading, setLoading] = useState({ profile: false, password: false, notifs: false, sc: false, scTest: false });
-  const [tab, setTab] = useState('info');
+  const [searchParams] = useSearchParams();
+  // Allow deep-linking to a tab, e.g. /profile?tab=rto-challan from the RTO page.
+  const [tab, setTab] = useState(() => searchParams.get('tab') || 'info');
 
   // SmartChallan settings
   const [sc, setSc] = useState({
