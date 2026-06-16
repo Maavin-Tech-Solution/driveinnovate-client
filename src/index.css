@@ -2,6 +2,11 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
+/* Use the Arvo type family everywhere — overrides inline font-family
+   declarations (e.g. 'Plus Jakarta Sans' / monospace) across the app. */
+*, *::before, *::after { font-family: 'Arvo', Georgia, 'Times New Roman', serif !important; }
+.leaflet-container { font-family: 'Arvo', Georgia, serif !important; }
+
 /* ── Leaflet tile fix ────────────────────────────────────────────── */
 .leaflet-container img {
   max-width: none !important;

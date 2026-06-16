@@ -16,13 +16,19 @@
  * the 30-second stateTick even without a live-poll update.
  */
 
+// A value usable in a numeric comparison (not null/undefined/'' and parses to a
+// finite number). Guards against JS coercing null→0, which would make
+// `lastSeenSeconds < 600` TRUE for a no-data vehicle (lastSeenSeconds === null)
+// and wrongly classify it as "Online".
+const isNumeric = (v) => v !== null && v !== undefined && v !== '' && !Number.isNaN(Number(v));
+
 const OPERATORS = {
   eq:         (a, b) => a === b,
   neq:        (a, b) => a !== b,
-  gt:         (a, b) => a > b,
-  lt:         (a, b) => a < b,
-  gte:        (a, b) => a >= b,
-  lte:        (a, b) => a <= b,
+  gt:         (a, b) => isNumeric(a) && isNumeric(b) && Number(a) >  Number(b),
+  lt:         (a, b) => isNumeric(a) && isNumeric(b) && Number(a) <  Number(b),
+  gte:        (a, b) => isNumeric(a) && isNumeric(b) && Number(a) >= Number(b),
+  lte:        (a, b) => isNumeric(a) && isNumeric(b) && Number(a) <= Number(b),
   exists:     (a)    => a !== null && a !== undefined,
   notexists:  (a)    => a === null || a === undefined,
 };
@@ -41,7 +47,26 @@ function getFieldValue(deviceStatus, field) {
 
   switch (field) {
     case 'ignition':    return s.ignition ?? s.engineOn ?? null;
-    case 'movement':    return s.movement ?? g.movement ?? null;
+    case 'movement': {
+      // Physical movement sensor (AIS140). Two guards keep a stationary vehicle
+      // from flickering into "Running" via a jittery sensor:
+      //  1. Staleness — only trust it if a recent packet confirmed it (≤ 90 s);
+      //     a frozen movement=true would otherwise stick a silent vehicle.
+      //  2. GPS corroboration — a movement=true with NO GPS-confirmed motion
+      //     (zero speed AND runningStreak 0, both of which the server derives
+      //     from real displacement) is treated as sensor noise → false.
+      const mv = s.movement ?? g.movement ?? null;
+      if (mv == null) return null;
+      const ts = deviceStatus.lastUpdate;
+      if (!ts) return null;
+      const staleSecs = secsSince(ts);
+      if (staleSecs === null || staleSecs > 90) return null;
+      if (mv === true || mv === 1) {
+        const spd = Number(g.speed ?? s.speed ?? 0) || 0;
+        if (spd <= 5) return false; // stationary by GPS speed → ignore sensor jitter
+      }
+      return mv;
+    }
     case 'speed':       return g.speed ?? s.speed ?? 0;
     case 'battery':     return s.battery ?? s.batteryLevel ?? null;
     case 'gsmSignal':   return s.gsmSignal ?? s.rssi ?? null;
@@ -73,18 +98,17 @@ function getFieldValue(deviceStatus, field) {
     }
 
     case 'runningStreak': {
-      // runningStreak is a persistent DB counter that only resets when a new
-      // packet is processed.  If no reliable timestamp is available or the last
-      // update is older than 90 s, treat the streak as 0 so a vehicle that has
-      // been silent for hours cannot stay stuck in Running.
-      //
-      // Conservative rule: when in doubt, clear the streak.
-      // - No timestamp (lastSeenAt not yet populated)  → 0  (safe: can't confirm recent)
-      // - Future timestamp (GT06 timezone issue)        → 0  (safe: can't trust clock)
-      // - Age > 90 s                                    → 0  (genuinely stale)
-      // - Age ≤ 90 s                                    → actual DB value
-      const streak = s.runningStreak ?? 0;
+      // runningStreak is a persistent DB counter. Several guards ensure a parked
+      // vehicle can never appear "Running":
+      // - 0 stays 0.
+      // - CURRENT GPS speed ≤ 5 km/h → 0. This is the ground truth: a vehicle
+      //   that isn't moving right now is not running, no matter what the stored
+      //   counter says (handles a device that keeps reporting while parked).
+      // - No timestamp / future timestamp / age > 90 s → 0 (stale, can't trust).
+      const streak = Number(s.runningStreak ?? 0) || 0;
       if (streak === 0) return 0;
+      const spd = Number(g.speed ?? s.speed ?? 0) || 0;
+      if (spd <= 5) return 0;                         // not moving by GPS → no streak
       const ts = deviceStatus.lastUpdate;
       if (!ts) return 0;                              // no anchor → assume stale
       const staleSecs = secsSince(ts);

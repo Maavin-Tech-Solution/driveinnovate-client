@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { VehicleIcon, VEHICLE_ICONS, VEHICLE_ICON_LABELS, vehicleMarkerHtml } from '../utils/vehicleIcons';
 import { toast } from 'react-toastify';
-import { MapContainer, TileLayer, Marker, Polyline, Tooltip, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from 'react-leaflet';
 import MarkerClusterGroup from 'react-leaflet-cluster';
 import 'react-leaflet-cluster/lib/assets/MarkerCluster.css';
 import 'react-leaflet-cluster/lib/assets/MarkerCluster.Default.css';
@@ -14,6 +14,7 @@ import {
   getVehicleReportTrips, getVehicleReportFuelFillings, getVehicleReportFuel, exportVehicleReportExcel,
   downloadRawPacketsExcel, reprocessVehicleData,
   getCustomFields, createCustomField, updateCustomField, deleteCustomField,
+  getVehicleEditHistory, reassignVehicle,
 } from '../services/vehicle.service';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -84,6 +85,12 @@ const HUD_CSS = `
   .fv-tooltip.leaflet-tooltip { padding: 0 !important; background: transparent !important; border: none !important; box-shadow: none !important; border-radius: 10px !important; pointer-events: auto !important; }
   .fv-tooltip.leaflet-tooltip::before { display: none !important; }
   .fv-tooltip > div { border-radius: 10px; overflow: hidden; box-shadow: 0 12px 40px rgba(0,0,0,0.16), 0 0 0 1px rgba(0,0,0,0.06); }
+  /* Vehicle detail popup (auto-opens on focus, has a close button) */
+  .fv-popup .leaflet-popup-content-wrapper { padding: 0; border-radius: 12px; overflow: hidden; box-shadow: 0 14px 44px rgba(0,0,0,0.20), 0 0 0 1px rgba(0,0,0,0.06); }
+  .fv-popup .leaflet-popup-content { margin: 0; width: 320px !important; }
+  .fv-popup .leaflet-popup-tip { box-shadow: 0 0 0 1px rgba(0,0,0,0.06); }
+  .fv-popup a.leaflet-popup-close-button { top: 8px; right: 8px; width: 22px; height: 22px; font-size: 18px; color: #fff; background: rgba(15,23,42,0.45); border-radius: 50%; display: flex; align-items: center; justify-content: center; line-height: 1; }
+  .fv-popup a.leaflet-popup-close-button:hover { background: rgba(15,23,42,0.7); color: #fff; }
   @keyframes fv-pulse-g {
     0%   { box-shadow: 0 0 0 0 rgba(22,163,74,0.7), 0 2px 8px rgba(0,0,0,0.4); }
     65%  { box-shadow: 0 0 0 9px rgba(22,163,74,0), 0 2px 8px rgba(0,0,0,0.4); }
@@ -94,6 +101,8 @@ const HUD_CSS = `
     transition: box-shadow 0.18s ease, transform 0.18s ease, background 0.12s ease, z-index 0s;
     position: relative; z-index: 0;
   }
+  .fv-card-sleek { transition: transform 0.15s, box-shadow 0.15s; }
+  .fv-card-sleek:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(16,24,40,0.13) !important; }
   .fv-card:hover {
     background: #FAFCFF !important;
     transform: translateX(2px);
@@ -184,7 +193,19 @@ const STATE_MIN_DWELL_MS = 30_000; // 30 s — a state must hold this long to tr
 const _stateStickiness   = new Map();
 const _pendingState      = new Map(); // vehicleId → { state, firstSeen } for transition candidates
 
+// A vehicle that has never received a single packet: no real last-contact time
+// and no GPS fix at all. Such vehicles are "No Data" — they must NOT be
+// classified Running/Stopped (which the ignition default would otherwise do).
+const hasNoData = (v) =>
+  !v?.deviceStatus?.lastUpdate &&
+  !v?.deviceStatus?.gpsData?.timestamp &&
+  !v?.deviceStatus?.gpsData?.latitude;
+
 const _rawGetVState = (v, statesMap) => {
+  // Zero-packet vehicles short-circuit to a dedicated "No Data" state so they
+  // are counted only under the No Data card and never under Running/Stopped/etc.
+  if (hasNoData(v)) return { stateName: 'No Data', stateColor: '#64748B', stateIcon: '📵', matchedConditions: [] };
+
   const states = statesMap?.[v.deviceType?.toUpperCase()];
   if (states?.length) {
     const result = getVehicleState(v.deviceStatus, states);
@@ -251,7 +272,7 @@ const ALL_FLEET_CHIPS = [
   { id: 'running',   label: 'Running',   dot: '#22c55e', gradient: 'linear-gradient(135deg, #047857 0%, #10B981 100%)', shadow: '0 4px 14px rgba(5,150,105,0.28)',   icon: '🟢' },
   { id: 'stopped',   label: 'Stopped',   dot: '#ef4444', gradient: 'linear-gradient(135deg, #B91C1C 0%, #EF4444 100%)', shadow: '0 4px 14px rgba(220,38,38,0.28)',   icon: '🔴' },
   { id: 'idle',      label: 'Idle',      dot: '#8b5cf6', gradient: 'linear-gradient(135deg, #6D28D9 0%, #8B5CF6 100%)', shadow: '0 4px 14px rgba(109,40,217,0.28)',  icon: '⏸️' },
-  { id: 'overspeed', label: 'Overspeed', dot: '#dc2626', gradient: 'linear-gradient(135deg, #991B1B 0%, #DC2626 100%)', shadow: '0 4px 14px rgba(153,27,27,0.28)',   icon: '🏎️' },
+  { id: 'overspeed', label: 'Overspeed', dot: '#dc2626', gradient: 'linear-gradient(135deg, #991B1B 0%, #DC2626 100%)', shadow: '0 4px 14px rgba(153,27,27,0.28)',   icon: '⚠️' },
   { id: 'nodata',    label: 'No Data',   dot: '#94A3B8', gradient: 'linear-gradient(135deg, #475569 0%, #64748B 100%)', shadow: '0 4px 14px rgba(100,116,139,0.28)', icon: '📵' },
 ];
 const DEFAULT_FLEET_CHIPS = ['total', 'running', 'stopped', 'nodata'];
@@ -284,16 +305,6 @@ const MAP_ATTRIBUTIONS = {
   satellite: '&copy; Google Maps',
   hybrid:    '&copy; Google Maps',
 };
-const getMapTileUrl = () => {
-  let style = localStorage.getItem('mapStyle') || 'voyager';
-  // Migrate old keys
-  if (style === 'roadmap' || style === 'terrain') { style = 'voyager'; localStorage.setItem('mapStyle', 'voyager'); }
-  return MAP_TILES[style] || MAP_TILES.voyager;
-};
-const getMapAttribution = () => {
-  const style = localStorage.getItem('mapStyle') || 'voyager';
-  return MAP_ATTRIBUTIONS[style] || MAP_ATTRIBUTIONS.voyager;
-};
 const MAP_SUBDOMAINS = {
   voyager:   'abcd',
   light:     'abcd',
@@ -310,14 +321,17 @@ const MAP_MAXZOOM = {
   light:     20,
   dark:      20,
 };
-const getMapSubdomains = () => {
-  const style = localStorage.getItem('mapStyle') || 'voyager';
-  return MAP_SUBDOMAINS[style] || 'abcd';
-};
-const getMapMaxZoom = () => {
-  const style = localStorage.getItem('mapStyle') || 'voyager';
-  return MAP_MAXZOOM[style] || 20;
-};
+// Selectable map layers (shown in the on-map layer picker).
+const MAP_LAYER_OPTIONS = [
+  { id: 'voyager',   label: 'Streets' },
+  { id: 'light',     label: 'Light' },
+  { id: 'dark',      label: 'Dark' },
+  { id: 'osm',       label: 'OpenStreetMap' },
+  { id: 'satellite', label: 'Satellite' },
+  { id: 'hybrid',    label: 'Hybrid' },
+];
+const normalizeMapStyle = (s) =>
+  (s === 'roadmap' || s === 'terrain' || !s) ? 'voyager' : s;
 
 // ─── Trail helpers ───────────────────────────────────────────────────────────
 // Bearing in degrees clockwise from north between two GPS points.
@@ -369,6 +383,7 @@ const makeVehicleIcon = (vehicle, isSelected, stateColor) => {
     html: vehicleMarkerHtml(vehicle.vehicleIcon, bg, size, isSelected),
     iconSize:   [totalW, totalH],
     iconAnchor: [totalW / 2, totalH],  // pin tip = exact GPS point
+    popupAnchor: [0, -totalH - 4],     // open the popup above the icon, not over it
   });
 };
 
@@ -421,6 +436,17 @@ const Ic = ({ n, size = 14, color = 'currentColor', sw = 1.75 }) => {
     clock:    <><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>,
     battery:  <><rect x="2" y="7" width="16" height="10" rx="2"/><line x1="22" y1="11" x2="22" y2="13"/></>,
     zap:      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>,
+    satellite:<><circle cx="12" cy="12" r="2.5"/><path d="M4 12a8 8 0 018-8"/><path d="M20 12a8 8 0 01-8 8"/></>,
+    signal:   <><line x1="5" y1="20" x2="5" y2="15"/><line x1="12" y1="20" x2="12" y2="9"/><line x1="19" y1="20" x2="19" y2="4"/></>,
+    power:    <><path d="M18.36 6.64a9 9 0 11-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></>,
+    // ── Vehicle-state icons ──
+    nav:      <polygon points="3 11 22 2 13 21 11 13 3 11"/>,
+    stopSq:   <rect x="6" y="6" width="12" height="12" rx="2"/>,
+    pause:    <><rect x="6" y="5" width="3.5" height="14" rx="1"/><rect x="14.5" y="5" width="3.5" height="14" rx="1"/></>,
+    offline:  <><line x1="2" y1="2" x2="22" y2="22"/><path d="M5 12.5a11 11 0 0114 0"/><path d="M8.5 16a6 6 0 017 0"/></>,
+    ban:      <><circle cx="12" cy="12" r="9"/><line x1="5.6" y1="5.6" x2="18.4" y2="18.4"/></>,
+    gauge:    <><path d="M3.5 14a9 9 0 1117 0"/><path d="M12 13l3.5-3.5"/><circle cx="12" cy="13" r="1.3"/></>,
+    car:      <><path d="M5 13l1.6-4.2A2 2 0 018.5 7.5h7a2 2 0 011.9 1.3L19 13"/><path d="M4 13h16v3.5a1 1 0 01-1 1h-1.5a1 1 0 01-1-1V16H7.5v.5a1 1 0 01-1 1H5a1 1 0 01-1-1z"/><circle cx="7.8" cy="16" r="1.1"/><circle cx="16.2" cy="16" r="1.1"/></>,
     info:     <><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></>,
     calendar: <><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></>,
     save:     <><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></>,
@@ -433,6 +459,24 @@ const Ic = ({ n, size = 14, color = 'currentColor', sw = 1.75 }) => {
     link:     <><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></>,
   };
   return <svg {...p}>{I[n] ?? null}</svg>;
+};
+
+// Map a fleet/state chip to a crisp SVG icon name. Returns null to fall back to
+// the chip's emoji (e.g. for custom states with no obvious match).
+const stateChipIcon = (chip) => {
+  if (!chip) return null;
+  if (chip.id === 'total') return 'car';
+  if (chip.id === 'overspeed') return 'gauge';
+  if (chip.id === 'nodata') return 'ban';
+  const n = (chip.stateName || chip.label || '').toLowerCase();
+  if (n.includes('overspeed') || n.includes('over speed')) return 'gauge';
+  if (n.includes('run') || n.includes('mov'))               return 'nav';
+  if (n.includes('idle'))                                    return 'pause';
+  if (n.includes('stop') || n.includes('park'))             return 'stopSq';
+  if (n.includes('offline') || n.includes('no signal') || n.includes('disconnect')) return 'offline';
+  if (n.includes('online'))                                  return 'signal';
+  if (n.includes('no data') || n.includes('nodata'))         return 'ban';
+  return null;
 };
 
 // ─── SectionHeader — sidebar section label with coloured icon chip + hairline ─
@@ -657,8 +701,11 @@ const MapResizer = () => {
   return null;
 };
 
-// ─── Vehicle Hover Tooltip ────────────────────────────────────────────────────
-const VehicleTooltip = ({ vehicle }) => {
+// ─── Vehicle Detail Popup ─────────────────────────────────────────────────────
+// Opens automatically when a vehicle is focused on the map (no hover needed) and
+// is dismissed with the popup's close button. Shows the reverse-geocoded
+// address (like the table / cards) rather than raw coordinates.
+const VehiclePopup = ({ vehicle, address }) => {
   const ign    = getIgnition(vehicle);
   const gps    = vehicle.deviceStatus?.gpsData;
   const fuel   = vehicle.deviceStatus?.fuel;
@@ -668,55 +715,53 @@ const VehicleTooltip = ({ vehicle }) => {
   const coords = getVehicleCoords(vehicle);
 
   const ignColor = ign === true ? '#059669' : ign === false ? '#DC2626' : '#94A3B8';
-  const ignBg    = ign === true ? '#D1FAE5' : ign === false ? '#FEF2F2' : '#F1F5F9';
-  const ignLabel = ign === true ? 'Engine Running' : ign === false ? 'Engine Off' : 'Unknown';
+  const ignLabel = ign === true ? 'Running' : ign === false ? 'Engine Off' : 'Unknown';
 
-  const TRow = ({ label, value, valueColor }) => (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', borderBottom: '1px solid #F1F5F9' }}>
-      <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500 }}>{label}</span>
-      <span style={{ fontSize: 12, fontWeight: 700, color: valueColor || '#0F172A' }}>{value}</span>
-    </div>
-  );
+  const metrics = [];
+  if (gps?.speed != null)             metrics.push({ label: 'Speed',   value: `${gps.speed} km/h`, color: gps.speed > 80 ? '#DC2626' : '#0F172A' });
+  if (fuel?.level !== undefined)      metrics.push({ label: 'Fuel',    value: `${Math.round(fuel.level)}%`, color: fuel.level < 20 ? '#DC2626' : fuel.level < 40 ? '#D97706' : '#059669' });
+  if (status?.battery !== undefined)  metrics.push({ label: 'Battery', value: `${status.battery}%`, color: status.battery < 20 ? '#DC2626' : '#0F172A' });
+  if (status?.voltage !== undefined)  metrics.push({ label: 'Voltage', value: `${status.voltage} V`, color: '#0F172A' });
+  if (status?.gsmSignal !== undefined) metrics.push({ label: 'GSM',    value: `${status.gsmSignal}`, color: '#0F172A' });
+  if (trip?.odometer !== undefined)   metrics.push({ label: 'Odometer', value: `${Number(trip.odometer).toFixed(1)} km`, color: '#0F172A' });
+  if (engine?.speed !== undefined)    metrics.push({ label: 'RPM',     value: `${engine.speed}`, color: '#0F172A' });
+
+  // Location address goes in the same single-line row list as everything else.
+  const rows = [...metrics];
+  if (gps?.timestamp) rows.push({ label: 'Updated', value: new Date(gps.timestamp).toLocaleString('en-IN', { timeStyle: 'short', dateStyle: 'short' }), color: '#475569' });
 
   return (
-    <div style={{ fontFamily: "'Plus Jakarta Sans',-apple-system,sans-serif", width: 240, padding: 0 }}>
-      {/* Header */}
-      <div style={{ background: '#FFFFFF', borderRadius: '8px 8px 0 0', padding: '12px 14px', borderBottom: `3px solid ${ignColor}`, marginBottom: 0 }}>
+    <div style={{ fontFamily: "'Plus Jakarta Sans',-apple-system,sans-serif" }}>
+      {/* Header — single line: icon · name · device type · status */}
+      <div style={{ background: `linear-gradient(135deg, ${ignColor} 0%, ${ignColor}cc 100%)`, padding: '12px 16px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <VehicleIcon icon={vehicle.vehicleIcon} color={ignColor} size={42} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 13.5, color: '#0F172A', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{vehicleDisplayName(vehicle)}</div>
-            {vehicle.vehicleName && vehicle.vehicleNumber && (
-              <div style={{ fontSize: 10.5, color: '#64748B', fontFamily: 'monospace', marginTop: 2 }}>{vehicle.vehicleNumber}</div>
+          <VehicleIcon icon={vehicle.vehicleIcon} color="#FFFFFF" size={24} />
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flex: 1, minWidth: 0, paddingRight: 20 }}>
+            <span style={{ fontWeight: 800, fontSize: 15.5, color: '#FFFFFF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{vehicleDisplayName(vehicle)}</span>
+            {vehicle.deviceType && (
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.92)', background: 'rgba(255,255,255,0.2)', padding: '2px 7px', borderRadius: 5, whiteSpace: 'nowrap', flexShrink: 0 }}>{vehicle.deviceType}</span>
             )}
           </div>
-        </div>
-        <div style={{ marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 5, background: ignBg, borderRadius: 20, padding: '3px 10px', border: `1px solid ${ignColor}30` }}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: ignColor, flexShrink: 0 }} />
-          <span style={{ fontSize: 11, fontWeight: 700, color: ignColor }}>{ignLabel}</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.97)', whiteSpace: 'nowrap', flexShrink: 0 }}>{ignLabel}</span>
         </div>
       </div>
 
-      {/* Data rows */}
-      <div style={{ padding: '8px 14px', background: '#FFFFFF' }}>
-        {gps?.speed !== undefined && <TRow label="Speed" value={`${gps.speed} km/h`} valueColor={gps.speed > 80 ? '#DC2626' : '#0F172A'} />}
-        {fuel?.level !== undefined && <TRow label="Fuel" value={`${Math.round(fuel.level)}%`} valueColor={fuel.level < 20 ? '#DC2626' : fuel.level < 40 ? '#D97706' : '#059669'} />}
-        {status?.battery !== undefined && <TRow label="Battery" value={`${status.battery}%`} valueColor={status.battery < 20 ? '#DC2626' : '#0F172A'} />}
-        {status?.voltage !== undefined && <TRow label="Voltage" value={`${status.voltage} V`} />}
-        {/* {gps?.satellites !== undefined && <TRow label="Satellites" value={gps.satellites} valueColor={gps.satellites < 4 ? '#D97706' : '#059669'} />} */}
-        {status?.gsmSignal !== undefined && <TRow label="GSM Signal" value={status.gsmSignal} />}
-        {trip?.odometer !== undefined && <TRow label="Odometer" value={`${Number(trip.odometer).toFixed(1)} km`} />}
-        {engine?.speed !== undefined && <TRow label="RPM" value={engine.speed} />}
-      </div>
-
-      {/* Footer */}
-      {(coords || vehicle.deviceType || gps?.timestamp) && (
-        <div style={{ padding: '8px 14px', background: '#F8FAFC', borderRadius: '0 0 8px 8px', borderTop: '1px solid #E2E8F0' }}>
-          {coords && <div style={{ fontSize: 10, color: '#94A3B8', fontFamily: 'monospace', marginBottom: 2 }}>{coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}</div>}
-          {vehicle.deviceType && <div style={{ fontSize: 10, color: '#94A3B8' }}>{vehicle.deviceType}{vehicle.imei ? ` · ${vehicle.imei}` : ''}</div>}
-          {gps?.timestamp && <div style={{ fontSize: 10, color: '#94A3B8', marginTop: 2 }}>Updated: {new Date(gps.timestamp).toLocaleString('en-IN', { timeStyle: 'medium', dateStyle: 'short' })}</div>}
+      {/* Single-line detail rows — scrolls vertically when there are many */}
+      <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+        {/* Location first — wraps to multiple lines when the address is long */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 16px', borderBottom: '1px solid #F1F5F9', background: '#F8FAFC' }}>
+          <span style={{ fontSize: 12.5, color: '#94A3B8', fontWeight: 600, flexShrink: 0, paddingTop: 1 }}>Location</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#334155', lineHeight: 1.45, textAlign: 'right', flex: 1, wordBreak: 'break-word' }}>
+            {address || (coords ? 'Locating…' : 'No location')}
+          </span>
         </div>
-      )}
+        {rows.map(m => (
+          <div key={m.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, padding: '10px 16px', borderBottom: '1px solid #F1F5F9' }}>
+            <span style={{ fontSize: 12.5, color: '#94A3B8', fontWeight: 600, flexShrink: 0 }}>{m.label}</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: m.color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.value}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 };
@@ -796,6 +841,15 @@ const MyFleet = () => {
   // SmoothMarker on mount and consumed by SmoothMotionController's RAF loop
   // to drive position updates without re-rendering React.
   const markerRefs = useRef(new Map());
+  const clusterRef = useRef(null); // MarkerClusterGroup instance (for zoomToShowLayer)
+  // Vehicle list card style — toggle between the classic dense list and the new
+  // sleek card design (persisted so the choice sticks).
+  const [listStyle, setListStyle] = useState(() => localStorage.getItem('fleetListStyle') || 'classic');
+  const toggleListStyle = () => setListStyle(s => { const next = s === 'sleek' ? 'classic' : 'sleek'; localStorage.setItem('fleetListStyle', next); return next; });
+  // Vehicle reassignment (transfer to another client)
+  const [reassignTarget, setReassignTarget] = useState(null);  // vehicle being reassigned
+  const [reassignClientId, setReassignClientId] = useState('');
+  const [reassigning, setReassigning] = useState(false);
 
   // Bottom-sheet peek state for the vehicle-detail panel on the map view.
   // 'half' on first selection — covers half the screen, plenty of room for tabs.
@@ -805,6 +859,15 @@ const MyFleet = () => {
   const [searchType, setSearchType] = useState('all'); // 'all'|'vehicleNumber'|'vehicleName'|'imei'|'sim'|'deviceType'|'branch'
   const [statusFilter, setStatusFilter] = useState(new Set(['Running', 'Stopped', 'Unknown']));
   const [chipFilter, setChipFilter] = useState(null); // null = all, or chip id string
+  // Map tile layer — reactive copy of the saved preference so the on-map layer
+  // picker updates the tiles immediately.
+  const [mapStyle, setMapStyle] = useState(() => normalizeMapStyle(localStorage.getItem('mapStyle')));
+  const [layerMenuOpen, setLayerMenuOpen] = useState(false);
+  const selectMapLayer = (id) => {
+    setMapStyle(id);
+    localStorage.setItem('mapStyle', id);
+    setLayerMenuOpen(false);
+  };
   const [searchParams, setSearchParams] = useSearchParams();
   // Deep-link support: /my-fleet?chip=nodata (e.g. from the dashboard "No GPS"
   // card) pre-selects that fleet chip filter on mount, then clears the param.
@@ -1143,6 +1206,25 @@ const MyFleet = () => {
   };
   const fetchGroups = () => {
     getGroups().then(r => setGroups(r.data || [])).catch(() => {});
+  };
+
+  // ─── Vehicle reassignment ─────────────────────────────────────────────────
+  const openReassign = (v) => { setReassignTarget(v); setReassignClientId(''); };
+  const handleReassign = async () => {
+    if (!reassignTarget || !reassignClientId) return;
+    setReassigning(true);
+    try {
+      await reassignVehicle(reassignTarget.id, Number(reassignClientId));
+      toast.success('Vehicle reassigned');
+      setReassignTarget(null);
+      setDrawerVehicle(null);
+      setSelectedVehicle(null);
+      fetchVehicles(); // reassigned vehicle leaves the current scope
+    } catch (e) {
+      toast.error(e.response?.data?.message || e.message || 'Failed to reassign vehicle');
+    } finally {
+      setReassigning(false);
+    }
   };
 
   // Load vehicles, device state configs, and groups. Use allSettled so that a
@@ -1498,8 +1580,8 @@ const MyFleet = () => {
     if (!selectedVehicle) return;
     setSaving(true);
     try {
-      // IMEI is edited via a dedicated phrase-confirmation flow — strip from generic save.
-      const { imei: _ignoredImei, ...payload } = editForm;
+      // IMEI is now an editable field in this form and saved with everything else.
+      const payload = { ...editForm };
       // Tank capacity: "" from an empty input → null; otherwise coerce to int.
       if (payload.fuelTankCapacity === '' || payload.fuelTankCapacity == null) {
         payload.fuelTankCapacity = null;
@@ -1716,7 +1798,7 @@ const MyFleet = () => {
       list = list.filter(v => {
         if (chipFilter === 'no_gps')    return !getVehicleCoords(v);
         if (chipFilter === 'overspeed') return (v.deviceStatus?.gpsData?.speed ?? 0) > _fleetSpeedThresh;
-        if (chipFilter === 'nodata')    return !v.deviceStatus?.lastUpdate && !v.deviceStatus?.gpsData?.timestamp && !v.deviceStatus?.gpsData?.latitude;
+        if (chipFilter === 'nodata')    return hasNoData(v);
         if (chipFilter === 'total')     return true;
         if (chipFilter.startsWith('state:')) {
           return getVState(v, deviceStatesByType).stateName === chipFilter.slice(6);
@@ -1798,6 +1880,35 @@ const MyFleet = () => {
     if (queued && !tableGeoActive.current) drainGeoQueue.current();
   }, [filteredVehicles, viewMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Auto-open the detail popup for the focused vehicle (e.g. when a row is
+  // clicked in the list) and close the others. A focused vehicle may still be
+  // inside a cluster at the focus zoom, so use the cluster group's
+  // zoomToShowLayer() to reveal the marker first, then open its popup.
+  useEffect(() => {
+    if (viewMode !== 'map') return;
+    const id = selectedVehicle?.id;
+    if (id == null) return;
+
+    // Close any other open popup immediately.
+    markerRefs.current.forEach((ref, vid) => {
+      if (vid !== id) { try { ref?.current?.closePopup(); } catch { /* noop */ } }
+    });
+
+    const marker = markerRefs.current.get(id)?.current;
+    if (!marker) return;
+    const cluster = clusterRef.current;
+    const t = setTimeout(() => {
+      try {
+        if (cluster && typeof cluster.zoomToShowLayer === 'function') {
+          cluster.zoomToShowLayer(marker, () => { try { marker.openPopup(); } catch { /* noop */ } });
+        } else {
+          marker.openPopup();
+        }
+      } catch { /* noop */ }
+    }, 150);
+    return () => clearTimeout(t);
+  }, [selectedVehicle, viewMode, filteredVehicles]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Lazily load sensors for every visible vehicle when the map-view sidebar
   // is open. Placed AFTER filteredVehicles useMemo to avoid TDZ error.
   useEffect(() => {
@@ -1875,7 +1986,7 @@ const MyFleet = () => {
   const fleetSpeedThresh = parseInt(localStorage.getItem('fleet-speed-threshold') || '80');
   const overspeedCount = chipScopedVehicles.filter(v => getSpeed(v) > fleetSpeedThresh).length;
   // "No Data" — registered vehicles that have never sent a packet
-  const noDataCount = chipScopedVehicles.filter(v => !v.deviceStatus?.lastUpdate && !v.deviceStatus?.gpsData?.timestamp && !v.deviceStatus?.gpsData?.latitude).length;
+  const noDataCount = chipScopedVehicles.filter(hasNoData).length;
 
   // Build the chip list dynamically from Master-Settings state definitions so
   // every configured state (e.g. "No Signal", "Idle", "Parked") gets its own
@@ -1911,7 +2022,7 @@ const MyFleet = () => {
   const fleetChips = [
     { id: 'total',    label: 'Total',    dot: '#64748b', gradient: 'linear-gradient(135deg, #1D4ED8 0%, #3B82F6 100%)', shadow: '0 4px 14px rgba(37,99,235,0.28)', icon: '🚗' },
     ...stateChipList,
-    ...(configuredLabels.has('overspeed') ? [] : [{ id: 'overspeed', label: 'Overspeed', dot: '#dc2626', gradient: 'linear-gradient(135deg, #991B1B 0%, #DC2626 100%)', shadow: '0 4px 14px rgba(153,27,27,0.28)', icon: '🏎️' }]),
+    ...(configuredLabels.has('overspeed') ? [] : [{ id: 'overspeed', label: 'Overspeed', dot: '#dc2626', gradient: 'linear-gradient(135deg, #991B1B 0%, #DC2626 100%)', shadow: '0 4px 14px rgba(153,27,27,0.28)', icon: '⚠️' }]),
     { id: 'nodata',   label: 'No Data',  dot: '#94A3B8', gradient: 'linear-gradient(135deg, #475569 0%, #64748B 100%)', shadow: '0 4px 14px rgba(100,116,139,0.28)', icon: '📵' },
   ];
   const CHIP_COUNTS = {
@@ -1963,7 +2074,7 @@ const MyFleet = () => {
     document.body.style.userSelect = 'none';
   };
 
-  const SHEET_DEFAULT_H = () => (activeTab === 'trips' || activeTab === 'reports' || activeTab === 'edit') ? 460 : 320;
+  const SHEET_DEFAULT_H = () => (activeTab === 'trips' || activeTab === 'reports' || activeTab === 'edit' || activeTab === 'history') ? 460 : 320;
 
   // Detail sheet — drag the top strip to reposition the whole panel anywhere over
   // the map. The first drag pins it to its current rendered spot (it starts
@@ -2169,16 +2280,17 @@ const MyFleet = () => {
                 </div>
               </div>
               <div style={{ minWidth:0 }}>
-                <div style={{ fontSize:18, fontWeight:700, color:'#fff', lineHeight:1.15, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:220, fontFamily:"'Arvo',serif" }}>
+                <div style={{ fontSize:18, fontWeight:700, color:'#fff', lineHeight:1.15, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:240 }}>
                   {dv.vehicleNumber || dv.vehicleName || 'Vehicle'}
                 </div>
                 {dv.vehicleName && dv.vehicleNumber && (
                   <div style={{ fontSize:12, color:'rgba(255,255,255,0.72)', marginTop:2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:220, fontFamily:"'Arvo',serif" }}>{dv.vehicleName}</div>
                 )}
-                <div style={{ display:'flex', gap:5, marginTop:5, flexWrap:'wrap' }}>
-                  {dv.branch && <span style={{ fontSize:10, fontWeight:700, background:'rgba(255,255,255,0.18)', color:'#fff', padding:'2px 8px', border:'1px solid rgba(255,255,255,0.25)' }}>{dv.branch}</span>}
-                  {dv.deviceType && <span style={{ fontSize:10, fontWeight:600, background:'rgba(255,255,255,0.10)', color:'rgba(255,255,255,0.80)', padding:'2px 8px', border:'1px solid rgba(255,255,255,0.18)' }}>{dv.deviceType}</span>}
-                </div>
+                {dv.branch && (
+                  <div style={{ marginTop:5 }}>
+                    <span style={{ fontSize:10, fontWeight:700, background:'rgba(255,255,255,0.18)', color:'#fff', padding:'2px 8px', border:'1px solid rgba(255,255,255,0.25)' }}>{dv.branch}</span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -2194,6 +2306,7 @@ const MyFleet = () => {
                 { ic:'route',   label:'Trips',   onClick:()=>setActiveTab('trips') },
                 { ic:'chart',   label:'Reports', onClick:()=>setActiveTab('reports') },
                 { ic:'edit',    label:'Edit',   onClick:()=>setActiveTab('edit') },
+                { ic:'clock',   label:'History', onClick:()=>setActiveTab('history') },
                 ...(liveShareEnabled&&(isPapaOrDealer||user?.permissions?.canShareLiveLocation)?[{ ic:'share', label:'Share', onClick:()=>openShareModal('vehicle',dv.id,vehicleDisplayName(dv),dv.vehicleIcon) }]:[]),
                 { ic:'trash',   label:'Delete', onClick:()=>{ setDrawerVehicle(null); handleDelete(dv.id); }, del:true },
               ].map(a=>(
@@ -2217,7 +2330,7 @@ const MyFleet = () => {
           </div>
 
           {/* ── Body ── */}
-          <div style={{ height: sheetHeight ?? ((activeTab==='trips'||activeTab==='reports'||activeTab==='edit') ? 460 : 320), display:'flex', background:'#F8FAFC', fontFamily:"'Arvo', Georgia, serif", overflow:'hidden' }}>
+          <div style={{ height: sheetHeight ?? ((activeTab==='trips'||activeTab==='reports'||activeTab==='edit'||activeTab==='history') ? 460 : 320), display:'flex', background:'#F8FAFC', fontFamily:"'Arvo', Georgia, serif", overflow:'hidden' }}>
 
           {/* ══ EDIT MODE — full body ══ */}
           {activeTab === 'edit' && (
@@ -2271,7 +2384,8 @@ const MyFleet = () => {
                     { label:'Branch',             key:'branch',         placeholder:'e.g. Delhi, North Zone' },
                     { label:'Chassis Number',     key:'chasisNumber',   placeholder:'', mono:true },
                     { label:'Engine Number',      key:'engineNumber',   placeholder:'', mono:true },
-                    { label:'SIM 1',              key:'sim1',           placeholder:'e.g. 9876543210', mono:true },
+                    { label:'IMEI',               key:'imei',           placeholder:'15-digit device IMEI', mono:true },
+                    { label:'SIM 1 / Mobile No',  key:'sim1',           placeholder:'e.g. 9876543210', mono:true },
                     { label:'SIM 2',              key:'sim2',           placeholder:'e.g. 9876543211', mono:true },
                     { label:'Device Name',        key:'deviceName',     placeholder:'' },
                   ].map(f=>(
@@ -2351,6 +2465,13 @@ const MyFleet = () => {
             </div>
           )}
 
+          {/* ══ EDIT HISTORY ══ */}
+          {activeTab === 'history' && (
+            <div style={{ flex:1, overflow:'auto', background:'#fff', padding:'14px 18px' }}>
+              <HistoryTab vehicle={dv} />
+            </div>
+          )}
+
           {/* ══ NORMAL VIEW — overview only ══ */}
           {activeTab === 'overview' && <>
             {/* LEFT — stat cards + location */}
@@ -2393,35 +2514,21 @@ const MyFleet = () => {
                     </>
                   ) : <div style={{ fontSize:13, color:'#CBD5E1', fontFamily:"'Arvo',serif" }}>No GPS fix</div>}
 
-                  {/* Timestamps — registered / first / last data packet */}
-                  <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))', gap:'8px 10px', marginTop:2 }}>
+                  {/* Timestamps — registered / first / last data packet (compact rows) */}
+                  <div style={{ marginTop: 4, borderTop: '1px solid #F1F5F9' }}>
                     {[
-                      {
-                        label: 'Registered At',
-                        value: dv.registeredAt || dv.registered_at,
-                        color: '#7c3aed', bg: '#f3f0ff', border: '#ddd6fe',
-                      },
-                      {
-                        label: 'First Data Packet',
-                        value: dv.firstSeenAt || dv.first_seen_at,
-                        color: '#059669', bg: '#f0fdf4', border: '#bbf7d0',
-                        empty: 'No data yet',
-                      },
-                      {
-                        label: 'Last Data Packet',
-                        value: dv.deviceStatus?.lastUpdate || dv.deviceStatus?.gpsData?.timestamp,
-                        color: '#1D4ED8', bg: '#EFF6FF', border: '#BFDBFE',
-                        empty: 'No data yet',
-                      },
+                      { label: 'Registered',   value: dv.registeredAt || dv.registered_at,                              color: '#7c3aed' },
+                      { label: 'First packet', value: dv.firstSeenAt || dv.first_seen_at,                               color: '#059669', empty: 'No data yet' },
+                      { label: 'Last packet',  value: dv.deviceStatus?.lastUpdate || dv.deviceStatus?.gpsData?.timestamp, color: '#1D4ED8', empty: 'No data yet' },
                     ].map((t, i) => (
-                      <div key={i} style={{ padding:'10px 12px', background: t.value ? t.bg : '#F8FAFC', border:`1px solid ${t.value ? t.border : '#E2E8F0'}` }}>
-                        <div style={{ fontSize:9, fontWeight:700, color: t.value ? t.color : '#94A3B8', textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Arvo',serif", marginBottom:4 }}>{t.label}</div>
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '5px 0', borderBottom: '1px solid #F8FAFC' }}>
+                        <span style={{ fontSize: 11.5, color: '#94A3B8', fontWeight: 600 }}>{t.label}</span>
                         {t.value ? (
-                          <div style={{ fontSize:13, fontWeight:700, color: t.color, fontFamily:"'Arvo',serif", lineHeight:1.3 }}>
-                            {new Date(t.value).toLocaleString('en-IN', { dateStyle:'medium', timeStyle:'medium' })}
-                          </div>
+                          <span style={{ fontSize: 12.5, fontWeight: 700, color: t.color }}>
+                            {new Date(t.value).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                          </span>
                         ) : (
-                          <div style={{ fontSize:11, color:'#94A3B8', fontStyle:'italic', fontFamily:"'Arvo',serif" }}>{t.empty || '—'}</div>
+                          <span style={{ fontSize: 11.5, color: '#94A3B8', fontStyle: 'italic' }}>{t.empty || '—'}</span>
                         )}
                       </div>
                     ))}
@@ -2653,7 +2760,9 @@ const MyFleet = () => {
         <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
           {visibleFleetChips.map(c => (
             <div key={c.id} onClick={() => setChipFilter(chipFilter === c.id ? null : c.id)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '11px 17px', background: c.gradient, borderRadius: 5, boxShadow: chipFilter === c.id ? `0 0 0 2px #fff, ${c.shadow}` : c.shadow, position: 'relative', overflow: 'hidden', flex: '0 0 auto', cursor: 'pointer', opacity: chipFilter && chipFilter !== c.id ? 0.55 : 1, transition: 'all 0.15s', transform: chipFilter === c.id ? 'scale(1.03)' : 'none' }}>
-              <span style={{ fontSize: '18px', lineHeight: 1, flexShrink: 0 }}>{c.icon}</span>
+              <span style={{ fontSize: '20px', lineHeight: 1, flexShrink: 0, width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.22)', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.28)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                {(() => { const ic = stateChipIcon(c); return ic ? <Ic n={ic} size={20} color="#FFFFFF" sw={2.2} /> : c.icon; })()}
+              </span>
               <span style={{ fontSize: '22px', fontWeight: 800, color: '#fff', lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.01em' }}>{CHIP_COUNTS[c.id]}</span>
               <span style={{ fontSize: '11px', fontWeight: 700, color: 'rgba(255,255,255,0.82)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>{c.label}</span>
             </div>
@@ -3487,7 +3596,7 @@ const MyFleet = () => {
     // Flex-column container: HUD bar on top, content row below.
     // The content row uses flex so the map takes the real remaining space
     // between panels instead of being covered by absolute overlays.
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', margin: '-24px', width: 'calc(100% + 48px)', fontFamily: "'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100% + 48px)', overflow: 'hidden', margin: '-24px', width: 'calc(100% + 48px)', fontFamily: "'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" }}>
 
       {/* ══════ MAP TOP SECTION — same stat cards + toolbar as table view ══════ */}
       <div style={{ flexShrink: 0, background: '#FFFFFF', borderBottom: '1px solid #E2E8F0', padding: '14px 16px 10px', zIndex: 1000, position: 'relative' }}>
@@ -3496,7 +3605,9 @@ const MyFleet = () => {
         <div style={{ display: 'flex', gap: '12px', marginBottom: '10px', flexWrap: 'wrap' }}>
           {visibleFleetChips.map(c => (
             <div key={c.id} onClick={() => setChipFilter(chipFilter === c.id ? null : c.id)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '11px 17px', background: c.gradient, borderRadius: 5, boxShadow: chipFilter === c.id ? `0 0 0 2px #fff, ${c.shadow}` : c.shadow, position: 'relative', overflow: 'hidden', flex: '0 0 auto', cursor: 'pointer', opacity: chipFilter && chipFilter !== c.id ? 0.55 : 1, transition: 'all 0.15s', transform: chipFilter === c.id ? 'scale(1.03)' : 'none' }}>
-              <span style={{ fontSize: '18px', lineHeight: 1, flexShrink: 0 }}>{c.icon}</span>
+              <span style={{ fontSize: '20px', lineHeight: 1, flexShrink: 0, width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.22)', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.28)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                {(() => { const ic = stateChipIcon(c); return ic ? <Ic n={ic} size={20} color="#FFFFFF" sw={2.2} /> : c.icon; })()}
+              </span>
               <span style={{ fontSize: '22px', fontWeight: 800, color: '#fff', lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.01em' }}>{CHIP_COUNTS[c.id]}</span>
               <span style={{ fontSize: '11px', fontWeight: 700, color: 'rgba(255,255,255,0.82)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>{c.label}</span>
             </div>
@@ -3644,8 +3755,23 @@ const MyFleet = () => {
           </div>
         )}
 
+        {/* List style toggle */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 12px', flexShrink: 0, borderBottom: '1px solid #EEF0F5', background: '#FBFCFE' }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#94A3B8', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Vehicles</span>
+          <div style={{ display: 'inline-flex', background: '#EEF2F7', borderRadius: 8, padding: 2 }}>
+            {['classic', 'sleek'].map(opt => (
+              <button key={opt} onClick={() => { if (listStyle !== opt) toggleListStyle(); }}
+                style={{ border: 'none', cursor: 'pointer', padding: '4px 12px', borderRadius: 6, fontSize: 11, fontWeight: 700, textTransform: 'capitalize',
+                  background: listStyle === opt ? '#FFFFFF' : 'transparent', color: listStyle === opt ? '#1B2A4A' : '#94A3B8',
+                  boxShadow: listStyle === opt ? '0 1px 3px rgba(0,0,0,0.12)' : 'none', transition: 'all .15s' }}>
+                {opt}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Vehicle cards list */}
-        <div style={{ flex: 1, overflow: 'auto', padding: '10px 10px 24px' }}>
+        <div style={{ flex: 1, overflow: 'auto', padding: listStyle === 'sleek' ? '4px 0 24px' : '10px 10px 24px' }}>
           {loading && (
             <div style={{ padding: '32px 0', textAlign: 'center' }}>
               <div style={{ width: 20, height: 20, border: '2px solid #E2E8F0', borderTopColor: '#3B82F6', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 8px' }} />
@@ -3676,6 +3802,81 @@ const MyFleet = () => {
             const _coords    = getVehicleCoords(v);
             const geoKey     = _coords ? `${_coords.lat.toFixed(4)},${_coords.lng.toFixed(4)}` : null;
             const geoAddr    = geoKey ? tableGeoMap.get(geoKey) : null;
+
+            const onCardClick = () => {
+              const coords = getVehicleCoords(v);
+              if (coords) setMapCenter([coords.lat, coords.lng]);
+              selectVehicle(v);
+            };
+            const onCardEnter = (e) => {
+              setHoveredCardId(v.id);
+              const r = e.currentTarget.getBoundingClientRect();
+              setHoverPos({ top: r.top, left: r.right + 8 });
+            };
+
+            // ── Sleek redesigned card ──
+            if (listStyle === 'sleek') {
+              const sats = v.deviceStatus?.gpsData?.satellites;
+              const gsm  = v.deviceStatus?.status?.gsmSignal;
+              const ignColor = ign === true ? '#059669' : ign === false ? '#DC2626' : '#CBD5E1';
+              return (
+                <div key={v.id} onClick={onCardClick} onMouseEnter={onCardEnter} onMouseLeave={() => setHoveredCardId(null)}
+                  className="fv-card-sleek"
+                  style={{ cursor: 'pointer', margin: '8px 10px', borderRadius: 12, overflow: 'hidden', background: '#FFFFFF',
+                    border: `1px solid ${isSel ? stColor : '#E6EAF1'}`, borderLeft: `4px solid ${stColor}`,
+                    boxShadow: isSel ? `0 6px 18px ${stColor}26` : '0 1px 3px rgba(16,24,40,0.06)', transition: 'all .15s' }}>
+                  <div style={{ padding: '12px 14px' }}>
+                    {/* Identity + status */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+                      <div style={{ flexShrink: 0, width: 42, height: 42, borderRadius: 11, background: `${stColor}15`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <VehicleIcon icon={v.vehicleIcon} color={stColor} size={26} />
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: '#0F172A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.vehicleNumber || vehicleDisplayName(v)}</div>
+                        {v.vehicleName && v.vehicleNumber && <div style={{ fontSize: 12, color: '#94A3B8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.vehicleName}</div>}
+                      </div>
+                      <span style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 20, background: `${stColor}15`, color: stColor, fontSize: 11, fontWeight: 800 }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: stColor }} />
+                        {stLabel}
+                      </span>
+                      <button title="Vehicle details"
+                        onClick={(e) => { e.stopPropagation(); selectVehicle(v); setDrawerVehicle(v); setActiveTab('overview'); }}
+                        style={{ flexShrink: 0, width: 30, height: 30, borderRadius: 8, border: '1px solid #E2E8F0', background: '#F8FAFC', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all .15s' }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = '#3B82F6'; e.currentTarget.style.background = '#EFF6FF'; }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = '#F8FAFC'; }}>
+                        <Ic n="info" size={16} color="#475569" sw={2} />
+                      </button>
+                    </div>
+                    {/* Metric strip */}
+                    <div style={{ display: 'flex', marginTop: 12, border: '1px solid #F1F5F9', borderRadius: 10, overflow: 'hidden' }}>
+                      {[
+                        { label: 'Ignition', el: <Ic n="power" size={16} color={ignColor} sw={2} /> },
+                        { label: 'Speed', el: <span style={{ fontSize: 14, fontWeight: 800, color: (speed ?? 0) > 80 ? '#DC2626' : '#0F172A' }}>{speed != null ? `${speed}` : '—'}</span> },
+                        { label: 'Updated', el: <span style={{ fontSize: 13, fontWeight: 800, color: ageColor }}>{ageLabel || '—'}</span> },
+                      ].map((m, i) => (
+                        <div key={m.label} style={{ flex: 1, padding: '8px 6px', textAlign: 'center', borderLeft: i ? '1px solid #F1F5F9' : 'none' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 18 }}>{m.el}</div>
+                          <div style={{ fontSize: 9.5, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 3 }}>{m.label}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Signals + location */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
+                      {[
+                        { n: 'pin', active: hasCoords, color: '#2563EB' },
+                        { n: 'satellite', active: (sats ?? 0) >= 4, color: '#4F46E5' },
+                        { n: 'signal', active: (gsm ?? 0) > 0, color: '#0891B2' },
+                        { n: 'battery', active: battery != null && battery > 11, color: '#059669' },
+                      ].map(s => <Ic key={s.n} n={s.n} size={15} sw={2} color={s.active ? s.color : '#CBD5E1'} />)}
+                      <span title={geoAddr || ''} style={{ marginLeft: 'auto', fontSize: 11.5, color: '#94A3B8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '62%' }}>
+                        {geoAddr || (geoKey ? 'Locating…' : 'No GPS')}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
             return (
               <div key={v.id}
                 onClick={() => {
@@ -3733,7 +3934,7 @@ const MyFleet = () => {
                     {/* Row 1: reg number + state pill */}
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, marginBottom: 1 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
-                        <span style={{ fontSize: 13, fontWeight: 800, color: '#0F172A', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <span style={{ fontSize: 15, fontWeight: 800, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {v.vehicleNumber || vehicleDisplayName(v)}
                         </span>
                         {v.vehicleNumber && (
@@ -3746,9 +3947,9 @@ const MyFleet = () => {
                       <span title={stateConditionTooltip(lvs)}
                         style={{
                           flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 3,
-                          padding: '2px 7px', borderRadius: 20,
+                          padding: '2px 8px', borderRadius: 20,
                           background: `${stColor}20`, border: `1px solid ${stColor}50`,
-                          fontSize: 9.5, fontWeight: 800, color: stColor, letterSpacing: '0.05em', cursor: 'help',
+                          fontSize: 11, fontWeight: 800, color: stColor, letterSpacing: '0.04em', cursor: 'help',
                         }}>
                         <span style={{ width: 4, height: 4, borderRadius: '50%', background: stColor, flexShrink: 0, boxShadow: stLabel === 'Running' ? `0 0 4px ${stColor}` : 'none' }} />
                         {stLabel.toUpperCase()}
@@ -3759,7 +3960,7 @@ const MyFleet = () => {
                         it appears only in the table view and the vehicle-detail panel) */}
                     {v.vehicleName && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3, overflow: 'hidden' }}>
-                        <span style={{ fontSize: 11, color: '#64748B', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
+                        <span style={{ fontSize: 13, color: '#64748B', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
                           {v.vehicleName}
                         </span>
                       </div>
@@ -3770,7 +3971,7 @@ const MyFleet = () => {
                       {/* Speed chip */}
                       {speed != null && (
                         <span style={{
-                          fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 6,
+                          fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 6,
                           background: speed > 80 ? '#FEF2F2' : '#F0FDF4',
                           color: speed > 80 ? '#DC2626' : '#059669',
                           border: `1px solid ${speed > 80 ? '#FECACA' : '#BBF7D0'}`,
@@ -3778,52 +3979,52 @@ const MyFleet = () => {
                           {speed} km/h
                         </span>
                       )}
-                      {/* Ignition pill */}
-                      <span style={{
-                        fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 6,
-                        background: ign === true ? '#F0FDF4' : '#F8FAFC',
-                        color: ign === true ? '#059669' : '#94A3B8',
-                        border: `1px solid ${ign === true ? '#BBF7D0' : '#E2E8F0'}`,
-                      }}>
-                        {ign === true ? 'IGN ON' : ign === false ? 'IGN OFF' : 'IGN —'}
-                      </span>
-                      {/* Sensor dots */}
+                      {/* Status icons (ignition + GPS / satellites / GSM / battery) */}
                       {(() => {
                         const COVERED = new Set(['ignition','status.ignition','engineOn','latitude','longitude','hasLocation','satellites','gpsData.satellites','gsmSignal','status.gsmSignal','rssi','battery','status.battery','batteryLevel']);
                         const customSensors = (vehicleSensorsCache.get(v.id) || []).filter(s => !s.mappedParameter || !COVERED.has(s.mappedParameter));
+                        const sats = v.deviceStatus?.gpsData?.satellites;
+                        const gsm  = v.deviceStatus?.status?.gsmSignal;
+                        const FADED = '#CBD5E1';
+                        const ignColor = ign === true ? '#059669' : ign === false ? '#DC2626' : FADED;
                         return (<>
+                          <span title={ign === true ? 'Ignition: ON' : ign === false ? 'Ignition: OFF' : 'Ignition: Unknown'} style={{ display: 'inline-flex', alignItems: 'center' }}>
+                            <Ic n="power" size={17} sw={2} color={ignColor} />
+                          </span>
                           {[
-                            { icon: '📍', title: hasCoords ? 'GPS: Active' : 'GPS: No fix', active: hasCoords },
-                            { icon: '🛰️', title: `Satellites: ${v.deviceStatus?.gpsData?.satellites ?? 'N/A'}`, active: (v.deviceStatus?.gpsData?.satellites ?? 0) >= 4 },
-                            { icon: '📶', title: `GSM: ${v.deviceStatus?.status?.gsmSignal ?? 'N/A'}`, active: (v.deviceStatus?.status?.gsmSignal ?? 0) > 0 },
-                            { icon: '🔋', title: `Battery: ${battery != null ? battery + 'V' : 'N/A'}`, active: battery != null && battery > 11 },
+                            { n: 'pin',       title: hasCoords ? 'GPS: Active' : 'GPS: No fix',           active: hasCoords,                 color: '#2563EB' },
+                            { n: 'satellite', title: `Satellites: ${sats ?? 'N/A'}`,                      active: (sats ?? 0) >= 4,          color: '#4F46E5' },
+                            { n: 'signal',    title: `GSM: ${gsm ?? 'N/A'}`,                              active: (gsm ?? 0) > 0,            color: '#0891B2' },
+                            { n: 'battery',   title: `Battery: ${battery != null ? battery + 'V' : 'N/A'}`, active: battery != null && battery > 11, color: '#059669' },
                           ].map(s => (
-                            <span key={s.icon} title={s.title} style={{ fontSize: 11, opacity: s.active ? 1 : 0.2 }}>{s.icon}</span>
+                            <span key={s.n} title={s.title} style={{ display: 'inline-flex', alignItems: 'center' }}>
+                              <Ic n={s.n} size={17} sw={2} color={s.active ? s.color : FADED} />
+                            </span>
                           ))}
                           {customSensors.slice(0, 3).map(s => {
                             const g = v.deviceStatus?.gpsData || {}, st2 = v.deviceStatus?.status || {}, io = g.ioElements || {};
                             const pm = s.mappedParameter; let val;
                             if (pm) { if (pm.startsWith('status.')) val = st2[pm.slice(7)]; else if (pm.startsWith('fuel.')) val = (v.deviceStatus?.fuel || {})[pm.slice(5)]; else if (['speed','latitude','longitude','altitude','satellites'].includes(pm)) val = g[pm]; else { const r = io[pm]; val = r !== undefined ? (typeof r === 'object' && r !== null ? r.value : r) : undefined; } }
-                            return <span key={s.id} title={`${s.name}: ${val !== undefined ? val : 'No data'}`} style={{ fontSize: 11, opacity: val !== undefined ? 1 : 0.2 }}>{sensorIcon(s.name, s.mappedParameter)}</span>;
+                            return <span key={s.id} title={`${s.name}: ${val !== undefined ? val : 'No data'}`} style={{ fontSize: 13, lineHeight: 1, filter: val !== undefined ? 'none' : 'grayscale(1)', opacity: val !== undefined ? 1 : 0.35 }}>{sensorIcon(s.name, s.mappedParameter)}</span>;
                           })}
                         </>);
                       })()}
                       {/* Age */}
                       {ageLabel && (
-                        <span style={{ fontSize: 10, fontWeight: 700, color: ageColor, marginLeft: 'auto' }}>{ageLabel}</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: ageColor, marginLeft: 'auto' }}>{ageLabel}</span>
                       )}
                     </div>
 
                     {/* Row 4: location */}
                     {(geoAddr || (geoKey && !geoAddr)) && (
                       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 3, marginTop: 5, paddingTop: 5, borderTop: '1px solid #F1F5F9' }}>
-                        <Ic n="pin" size={10} color="#94A3B8" sw={2} />
+                        <Ic n="pin" size={12} color="#94A3B8" sw={2} />
                         {geoAddr ? (
-                          <span style={{ fontSize: 10.5, color: '#64748B', lineHeight: 1.4 }}>
+                          <span style={{ fontSize: 12.5, color: '#64748B', lineHeight: 1.4 }}>
                             {geoAddr}
                           </span>
                         ) : (
-                          <span style={{ fontSize: 10.5, color: '#CBD5E1', fontStyle: 'italic' }}>Locating…</span>
+                          <span style={{ fontSize: 12.5, color: '#CBD5E1', fontStyle: 'italic' }}>Locating…</span>
                         )}
                       </div>
                     )}
@@ -3996,13 +4197,36 @@ const MyFleet = () => {
 
       {/* ── MAP AREA — flex:1, takes remaining space between panels ── */}
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden', minWidth: 0 }}>
+        {/* ── Map layer picker (overlay) ── */}
+        <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 1100 }}>
+          <button
+            onClick={() => setLayerMenuOpen(o => !o)}
+            title="Choose map layer"
+            style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid #E2E8F0', borderRadius: 8, padding: '8px 11px', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.18)', fontFamily: 'inherit', fontSize: 12, fontWeight: 700, color: '#1B2A4A' }}>
+            <Ic n="layers" size={16} color="#1B2A4A" />
+            {MAP_LAYER_OPTIONS.find(o => o.id === mapStyle)?.label || 'Layer'}
+          </button>
+          {layerMenuOpen && (
+            <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, background: '#fff', border: '1px solid #E2E8F0', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.18)', padding: 6, minWidth: 180 }}>
+              {MAP_LAYER_OPTIONS.map(opt => (
+                <div key={opt.id} onClick={() => selectMapLayer(opt.id)}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '9px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: mapStyle === opt.id ? '#1D4ED8' : '#334155', background: mapStyle === opt.id ? '#EFF6FF' : 'transparent' }}
+                  onMouseEnter={e => { if (mapStyle !== opt.id) e.currentTarget.style.background = '#F1F5F9'; }}
+                  onMouseLeave={e => { if (mapStyle !== opt.id) e.currentTarget.style.background = 'transparent'; }}>
+                  <span>{opt.label}</span>
+                  {mapStyle === opt.id && <span style={{ color: '#1D4ED8', fontWeight: 800 }}>✓</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
         <MapContainer center={INDIA_CENTER} zoom={5} style={{ position: 'absolute', inset: 0, height: '100%', width: '100%' }} scrollWheelZoom zoomControl={true}>
           <TileLayer
-            key={getMapTileUrl()}
-            url={getMapTileUrl()}
-            attribution={getMapAttribution()}
-            subdomains={getMapSubdomains()}
-            maxZoom={getMapMaxZoom()}
+            key={mapStyle}
+            url={MAP_TILES[mapStyle] || MAP_TILES.voyager}
+            attribution={MAP_ATTRIBUTIONS[mapStyle] || MAP_ATTRIBUTIONS.voyager}
+            subdomains={MAP_SUBDOMAINS[mapStyle] || 'abcd'}
+            maxZoom={MAP_MAXZOOM[mapStyle] || 20}
           />
           <MapResizer />
           {/* When any vehicles are pinned, disable individual-vehicle tracking so
@@ -4024,7 +4248,7 @@ const MyFleet = () => {
             />
           ))}
 
-          <MarkerClusterGroup chunkedLoading iconCreateFunction={createClusterCustomIcon} maxClusterRadius={60} showCoverageOnHover={false} spiderfyOnMaxZoom={true} disableClusteringAtZoom={14}>
+          <MarkerClusterGroup ref={clusterRef} chunkedLoading iconCreateFunction={createClusterCustomIcon} maxClusterRadius={60} showCoverageOnHover={false} spiderfyOnMaxZoom={true} disableClusteringAtZoom={14}>
             {mapVehicles.map(v => {
               const isSel = selectedVehicle?.id === v.id;
               const vState = getVState(v, deviceStatesByType);
@@ -4039,9 +4263,22 @@ const MyFleet = () => {
                   markerRefs={markerRefs}
                   position={[v.coords.lat, v.coords.lng]}
                   icon={makeVehicleIcon(v, isSel, vState.stateColor)}
-                  eventHandlers={{ click: () => selectVehicle(v) }}
+                  eventHandlers={{ click: (e) => { selectVehicle(v); e.target?.openPopup?.(); } }}
                 >
-                  <Tooltip direction="auto" className="fv-tooltip" interactive={true}><VehicleTooltip vehicle={v} /></Tooltip>
+                  <Popup
+                    className="fv-popup"
+                    closeButton
+                    autoClose={false}
+                    closeOnClick={false}
+                    autoPan={true}
+                    autoPanPaddingTopLeft={[24, 28]}
+                    autoPanPaddingBottomRight={[24, 24]}
+                  >
+                    <VehiclePopup
+                      vehicle={v}
+                      address={tableGeoMap.get(`${v.coords.lat.toFixed(4)},${v.coords.lng.toFixed(4)}`)}
+                    />
+                  </Popup>
                 </SmoothMarker>
               );
             })}
@@ -4105,17 +4342,18 @@ const MyFleet = () => {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 240, flex: '0 1 auto' }}>
                     <VehicleIcon icon={sv.vehicleIcon} color={stColor} size={61} />
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 19, fontWeight: 800, color: '#0F172A', lineHeight: 1.15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', letterSpacing: '-0.01em' }}>
-                        {vehicleDisplayName(sv)}
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 5, flexWrap: 'wrap' }}>
-                        {sv.vehicleName && sv.vehicleNumber && (
-                          <span style={{ fontSize: 12, color: '#475569', fontFamily: 'monospace', fontWeight: 600 }}>{sv.vehicleNumber}</span>
-                        )}
+                      {/* Name + device type on one line */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                        <span style={{ fontSize: 19, fontWeight: 800, color: '#0F172A', lineHeight: 1.15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', letterSpacing: '-0.01em' }}>
+                          {vehicleDisplayName(sv)}
+                        </span>
                         {sv.deviceType && (
-                          <span title="GPS device type installed in this vehicle" style={{ fontSize: 10, background: '#1D4ED8', color: '#FFFFFF', padding: '2px 8px', fontWeight: 700, letterSpacing: '0.04em' }}>{sv.deviceType}</span>
+                          <span title="GPS device type installed in this vehicle" style={{ flexShrink: 0, fontSize: 10, background: '#1D4ED8', color: '#FFFFFF', padding: '2px 8px', fontWeight: 700, letterSpacing: '0.04em' }}>{sv.deviceType}</span>
                         )}
                       </div>
+                      {sv.vehicleName && sv.vehicleNumber && (
+                        <div style={{ fontSize: 12, color: '#475569', fontFamily: 'monospace', fontWeight: 600, marginTop: 4 }}>{sv.vehicleNumber}</div>
+                      )}
                     </div>
                   </div>
 
@@ -4246,6 +4484,7 @@ const MyFleet = () => {
                   { id: 'reports',  label: 'REPORTS',  icon: 'chart',    hint: 'Daily, engine-hours and fuel reports with export' },
                   { id: 'sensors',  label: 'SENSORS',  icon: 'radio',    hint: 'Custom sensor channels configured for this vehicle' },
                   { id: 'edit',     label: 'EDIT',     icon: 'edit',     hint: 'Edit vehicle name, icon and thresholds' },
+                  { id: 'history',  label: 'HISTORY',  icon: 'clock',    hint: 'Audit trail of edits to this vehicle' },
                 ].map(tab => (
                   <button key={tab.id} onClick={() => setActiveTab(tab.id)}
                     title={tab.hint}
@@ -4302,7 +4541,11 @@ const MyFleet = () => {
                       openSensorForm={openSensorForm} handleSaveSensor={handleSaveSensor} handleDeleteSensor={handleDeleteSensor} />
                   )}
                   {activeTab === 'edit' && (
-                    <EditTab editForm={editForm} setEditForm={setEditForm} saving={saving} handleSaveEdit={handleSaveEdit} currentImei={selectedVehicle?.imei || ''} onRequestImeiEdit={requestImeiEdit} />
+                    <EditTab editForm={editForm} setEditForm={setEditForm} saving={saving} handleSaveEdit={handleSaveEdit}
+                      canReassign={isPapaOrDealer && clientNodes.length > 0} onReassign={() => openReassign(sv)} />
+                  )}
+                  {activeTab === 'history' && (
+                    <HistoryTab vehicle={sv} />
                   )}
                 </div>
               </div>
@@ -4370,6 +4613,39 @@ const MyFleet = () => {
       {confirmModalsJsx}
 
       {/* ══════ MODALS (fixed — work anywhere in DOM) ══════ */}
+      {reassignTarget && (
+        <div onClick={() => !reassigning && setReassignTarget(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: 12, width: 440, maxWidth: '92vw', boxShadow: '0 20px 60px rgba(0,0,0,0.3)', overflow: 'hidden' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #E2E8F0' }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: '#0F172A' }}>Transfer Vehicle</div>
+              <div style={{ fontSize: 12.5, color: '#64748B', marginTop: 2 }}>{reassignTarget.vehicleNumber || reassignTarget.vehicleName || `Vehicle #${reassignTarget.id}`}</div>
+            </div>
+            <div style={{ padding: '18px 20px' }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', display: 'block', marginBottom: 8 }}>Assign to client</label>
+              <select value={reassignClientId} onChange={e => setReassignClientId(e.target.value)}
+                style={{ width: '100%', padding: '10px 12px', border: '1px solid #CBD5E1', borderRadius: 8, fontSize: 13, background: '#fff' }}>
+                <option value="">Select a client…</option>
+                {clientNodes.filter(n => n.id !== reassignTarget.clientId).map(n => (
+                  <option key={n.id} value={n.id}>{`${'— '.repeat(n.depth || 0)}${n.name}${n.email ? ` (${n.email})` : ''}`}</option>
+                ))}
+              </select>
+              <div style={{ fontSize: 11.5, color: '#94A3B8', marginTop: 10, lineHeight: 1.5 }}>
+                Trips, sensors and history move with the vehicle. It will be removed from this client's groups, geofences, alerts and active shares.
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', padding: '14px 20px', borderTop: '1px solid #E2E8F0' }}>
+              <button onClick={() => setReassignTarget(null)} disabled={reassigning}
+                style={{ padding: '9px 16px', border: '1px solid #E2E8F0', background: '#fff', borderRadius: 8, fontSize: 13, fontWeight: 700, color: '#64748B', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={handleReassign} disabled={!reassignClientId || reassigning}
+                style={{ padding: '9px 18px', border: 'none', background: (!reassignClientId || reassigning) ? '#FDBA74' : '#EA580C', color: '#fff', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: (!reassignClientId || reassigning) ? 'not-allowed' : 'pointer' }}>
+                {reassigning ? 'Transferring…' : 'Transfer'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showGroupModal && (
         <Modal title={editingGroup ? 'Edit Group' : 'New Group'} onClose={() => setShowGroupModal(false)}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -5568,17 +5844,77 @@ const SensorsTab = ({ vehicle, sensors, loadingSensors, showSensorForm, sensorFo
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Edit Tab
+// History Tab — audit trail of vehicle edits
 // ══════════════════════════════════════════════════════════════════════════════
-const EditTab = ({ editForm, setEditForm, saving, handleSaveEdit, currentImei = '', onRequestImeiEdit }) => {
-  const [imeiUnlocked, setImeiUnlocked] = useState(false);
-  const [imeiDraft, setImeiDraft] = useState(currentImei);
+const HistoryTab = ({ vehicle }) => {
+  const [rows, setRows] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState(null);
 
   useEffect(() => {
-    setImeiDraft(currentImei);
-    setImeiUnlocked(false);
-  }, [currentImei]);
+    if (!vehicle?.id) return;
+    let alive = true;
+    setLoading(true); setErr(null);
+    getVehicleEditHistory(vehicle.id)
+      .then(r => {
+        if (!alive) return;
+        const d = r.data?.data || r.data || {};
+        setRows(Array.isArray(d) ? d : (d.rows || []));
+      })
+      .catch(e => { if (alive) setErr(e.response?.data?.message || e.message || 'Failed to load history'); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [vehicle?.id]);
 
+  const fmtVal = (v) => (v === null || v === undefined || v === '') ? '—' : String(v);
+  const fmtWhen = (t) => { try { return new Date(t).toLocaleString(); } catch { return String(t || ''); } };
+
+  if (loading) return <div style={{ padding: 24, color: C.textLight, fontSize: 13 }}>Loading edit history…</div>;
+  if (err)     return <div style={{ padding: 24, color: '#DC2626', fontSize: 13 }}>{err}</div>;
+  if (!rows || rows.length === 0)
+    return (
+      <div style={{ padding: 32, textAlign: 'center', color: C.textLight }}>
+        <Ic n="clock" size={28} color="#CBD5E1" />
+        <div style={{ marginTop: 10, fontSize: 13, fontWeight: 600 }}>No edits recorded yet</div>
+        <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 4 }}>Changes made from the Edit tab will appear here.</div>
+      </div>
+    );
+
+  const th = { textAlign: 'left', padding: '9px 12px', fontSize: 10.5, fontWeight: 800, color: C.textLight, textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: `1px solid ${C.border}`, whiteSpace: 'nowrap' };
+  const td = { padding: '10px 12px', fontSize: 12.5, color: C.text, borderBottom: `1px solid ${C.border}`, verticalAlign: 'top' };
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'inherit' }}>
+        <thead>
+          <tr>
+            <th style={th}>When</th>
+            <th style={th}>Field</th>
+            <th style={th}>From</th>
+            <th style={th}>To</th>
+            <th style={th}>Changed By</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(r => (
+            <tr key={r.id}>
+              <td style={{ ...td, whiteSpace: 'nowrap', color: C.textLight }}>{fmtWhen(r.changedAt)}</td>
+              <td style={{ ...td, fontWeight: 700 }}>{r.fieldLabel || r.field}</td>
+              <td style={{ ...td, fontFamily: 'monospace', color: '#B91C1C' }}>{fmtVal(r.oldValue)}</td>
+              <td style={{ ...td, fontFamily: 'monospace', color: '#15803D', fontWeight: 700 }}>{fmtVal(r.newValue)}</td>
+              <td style={{ ...td, whiteSpace: 'nowrap' }}>{r.userName || (r.userId ? `User #${r.userId}` : '—')}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Edit Tab
+// ══════════════════════════════════════════════════════════════════════════════
+const EditTab = ({ editForm, setEditForm, saving, handleSaveEdit, canReassign, onReassign }) => {
   // ── Single unified grid ────────────────────────────────────────────────
   // All sections share one CSS grid that spans the full width of the bottom
   // sheet. Section headings are full-row separators (gridColumn: 1 / -1) so
@@ -5653,48 +5989,22 @@ const EditTab = ({ editForm, setEditForm, saving, handleSaveEdit, currentImei = 
       {/* ── Device & SIMs ───────────────────────────────────────────────── */}
       {sectionHd('radio', 'Device & SIMs')}
 
-      <div style={fullRow}>
-        <label className="fv-label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span>IMEI Number</span>
-          {!imeiUnlocked ? (
-            <button type="button" onClick={() => setImeiUnlocked(true)}
-              style={{ background: '#FEF3C7', border: '1px solid #FCD34D', color: '#92400E', padding: '3px 10px', borderRadius: 0, fontSize: 11, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.04em' }}>
-              🔒 UNLOCK TO EDIT
-            </button>
-          ) : (
-            <button type="button" onClick={() => { setImeiUnlocked(false); setImeiDraft(currentImei); }}
-              style={{ background: '#F1F5F9', border: '1px solid #CBD5E1', color: '#475569', padding: '3px 10px', borderRadius: 0, fontSize: 11, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.04em' }}>
-              CANCEL
-            </button>
-          )}
-        </label>
+      <div>
+        <label className="fv-label">IMEI Number</label>
         <input
           className="fv-input fv-mono"
-          value={imeiDraft || ''}
-          onChange={e => setImeiDraft(e.target.value)}
-          readOnly={!imeiUnlocked}
+          value={editForm.imei || ''}
+          onChange={e => setEditForm({ ...editForm, imei: e.target.value })}
           maxLength={20}
-          placeholder="Device IMEI"
+          placeholder="15-digit device IMEI"
         />
-        {imeiUnlocked && (
-          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            <button type="button" onClick={() => onRequestImeiEdit?.(imeiDraft)}
-              disabled={!imeiDraft.trim() || imeiDraft.trim() === currentImei}
-              style={{ padding: '10px 18px', border: 'none', borderRadius: 0,
-                background: (!imeiDraft.trim() || imeiDraft.trim() === currentImei) ? '#FCA5A5' : '#DC2626',
-                color: '#fff', fontSize: 12, fontWeight: 700, letterSpacing: '0.04em',
-                cursor: (!imeiDraft.trim() || imeiDraft.trim() === currentImei) ? 'not-allowed' : 'pointer' }}>
-              CHANGE IMEI…
-            </button>
-          </div>
-        )}
-        <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 8, lineHeight: 1.5 }}>
-          Changing IMEI rebinds the vehicle to a different GPS device. A confirmation phrase will be required.
+        <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 6, lineHeight: 1.4 }}>
+          Changing IMEI rebinds the vehicle to a different GPS device.
         </div>
       </div>
 
       <div>
-        <label className="fv-label">SIM 1 <span style={{ color: '#94a3b8', fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}>(Optional)</span></label>
+        <label className="fv-label">SIM 1 / Mobile No <span style={{ color: '#94a3b8', fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}>(Optional)</span></label>
         <input className="fv-input fv-mono" value={editForm.sim1 || ''} onChange={e => setEditForm({ ...editForm, sim1: e.target.value })} maxLength={20} placeholder="e.g. 9876543210" />
       </div>
       <div>
@@ -5761,6 +6071,25 @@ const EditTab = ({ editForm, setEditForm, saving, handleSaveEdit, currentImei = 
           value={editForm.fuelFillThreshold || 5}
           onChange={e => setEditForm({ ...editForm, fuelFillThreshold: Number(e.target.value) })} />
       </div>
+
+      {/* ── Ownership / Transfer ───────────────────────────────────────── */}
+      {canReassign && (
+        <>
+          {sectionHd('users', 'Ownership')}
+          <div style={fullRow}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', padding: '10px 12px', background: '#FFF7ED', border: '1px solid #FED7AA' }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#9A3412' }}>Transfer to another client</div>
+                <div style={{ fontSize: 11.5, color: '#B45309', marginTop: 2 }}>Reassigns this vehicle and removes it from this client's groups, geofences, alerts and shares. History stays with the vehicle.</div>
+              </div>
+              <button type="button" onClick={onReassign}
+                style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px', border: 'none', background: '#EA580C', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.03em' }}>
+                <Ic n="share" size={15} /> TRANSFER…
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* ── Save (full row, large) ─────────────────────────────────────── */}
       <div style={{ ...fullRow, display: 'flex', justifyContent: 'flex-end', marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>

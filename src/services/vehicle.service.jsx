@@ -22,6 +22,14 @@ export const updateVehicle = (id, data) => api.put(`/vehicles/${id}`, data);
 /** DELETE /api/vehicles/:id */
 export const deleteVehicle = (id) => api.delete(`/vehicles/${id}`);
 
+/** GET /api/vehicles/:id/edit-history - audit trail of vehicle edits */
+export const getVehicleEditHistory = (id, params) =>
+  api.get(`/vehicles/${id}/edit-history`, { params });
+
+/** POST /api/vehicles/:id/reassign - transfer a vehicle to another client */
+export const reassignVehicle = (id, targetClientId) =>
+  api.post(`/vehicles/${id}/reassign`, { targetClientId });
+
 /** GET /api/vehicles/:id/sync - Sync vehicle data from server (MySQL + MongoDB GPS) */
 export const syncVehicleData = (id) => api.get(`/vehicles/${id}/sync`);
 

@@ -21,13 +21,17 @@ const Layout = () => {
       <div style={{
         marginLeft: `${sidebarWidth}px`,
         flex: 1,
+        minWidth: 0, // allow this column to shrink so wide children scroll internally
         display: 'flex',
         flexDirection: 'column',
         transition: 'margin-left 0.22s ease',
         height: '100vh',
       }}>
         <Header onToggleSidebar={() => setCollapsed((c) => !c)} />
-        <main style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '24px' }}>
+        {/* Scroll vertically only — wide content (e.g. the fleet table) scrolls
+            within its own .table-container, so toolbars/filters above the table
+            stay fixed within the page width instead of scrolling sideways. */}
+        <main style={{ flex: 1, minHeight: 0, minWidth: 0, overflowY: 'auto', overflowX: 'hidden', padding: '24px' }}>
           <Outlet />
         </main>
       </div>
