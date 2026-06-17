@@ -18,13 +18,13 @@ const ALL_DASH_CARDS_DEF = [
   { id: 'challans',    title: 'Pending Challans',    icon: '📋' },
   { id: 'renewals',    title: 'Upcoming Renewals',   icon: '📅' },
   { id: 'activity',    title: 'Activity (7d)',       icon: '📈' },
-  // Fleet-state cards — counts derived live from vehicle state evaluator
-  { id: 'state_offline',  title: 'Offline (state)',   icon: '📵' },
+  // Fleet-state cards — counts derived live from the canonical state model
+  // (Running / Stopped / Offline / No Data — mutually exclusive).
+  { id: 'state_offline',  title: 'Offline (state)',   icon: '⚫' },
   { id: 'state_speeding', title: 'Speeding (state)',  icon: '🏎️' },
   { id: 'state_running',  title: 'Running (state)',   icon: '🟢' },
-  { id: 'state_idle',     title: 'Idle (state)',      icon: '⏸️' },
   { id: 'state_stopped',  title: 'Stopped (state)',   icon: '🔴' },
-  { id: 'state_online',   title: 'Online (state)',    icon: '🌐' },
+  { id: 'state_nodata',   title: 'No Data (state)',   icon: '📵' },
 ];
 const DEFAULT_DASH_CARDS   = ['registered','active','overspeed','inactive','gps_active','challans','renewals'];
 
@@ -32,10 +32,11 @@ const ALL_FLEET_CHIPS_DEF = [
   { id: 'total',     label: 'Total',     icon: '🚗', dot: '#64748b' },
   { id: 'running',   label: 'Running',   icon: '🟢', dot: '#22c55e' },
   { id: 'stopped',   label: 'Stopped',   icon: '🔴', dot: '#ef4444' },
-  { id: 'idle',      label: 'Idle',      icon: '⏸️', dot: '#8b5cf6' },
+  { id: 'offline',   label: 'Offline',   icon: '⚫', dot: '#6b7280' },
+  { id: 'nodata',    label: 'No Data',   icon: '📵', dot: '#94a3b8' },
   { id: 'overspeed', label: 'Overspeed', icon: '🏎️', dot: '#dc2626' },
 ];
-const DEFAULT_FLEET_CHIPS = ['total','running','stopped'];
+const DEFAULT_FLEET_CHIPS = ['total','running','stopped','offline','nodata'];
 
 const inputStyle = {
   width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0',

@@ -5,7 +5,7 @@ import { getActivities } from '../services/activity.service';
 import { getSettings } from '../services/settings.service';
 import { getVehicles } from '../services/vehicle.service';
 import { getDeviceConfigs } from '../services/master.service';
-import { getVehicleState } from '../utils/vehicleState';
+import { classifyVehicleState } from '../utils/vehicleState';
 import { useAuth } from '../context/AuthContext';
 import {
   TruckIcon,
@@ -256,18 +256,18 @@ const Dashboard = () => {
     });
   }, []);
 
-  // ── Computed state counts (lower-cased state names from evaluator) ──────
+  // ── Computed state counts — canonical, mutually-exclusive states ────────
+  // Same classifier MyFleet uses, so the two pages can never disagree.
   const stateCounts = useMemo(() => {
     const counts = {};
     if (!vehicles.length) return counts;
     vehicles.forEach(v => {
-      const states = deviceStatesByType[v.deviceType] || [];
-      const result = getVehicleState(v.deviceStatus, states);
-      const key = (result?.stateName || 'online').toLowerCase().replace(/\s+/g, '_');
+      const result = classifyVehicleState(v.deviceStatus, { vehicleId: v.id });
+      const key = (result?.stateName || 'no_data').toLowerCase().replace(/\s+/g, '_');
       counts[key] = (counts[key] || 0) + 1;
     });
     return counts;
-  }, [vehicles, deviceStatesByType]);
+  }, [vehicles]);
 
   // ── "No GPS" vehicles — not a single packet has ever arrived from the device.
   // (No GPS fix AND no server-recorded update timestamp.) ────────────────────
@@ -470,11 +470,11 @@ const Dashboard = () => {
           // ── Live state cards (require vehicle list fetched above) ─────────
           state_offline: {
             label: 'Offline', value: fmtInt(stateCounts.offline || 0),
-            Icon: ExclamationTriangleIcon, to: '/my-fleet', subtitle: 'silent ≥ 2 min',
+            Icon: ExclamationTriangleIcon, to: '/my-fleet', subtitle: 'no data ≥ 10 min',
             gradient: 'linear-gradient(135deg, #64748B 0%, #334155 100%)',
           },
           state_speeding: {
-            label: 'Speeding', value: fmtInt(stateCounts.speeding || 0),
+            label: 'Speeding', value: fmtInt(overspeedVehicles.length || 0),
             Icon: BoltIcon, to: '/my-fleet', subtitle: 'over threshold',
             gradient: 'linear-gradient(135deg, #DC2626 0%, #991B1B 100%)',
           },
@@ -483,20 +483,15 @@ const Dashboard = () => {
             Icon: CheckCircleIcon, to: '/my-fleet', subtitle: 'in motion',
             gradient: 'linear-gradient(135deg, #16A34A 0%, #047857 100%)',
           },
-          state_idle: {
-            label: 'Idle', value: fmtInt(stateCounts.idle || 0),
-            Icon: ClockIcon, to: '/my-fleet', subtitle: 'engine on, parked',
-            gradient: 'linear-gradient(135deg, #D97706 0%, #92400E 100%)',
-          },
           state_stopped: {
             label: 'Stopped', value: fmtInt(stateCounts.stopped || 0),
-            Icon: XCircleIcon, to: '/my-fleet', subtitle: 'engine off',
+            Icon: XCircleIcon, to: '/my-fleet', subtitle: 'parked / engine off',
             gradient: 'linear-gradient(135deg, #EF4444 0%, #B91C1C 100%)',
           },
-          state_online: {
-            label: 'Online', value: fmtInt(stateCounts.online || 0),
-            Icon: ShieldCheckIcon, to: '/my-fleet', subtitle: 'reachable',
-            gradient: 'linear-gradient(135deg, #0EA5E9 0%, #0369A1 100%)',
+          state_nodata: {
+            label: 'No Data', value: fmtInt(stateCounts.no_data || 0),
+            Icon: ShieldCheckIcon, to: '/my-fleet', subtitle: 'never connected',
+            gradient: 'linear-gradient(135deg, #64748B 0%, #94A3B8 100%)',
           },
         };
 

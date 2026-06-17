@@ -19,7 +19,7 @@ import {
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { getClientTree } from '../services/user.service';
-import { getVehicleState } from '../utils/vehicleState';
+import { classifyVehicleState } from '../utils/vehicleState';
 import {
   pushPosition, clearBuffers, getInterpolated, isMoving, getLatest,
   DISPLAY_LAG_MS,
@@ -186,73 +186,22 @@ const getVehicleCoords = (v) => {
 const getIgnition  = (v) => v.deviceStatus?.status?.ignition ?? null;
 const getSpeed     = (v) => Number(v.deviceStatus?.gpsData?.speed || v.deviceStatus?.gpsData?.spd || 0);
 
-// State stickiness — keyed by vehicleId, tracks { state, since }.
-// Prevents rapid Offline↔Running↔Stopped flicker by requiring a different
-// state to be sustained for STATE_MIN_DWELL_MS before transitioning.
-const STATE_MIN_DWELL_MS = 30_000; // 30 s — a state must hold this long to transition
-const _stateStickiness   = new Map();
-const _pendingState      = new Map(); // vehicleId → { state, firstSeen } for transition candidates
-
 // A vehicle that has never received a single packet: no real last-contact time
 // and no GPS fix at all. Such vehicles are "No Data" — they must NOT be
-// classified Running/Stopped (which the ignition default would otherwise do).
+// classified Running/Stopped.
 const hasNoData = (v) =>
   !v?.deviceStatus?.lastUpdate &&
   !v?.deviceStatus?.gpsData?.timestamp &&
   !v?.deviceStatus?.gpsData?.latitude;
 
-const _rawGetVState = (v, statesMap) => {
-  // Zero-packet vehicles short-circuit to a dedicated "No Data" state so they
-  // are counted only under the No Data card and never under Running/Stopped/etc.
-  if (hasNoData(v)) return { stateName: 'No Data', stateColor: '#64748B', stateIcon: '📵', matchedConditions: [] };
-
-  const states = statesMap?.[v.deviceType?.toUpperCase()];
-  if (states?.length) {
-    const result = getVehicleState(v.deviceStatus, states);
-    if (result) return result;
-  }
-  const ign = getIgnition(v);
-  if (ign === true)  return { stateName: 'Running',  stateColor: '#059669', stateIcon: '🟢', matchedConditions: [{ field: 'ignition', operator: 'eq', expected: true, actual: true }] };
-  if (ign === false) return { stateName: 'Stopped',  stateColor: '#ef4444', stateIcon: '🔴', matchedConditions: [{ field: 'ignition', operator: 'eq', expected: false, actual: false }] };
-  return { stateName: 'Unknown', stateColor: '#94a3b8', stateIcon: '', matchedConditions: [] };
-};
-
-// Evaluates vehicle state with stickiness applied.
-// First evaluation: state is locked in immediately.
-// Subsequent evaluations: a different state must hold for STATE_MIN_DWELL_MS
-// before being applied — this absorbs evaluation-to-evaluation flicker.
-const getVState = (v, statesMap) => {
-  const fresh = _rawGetVState(v, statesMap);
-  if (!v?.id) return fresh;
-
-  const now    = Date.now();
-  const sticky = _stateStickiness.get(v.id);
-
-  if (!sticky) {
-    _stateStickiness.set(v.id, { state: fresh, since: now });
-    _pendingState.delete(v.id);
-    return fresh;
-  }
-
-  if (fresh.stateName === sticky.state.stateName) {
-    // Same state confirmed — discard any pending transition.
-    _pendingState.delete(v.id);
-    return sticky.state;
-  }
-
-  // Different state — track when we first saw it; only apply once it has
-  // persisted for STATE_MIN_DWELL_MS.
-  const pending = _pendingState.get(v.id);
-  if (!pending || pending.state.stateName !== fresh.stateName) {
-    _pendingState.set(v.id, { state: fresh, firstSeen: now });
-    return sticky.state; // hold previous state during the dwell window
-  }
-  if (now - pending.firstSeen >= STATE_MIN_DWELL_MS) {
-    _stateStickiness.set(v.id, { state: fresh, since: now });
-    _pendingState.delete(v.id);
-    return fresh;
-  }
-  return sticky.state; // still within dwell window
+// Single source of truth for a vehicle's state. Delegates to the canonical,
+// industry-standard classifier (Running / Stopped / Offline / No Data) which is
+// mutually exclusive and inherently stable — no per-render stickiness needed.
+// `statesMap` is accepted for call-site compatibility but no longer used: the
+// fleet state is now deterministic, not driven by per-device condition lists.
+const getVState = (v, _statesMap) => {
+  const r = classifyVehicleState(v?.deviceStatus, { vehicleId: v?.id });
+  return { ...r, matchedConditions: [] };
 };
 const vehicleDisplayName = (v) => (v.vehicleName || v.vehicleNumber || `Vehicle #${v.id}`).toUpperCase();
 
@@ -271,11 +220,11 @@ const ALL_FLEET_CHIPS = [
   { id: 'total',     label: 'Total',     dot: '#64748b', gradient: 'linear-gradient(135deg, #1D4ED8 0%, #3B82F6 100%)', shadow: '0 4px 14px rgba(37,99,235,0.28)',  icon: '🚗' },
   { id: 'running',   label: 'Running',   dot: '#22c55e', gradient: 'linear-gradient(135deg, #047857 0%, #10B981 100%)', shadow: '0 4px 14px rgba(5,150,105,0.28)',   icon: '🟢' },
   { id: 'stopped',   label: 'Stopped',   dot: '#ef4444', gradient: 'linear-gradient(135deg, #B91C1C 0%, #EF4444 100%)', shadow: '0 4px 14px rgba(220,38,38,0.28)',   icon: '🔴' },
-  { id: 'idle',      label: 'Idle',      dot: '#8b5cf6', gradient: 'linear-gradient(135deg, #6D28D9 0%, #8B5CF6 100%)', shadow: '0 4px 14px rgba(109,40,217,0.28)',  icon: '⏸️' },
+  { id: 'offline',   label: 'Offline',   dot: '#6b7280', gradient: 'linear-gradient(135deg, #374151 0%, #6B7280 100%)', shadow: '0 4px 14px rgba(55,65,81,0.28)',    icon: '⚫' },
   { id: 'overspeed', label: 'Overspeed', dot: '#dc2626', gradient: 'linear-gradient(135deg, #991B1B 0%, #DC2626 100%)', shadow: '0 4px 14px rgba(153,27,27,0.28)',   icon: '⚠️' },
-  { id: 'nodata',    label: 'No Data',   dot: '#94A3B8', gradient: 'linear-gradient(135deg, #475569 0%, #64748B 100%)', shadow: '0 4px 14px rgba(100,116,139,0.28)', icon: '📵' },
+  { id: 'nodata',    label: 'No Data',   dot: '#94A3B8', gradient: 'linear-gradient(135deg, #64748B 0%, #94A3B8 100%)', shadow: '0 4px 14px rgba(100,116,139,0.28)', icon: '📵' },
 ];
-const DEFAULT_FLEET_CHIPS = ['total', 'running', 'stopped', 'nodata'];
+const DEFAULT_FLEET_CHIPS = ['total', 'running', 'stopped', 'offline', 'nodata'];
 
 function getVisibleFleetChips() {
   try {
@@ -705,7 +654,7 @@ const MapResizer = () => {
 // Opens automatically when a vehicle is focused on the map (no hover needed) and
 // is dismissed with the popup's close button. Shows the reverse-geocoded
 // address (like the table / cards) rather than raw coordinates.
-const VehiclePopup = ({ vehicle, address }) => {
+const VehiclePopup = ({ vehicle, address, state }) => {
   const ign    = getIgnition(vehicle);
   const gps    = vehicle.deviceStatus?.gpsData;
   const fuel   = vehicle.deviceStatus?.fuel;
@@ -714,8 +663,11 @@ const VehiclePopup = ({ vehicle, address }) => {
   const trip   = vehicle.deviceStatus?.trip;
   const coords = getVehicleCoords(vehicle);
 
-  const ignColor = ign === true ? '#059669' : ign === false ? '#DC2626' : '#94A3B8';
-  const ignLabel = ign === true ? 'Running' : ign === false ? 'Engine Off' : 'Unknown';
+  // Header reflects the SAME resolved vehicle state as the list badge, so the
+  // popup and the list never disagree. Fall back to an ignition label only if
+  // no state was resolved.
+  const ignColor = state?.stateColor || (ign === true ? '#059669' : ign === false ? '#DC2626' : '#94A3B8');
+  const ignLabel = state?.stateName  || (ign === true ? 'Running' : ign === false ? 'Engine Off' : 'Unknown');
 
   const metrics = [];
   if (gps?.speed != null)             metrics.push({ label: 'Speed',   value: `${gps.speed} km/h`, color: gps.speed > 80 ? '#DC2626' : '#0F172A' });
@@ -857,7 +809,7 @@ const MyFleet = () => {
   const [activeTab, setActiveTab] = useState('overview');
   const [search, setSearch] = useState('');
   const [searchType, setSearchType] = useState('all'); // 'all'|'vehicleNumber'|'vehicleName'|'imei'|'sim'|'deviceType'|'branch'
-  const [statusFilter, setStatusFilter] = useState(new Set(['Running', 'Stopped', 'Unknown']));
+  const [statusFilter, setStatusFilter] = useState(new Set(['Running', 'Stopped', 'Offline', 'No Data']));
   const [chipFilter, setChipFilter] = useState(null); // null = all, or chip id string
   // Map tile layer — reactive copy of the saved preference so the on-map layer
   // picker updates the tiles immediately.
@@ -1519,6 +1471,30 @@ const MyFleet = () => {
     finally { setDeleting(false); }
   };
 
+  // Populate the edit form from a vehicle's current values (used by both the
+  // map-list selection and the details-popup open path).
+  const fillEditForm = (v) => {
+    setEditForm({
+      vehicleNumber: v.vehicleNumber || '', vehicleName: v.vehicleName || '', branch: v.branch || '',
+      chasisNumber: v.chasisNumber || '', engineNumber: v.engineNumber || '',
+      imei: v.imei || '', sim1: v.sim1 || '', sim2: v.sim2 || '',
+      deviceName: v.deviceName || '', deviceType: v.deviceType || '',
+      serverIp: v.serverIp || '', serverPort: v.serverPort || '',
+      vehicleIcon: v.vehicleIcon || 'car', status: v.status || 'active',
+      idleThreshold: v.idleThreshold || 5, fuelFillThreshold: v.fuelFillThreshold || 5,
+      fuelSupported: !!v.fuelSupported,
+      fuelTankCapacity: v.fuelTankCapacity || '',
+    });
+  };
+
+  // Open the details popup without focusing/centering the vehicle on the map.
+  const openDetails = (v) => {
+    setDrawerVehicle(v);
+    setActiveTab('overview');
+    setReportData(null);
+    fillEditForm(v);
+  };
+
   const selectVehicle = (v) => {
     // Close the detail sheet when a different vehicle is selected
     setDrawerVehicle(cur => (cur && cur.id !== v.id) ? null : cur);
@@ -1532,17 +1508,7 @@ const MyFleet = () => {
     // a later poll may resolve them and the user expects the next click to
     // re-fly.  MapController gates flyTo on mapCenter being non-null.
     setMapFocusKey(k => k + 1);
-    setEditForm({
-      vehicleNumber: v.vehicleNumber || '', vehicleName: v.vehicleName || '', branch: v.branch || '',
-      chasisNumber: v.chasisNumber || '', engineNumber: v.engineNumber || '',
-      imei: v.imei || '', sim1: v.sim1 || '', sim2: v.sim2 || '',
-      deviceName: v.deviceName || '', deviceType: v.deviceType || '',
-      serverIp: v.serverIp || '', serverPort: v.serverPort || '',
-      vehicleIcon: v.vehicleIcon || 'car', status: v.status || 'active',
-      idleThreshold: v.idleThreshold || 5, fuelFillThreshold: v.fuelFillThreshold || 5,
-      fuelSupported: !!v.fuelSupported,
-      fuelTankCapacity: v.fuelTankCapacity || '',
-    });
+    fillEditForm(v);
   };
 
   const requestImeiEdit = (newImei) => {
@@ -1577,7 +1543,10 @@ const MyFleet = () => {
   };
 
   const handleSaveEdit = async () => {
-    if (!selectedVehicle) return;
+    // The edit form lives in the details drawer; fall back to the map-selected
+    // vehicle for the (legacy) side-panel edit tab.
+    const target = drawerVehicle || selectedVehicle;
+    if (!target) return;
     setSaving(true);
     try {
       // IMEI is now an editable field in this form and saved with everything else.
@@ -1593,10 +1562,11 @@ const MyFleet = () => {
         setSaving(false);
         return;
       }
-      const r = await updateVehicle(selectedVehicle.id, payload);
+      const r = await updateVehicle(target.id, payload);
       const u = r.data?.data || r.data;
       setVehicles(p => p.map(x => x.id === u.id ? { ...x, ...u } : x));
-      setSelectedVehicle(p => ({ ...p, ...u }));
+      setSelectedVehicle(p => (p && p.id === u.id) ? { ...p, ...u } : p);
+      setDrawerVehicle(p => (p && p.id === u.id) ? { ...p, ...u } : p);
       toast.success('Vehicle updated');
     } catch (e) { toast.error(e.message || 'Update failed'); }
     finally { setSaving(false); }
@@ -1786,13 +1756,15 @@ const MyFleet = () => {
         }
       });
     }
-    if (statusFilter.size < 3) {
-      list = list.filter(v => statusFilter.has(getVState(v, deviceStatesByType).stateName));
+    if (statusFilter.size < 4) {
+      list = list.filter(v => statusFilter.has(getVState(v).stateName));
     }
     // Chip filter — stat card / HudChip click filtering. Supports:
-    //   'total'                → no filter
-    //   'no_gps' / 'overspeed' → virtual (computed from deviceStatus)
-    //   'state:<stateName>'    → matches configured state from Master Settings
+    //   'total'                       → no filter
+    //   'no_gps' / 'overspeed'        → virtual (computed from deviceStatus)
+    //   'running'/'stopped'/'offline' → canonical state buckets
+    //   'nodata'                      → never-connected vehicles
+    const CHIP_STATE = { running: 'Running', stopped: 'Stopped', offline: 'Offline' };
     if (chipFilter) {
       const _fleetSpeedThresh = parseInt(localStorage.getItem('fleet-speed-threshold') || '80');
       list = list.filter(v => {
@@ -1800,9 +1772,7 @@ const MyFleet = () => {
         if (chipFilter === 'overspeed') return (v.deviceStatus?.gpsData?.speed ?? 0) > _fleetSpeedThresh;
         if (chipFilter === 'nodata')    return hasNoData(v);
         if (chipFilter === 'total')     return true;
-        if (chipFilter.startsWith('state:')) {
-          return getVState(v, deviceStatesByType).stateName === chipFilter.slice(6);
-        }
+        if (CHIP_STATE[chipFilter])     return getVState(v).stateName === CHIP_STATE[chipFilter];
         return true;
       });
     }
@@ -1817,7 +1787,7 @@ const MyFleet = () => {
             case 'sim':        return (v.sim1 || v.sim2 || '').toLowerCase();
             case 'regNo':      return (v.vehicleNumber || '').toLowerCase();
             case 'imei':       return (v.imei || '').toLowerCase();
-            case 'status':     { const s = getVState(v, deviceStatesByType).stateName; return s === 'Running' ? 0 : s === 'Stopped' ? 1 : 2; }
+            case 'status':     { const s = getVState(v).stateName; return s === 'Running' ? 0 : s === 'Stopped' ? 1 : s === 'Offline' ? 2 : 3; }
             case 'speed':      return v.deviceStatus?.gpsData?.speed ?? -1;
             case 'fuel':       return v.deviceStatus?.fuel?.level ?? v.deviceStatus?.fuel?.llsLevel ?? -1;
             case 'battery':    return v.deviceStatus?.status?.battery ?? -1;
@@ -1981,70 +1951,26 @@ const MyFleet = () => {
     return vehicles.filter(v => ids.has(v.id));
   })();
 
-  const runningCount   = chipScopedVehicles.filter(v => getVState(v, deviceStatesByType).stateName === 'Running').length;
-  const stoppedCount   = chipScopedVehicles.filter(v => getVState(v, deviceStatesByType).stateName === 'Stopped').length;
+  const runningCount   = chipScopedVehicles.filter(v => getVState(v).stateName === 'Running').length;
+  const stoppedCount   = chipScopedVehicles.filter(v => getVState(v).stateName === 'Stopped').length;
+  const offlineCount   = chipScopedVehicles.filter(v => getVState(v).stateName === 'Offline').length;
   const fleetSpeedThresh = parseInt(localStorage.getItem('fleet-speed-threshold') || '80');
   const overspeedCount = chipScopedVehicles.filter(v => getSpeed(v) > fleetSpeedThresh).length;
   // "No Data" — registered vehicles that have never sent a packet
   const noDataCount = chipScopedVehicles.filter(hasNoData).length;
 
-  // Build the chip list dynamically from Master-Settings state definitions so
-  // every configured state (e.g. "No Signal", "Idle", "Parked") gets its own
-  // card — even when zero vehicles are currently in that state. Virtual chips
-  // (Total / No GPS / Overspeed) are always appended. Each chip's id is
-  // either a virtual name or `state:<stateName>` so chipFilter can route back.
-  const stateChipMeta = new Map();
-  Object.values(deviceStatesByType).forEach(states => {
-    (states || []).forEach(s => {
-      if (!s?.stateName || stateChipMeta.has(s.stateName)) return;
-      stateChipMeta.set(s.stateName, {
-        color: s.stateColor || '#64748b',
-        icon:  s.stateIcon  || '•',
-        priority: s.priority ?? 100,
-      });
-    });
-  });
-  const stateChipList = Array.from(stateChipMeta.entries())
-    .sort((a, b) => a[1].priority - b[1].priority)
-    .map(([name, meta]) => ({
-      id:       `state:${name}`,
-      label:    name,
-      dot:      meta.color,
-      gradient: `linear-gradient(135deg, ${meta.color} 0%, ${meta.color} 100%)`,
-      shadow:   '0 4px 14px rgba(15,23,42,0.18)',
-      icon:     meta.icon,
-      stateName: name,
-    }));
-  // Skip virtual No GPS / Overspeed chips if a configured state with the same
-  // name already exists — otherwise the user sees duplicates. The configured
-  // state wins because it carries the user's intended conditions.
-  const configuredLabels = new Set(stateChipList.map(c => c.label.toLowerCase().replace(/\s+/g, '')));
-  const fleetChips = [
-    { id: 'total',    label: 'Total',    dot: '#64748b', gradient: 'linear-gradient(135deg, #1D4ED8 0%, #3B82F6 100%)', shadow: '0 4px 14px rgba(37,99,235,0.28)', icon: '🚗' },
-    ...stateChipList,
-    ...(configuredLabels.has('overspeed') ? [] : [{ id: 'overspeed', label: 'Overspeed', dot: '#dc2626', gradient: 'linear-gradient(135deg, #991B1B 0%, #DC2626 100%)', shadow: '0 4px 14px rgba(153,27,27,0.28)', icon: '⚠️' }]),
-    { id: 'nodata',   label: 'No Data',  dot: '#94A3B8', gradient: 'linear-gradient(135deg, #475569 0%, #64748B 100%)', shadow: '0 4px 14px rgba(100,116,139,0.28)', icon: '📵' },
-  ];
+  // Fleet stat chips are the fixed, mutually-exclusive canonical state set
+  // (Running / Stopped / Offline / No Data) plus the virtual Overspeed chip —
+  // every count buckets each vehicle into exactly one state.
   const CHIP_COUNTS = {
     total:     chipScopedVehicles.length,
+    running:   runningCount,
+    stopped:   stoppedCount,
+    offline:   offlineCount,
     overspeed: overspeedCount,
     nodata:    noDataCount,
   };
-  stateChipList.forEach(c => {
-    CHIP_COUNTS[c.id] = chipScopedVehicles.filter(v => getVState(v, deviceStatesByType).stateName === c.stateName).length;
-  });
-
-  // Filter fleetChips by the user's visibility settings.
-  // Static chips (total, overspeed) are toggled by their exact id.
-  // Dynamic state chips (id = 'state:Running') map to the lowercase stateName
-  // so 'state:Running' respects the 'running' toggle from settings.
-  // Custom states that have no matching static toggle are always shown.
-  const staticToggleIds = new Set(ALL_FLEET_CHIPS.map(c => c.id));
-  const visibleFleetChips = fleetChips.filter(c => {
-    if (!c.id.startsWith('state:')) return visibleChips.includes(c.id);
-    const normalized = c.id.slice(6).toLowerCase(); // 'state:Running' → 'running'
-    return staticToggleIds.has(normalized) ? visibleChips.includes(normalized) : true;
-  });
+  const visibleFleetChips = ALL_FLEET_CHIPS.filter(c => visibleChips.includes(c.id));
 
   // panel z-index shorthand
   const panelBg = '#FFFFFF';
@@ -2284,7 +2210,7 @@ const MyFleet = () => {
                   {dv.vehicleNumber || dv.vehicleName || 'Vehicle'}
                 </div>
                 {dv.vehicleName && dv.vehicleNumber && (
-                  <div style={{ fontSize:12, color:'rgba(255,255,255,0.72)', marginTop:2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:220, fontFamily:"'Arvo',serif" }}>{dv.vehicleName}</div>
+                  <div style={{ fontSize:12, color:'rgba(255,255,255,0.72)', marginTop:2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:220, fontFamily:"'Plus Jakarta Sans',sans-serif" }}>{dv.vehicleName}</div>
                 )}
                 {dv.branch && (
                   <div style={{ marginTop:5 }}>
@@ -2315,7 +2241,7 @@ const MyFleet = () => {
                   onMouseEnter={e=>e.currentTarget.style.background=a.del?'rgba(220,38,38,0.35)':'rgba(255,255,255,0.14)'}
                   onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
                   <Ic n={a.ic} size={18} color={a.del?'#FCA5A5':'rgba(255,255,255,0.85)'} sw={1.5} />
-                  <span style={{ fontSize:9, fontWeight:700, color: a.del?'#FCA5A5':'rgba(255,255,255,0.65)', letterSpacing:'0.04em', fontFamily:"'Arvo',serif" }}>{a.label}</span>
+                  <span style={{ fontSize:9, fontWeight:700, color: a.del?'#FCA5A5':'rgba(255,255,255,0.65)', letterSpacing:'0.04em', fontFamily:"'Plus Jakarta Sans',sans-serif" }}>{a.label}</span>
                 </button>
               ))}
               <div style={{ width:1, height:28, background:'rgba(255,255,255,0.20)', margin:'0 4px' }} />
@@ -2324,13 +2250,13 @@ const MyFleet = () => {
                 onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,0.14)'}
                 onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
                 <Ic n="x" size={18} color="rgba(255,255,255,0.85)" sw={1.5} />
-                <span style={{ fontSize:9, fontWeight:700, color:'rgba(255,255,255,0.65)', fontFamily:"'Arvo',serif" }}>Close</span>
+                <span style={{ fontSize:9, fontWeight:700, color:'rgba(255,255,255,0.65)', fontFamily:"'Plus Jakarta Sans',sans-serif" }}>Close</span>
               </button>
             </div>
           </div>
 
           {/* ── Body ── */}
-          <div style={{ height: sheetHeight ?? ((activeTab==='trips'||activeTab==='reports'||activeTab==='edit'||activeTab==='history') ? 460 : 320), display:'flex', background:'#F8FAFC', fontFamily:"'Arvo', Georgia, serif", overflow:'hidden' }}>
+          <div style={{ height: sheetHeight ?? ((activeTab==='trips'||activeTab==='reports'||activeTab==='edit'||activeTab==='history') ? 460 : 320), display:'flex', background:'#F8FAFC', fontFamily:"'Plus Jakarta Sans',sans-serif", overflow:'hidden' }}>
 
           {/* ══ EDIT MODE — full body ══ */}
           {activeTab === 'edit' && (
@@ -2339,38 +2265,16 @@ const MyFleet = () => {
               <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 20px', borderBottom:'1px solid #E2E8F0', flexShrink:0, background:'#F8FAFC', gap:16 }}>
                 <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                   <Ic n="edit" size={14} color="#475569" sw={1.5} />
-                  <span style={{ fontSize:11, fontWeight:700, color:'#475569', textTransform:'uppercase', letterSpacing:'0.12em', fontFamily:"'Arvo',serif" }}>Edit Vehicle</span>
+                  <span style={{ fontSize:11, fontWeight:700, color:'#475569', textTransform:'uppercase', letterSpacing:'0.12em', fontFamily:"'Plus Jakarta Sans',sans-serif" }}>Edit Vehicle</span>
                 </div>
-
-                {/* Last data received — bold highlighted badge */}
-                {(() => {
-                  const ts = dv.deviceStatus?.lastUpdate || dv.deviceStatus?.gpsData?.timestamp;
-                  if (!ts) return (
-                    <div style={{ display:'flex', alignItems:'center', gap:7, padding:'6px 14px', background:'#FEF2F2', border:'1px solid #FECACA', flex:1 }}>
-                      <Ic n="clock" size={13} color="#DC2626" sw={2} />
-                      <span style={{ fontSize:12, fontWeight:700, color:'#DC2626', fontFamily:"'Arvo',serif" }}>No data received yet</span>
-                    </div>
-                  );
-                  return (
-                    <div style={{ display:'flex', alignItems:'center', gap:7, padding:'6px 14px', background:'#EFF6FF', border:'1px solid #BFDBFE', flex:1 }}>
-                      <Ic n="clock" size={13} color="#1D4ED8" sw={2} />
-                      <div style={{ display:'flex', flexDirection:'column', gap:0 }}>
-                        <span style={{ fontSize:9, fontWeight:700, color:'#3B82F6', textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Arvo',serif", lineHeight:1 }}>Last Data Received</span>
-                        <span style={{ fontSize:14, fontWeight:700, color:'#1D4ED8', fontFamily:"'Arvo',serif", lineHeight:1.3 }}>
-                          {new Date(ts).toLocaleString('en-IN', { dateStyle:'medium', timeStyle:'medium' })}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })()}
 
                 <div style={{ display:'flex', gap:8, flexShrink:0 }}>
                   <button onClick={()=>setActiveTab('overview')}
-                    style={{ padding:'6px 16px', background:'#fff', border:'1px solid #E2E8F0', cursor:'pointer', fontSize:12, fontWeight:700, color:'#64748B', fontFamily:"'Arvo',serif" }}>
+                    style={{ padding:'6px 16px', background:'#fff', border:'1px solid #E2E8F0', cursor:'pointer', fontSize:12, fontWeight:700, color:'#64748B', fontFamily:"'Plus Jakarta Sans',sans-serif" }}>
                     Cancel
                   </button>
                   <button onClick={handleSaveEdit} disabled={saving}
-                    style={{ padding:'6px 18px', background: saving?'#94A3B8':'#1B2A4A', border:'none', cursor: saving?'not-allowed':'pointer', fontSize:12, fontWeight:700, color:'#fff', fontFamily:"'Arvo',serif", opacity: saving?0.7:1 }}>
+                    style={{ padding:'6px 18px', background: saving?'#94A3B8':'#1B2A4A', border:'none', cursor: saving?'not-allowed':'pointer', fontSize:12, fontWeight:700, color:'#fff', fontFamily:"'Plus Jakarta Sans',sans-serif", opacity: saving?0.7:1 }}>
                     {saving ? 'Saving…' : 'Save Changes'}
                   </button>
                 </div>
@@ -2390,12 +2294,12 @@ const MyFleet = () => {
                     { label:'Device Name',        key:'deviceName',     placeholder:'' },
                   ].map(f=>(
                     <div key={f.key} style={{ display:'flex', flexDirection:'column', gap:5 }}>
-                      <label style={{ fontSize:9.5, fontWeight:700, color:'#94A3B8', textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Arvo',serif" }}>{f.label}</label>
+                      <label style={{ fontSize:9.5, fontWeight:700, color:'#94A3B8', textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Plus Jakarta Sans',sans-serif" }}>{f.label}</label>
                       <input
                         value={editForm[f.key]||''}
                         onChange={e => setEditForm({...editForm, [f.key]: f.upper ? e.target.value.toUpperCase() : e.target.value})}
                         placeholder={f.placeholder}
-                        style={{ padding:'9px 12px', border:'1px solid #E2E8F0', fontSize:13, fontFamily: f.mono?'monospace':"'Arvo',serif", color:'#1E293B', outline:'none', background:'#FAFAFA', fontWeight:600, transition:'border-color .15s' }}
+                        style={{ padding:'9px 12px', border:'1px solid #E2E8F0', fontSize:13, fontFamily: f.mono?'monospace':"'Plus Jakarta Sans',sans-serif", color:'#1E293B', outline:'none', background:'#FAFAFA', fontWeight:600, transition:'border-color .15s' }}
                         onFocus={e=>e.target.style.borderColor='#1B2A4A'}
                         onBlur={e=>e.target.style.borderColor='#E2E8F0'}
                       />
@@ -2403,42 +2307,62 @@ const MyFleet = () => {
                   ))}
                   {/* Status select */}
                   <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
-                    <label style={{ fontSize:9.5, fontWeight:700, color:'#94A3B8', textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Arvo',serif" }}>Status</label>
+                    <label style={{ fontSize:9.5, fontWeight:700, color:'#94A3B8', textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Plus Jakarta Sans',sans-serif" }}>Status</label>
                     <select value={editForm.status||'active'} onChange={e=>setEditForm({...editForm,status:e.target.value})}
-                      style={{ padding:'9px 12px', border:'1px solid #E2E8F0', fontSize:13, fontFamily:"'Arvo',serif", color:'#1E293B', outline:'none', background:'#FAFAFA', fontWeight:600, cursor:'pointer' }}>
+                      style={{ padding:'9px 12px', border:'1px solid #E2E8F0', fontSize:13, fontFamily:"'Plus Jakarta Sans',sans-serif", color:'#1E293B', outline:'none', background:'#FAFAFA', fontWeight:600, cursor:'pointer' }}>
                       <option value="active">Active</option>
                       <option value="inactive">Inactive</option>
                     </select>
                   </div>
                   {/* Device Type — changing it re-derives the (non-editable) port */}
                   <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
-                    <label style={{ fontSize:9.5, fontWeight:700, color:'#94A3B8', textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Arvo',serif" }}>Device Type</label>
+                    <label style={{ fontSize:9.5, fontWeight:700, color:'#94A3B8', textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Plus Jakarta Sans',sans-serif" }}>Device Type</label>
                     <select value={editForm.deviceType||''} onChange={e=>setEditForm({...editForm, deviceType:e.target.value, serverPort:portForDeviceType(e.target.value)})}
-                      style={{ padding:'9px 12px', border:'1px solid #E2E8F0', fontSize:13, fontFamily:"'Arvo',serif", color:'#1E293B', outline:'none', background:'#FAFAFA', fontWeight:600, cursor:'pointer' }}>
+                      style={{ padding:'9px 12px', border:'1px solid #E2E8F0', fontSize:13, fontFamily:"'Plus Jakarta Sans',sans-serif", color:'#1E293B', outline:'none', background:'#FAFAFA', fontWeight:600, cursor:'pointer' }}>
                       <option value="">Select Device Type</option>
                       {DEVICE_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                     </select>
                   </div>
                   {/* Port — auto-filled from device type, not editable */}
                   <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
-                    <label style={{ fontSize:9.5, fontWeight:700, color:'#94A3B8', textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Arvo',serif" }}>Port <span style={{ fontWeight:600, color:'#2563eb', letterSpacing:0, textTransform:'none' }}>(Auto)</span></label>
+                    <label style={{ fontSize:9.5, fontWeight:700, color:'#94A3B8', textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Plus Jakarta Sans',sans-serif" }}>Port <span style={{ fontWeight:600, color:'#2563eb', letterSpacing:0, textTransform:'none' }}>(Auto)</span></label>
                     <input value={editForm.serverPort ? (PORT_LABELS[editForm.serverPort] || editForm.serverPort) : ''} readOnly
                       placeholder={editForm.deviceType ? 'No port for this device type' : 'Select a device type'}
                       style={{ padding:'9px 12px', border:'1px solid #E2E8F0', fontSize:13, fontFamily:'monospace', color:'#475569', outline:'none', background:'#F1F5F9', fontWeight:600, cursor:'not-allowed' }} />
                   </div>
                   {/* Vehicle Icon picker — full row */}
                   <div style={{ gridColumn:'1 / -1', display:'flex', flexDirection:'column', gap:8 }}>
-                    <label style={{ fontSize:9.5, fontWeight:700, color:'#94A3B8', textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Arvo',serif" }}>Vehicle Icon</label>
-                    <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-                      {VEHICLE_ICONS.map(ic=>(
+                    <label style={{ fontSize:9.5, fontWeight:700, color:'#94A3B8', textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Plus Jakarta Sans',sans-serif" }}>Vehicle Icon</label>
+                    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(86px, 1fr))', gap:10 }}>
+                      {VEHICLE_ICONS.map(ic=>{
+                        const sel = editForm.vehicleIcon===ic;
+                        return (
                         <button key={ic} type="button" onClick={()=>setEditForm({...editForm,vehicleIcon:ic})}
-                          style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:5, padding:'8px 10px', border: editForm.vehicleIcon===ic?'2px solid #1B2A4A':'1px solid #E2E8F0', background: editForm.vehicleIcon===ic?'#EEF2F8':'#fff', cursor:'pointer', fontFamily:"'Arvo',serif", transition:'all .15s' }}>
-                          <div style={{ filter:'brightness(0) invert(0.3)' }}><VehicleIcon type={ic} color="#475569" size={28} /></div>
-                          <span style={{ fontSize:9, fontWeight:700, color: editForm.vehicleIcon===ic?'#1B2A4A':'#94A3B8', fontFamily:"'Arvo',serif" }}>{VEHICLE_ICON_LABELS[ic]||ic}</span>
+                          style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:7, padding:'12px 8px', border: sel?'2px solid #1B2A4A':'1px solid #E2E8F0', background: sel?'#EEF2F8':'#fff', cursor:'pointer', fontFamily:"'Plus Jakarta Sans',sans-serif", transition:'all .15s', boxShadow: sel?'0 2px 8px rgba(27,42,74,0.15)':'none' }}>
+                          <VehicleIcon type={ic} color={sel?'#1B2A4A':'#64748B'} size={48} />
+                          <span style={{ fontSize:9.5, fontWeight:700, color: sel?'#1B2A4A':'#94A3B8', fontFamily:"'Plus Jakarta Sans',sans-serif", textAlign:'center', lineHeight:1.2 }}>{VEHICLE_ICON_LABELS[ic]||ic}</span>
                         </button>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
+
+                  {/* ── Ownership / Transfer — papa/dealer with sub-clients only ── */}
+                  {isPapaOrDealer && clientNodes.length > 0 && (
+                    <div style={{ gridColumn:'1 / -1', display:'flex', flexDirection:'column', gap:8, marginTop:4, paddingTop:14, borderTop:'1px solid #F1F5F9' }}>
+                      <label style={{ fontSize:9.5, fontWeight:700, color:'#94A3B8', textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Plus Jakarta Sans',sans-serif" }}>Ownership</label>
+                      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:14, flexWrap:'wrap', padding:'12px 14px', background:'#FFF7ED', border:'1px solid #FED7AA' }}>
+                        <div style={{ minWidth:0 }}>
+                          <div style={{ fontSize:13, fontWeight:700, color:'#9A3412', fontFamily:"'Plus Jakarta Sans',sans-serif" }}>Transfer to another client</div>
+                          <div style={{ fontSize:11.5, color:'#B45309', marginTop:2, fontFamily:"'Plus Jakarta Sans',sans-serif" }}>Reassigns this vehicle and removes it from this client's groups, geofences, alerts and shares. History stays with the vehicle.</div>
+                        </div>
+                        <button type="button" onClick={()=>openReassign(dv)}
+                          style={{ flexShrink:0, display:'flex', alignItems:'center', gap:8, padding:'10px 18px', border:'none', background:'#EA580C', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer', letterSpacing:'0.03em', fontFamily:"'Plus Jakarta Sans',sans-serif" }}>
+                          <Ic n="share" size={15} color="#fff" /> TRANSFER…
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -2491,9 +2415,9 @@ const MyFleet = () => {
                   <div key={i} style={{ background:'#fff', border:'1px solid #E2E8F0', padding:'14px 16px', display:'flex', flexDirection:'column', gap:8 }}>
                     <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
                       <Ic n={c.ic} size={22} color="#CBD5E1" sw={1.5} />
-                      <span style={{ fontSize:9, fontWeight:700, color:'#94A3B8', letterSpacing:'0.12em', fontFamily:"'Arvo',serif" }}>{c.label}</span>
+                      <span style={{ fontSize:9, fontWeight:700, color:'#94A3B8', letterSpacing:'0.12em', fontFamily:"'Plus Jakarta Sans',sans-serif" }}>{c.label}</span>
                     </div>
-                    <div style={{ fontSize:26, fontWeight:700, color: c.accent, lineHeight:1, fontFamily:"'Arvo',serif", fontVariantNumeric:'tabular-nums' }}>
+                    <div style={{ fontSize:26, fontWeight:700, color: c.accent, lineHeight:1, fontFamily:"'Plus Jakarta Sans',sans-serif", fontVariantNumeric:'tabular-nums' }}>
                       {c.value}{c.unit&&<span style={{ fontSize:13, fontWeight:400, color:'#94A3B8', marginLeft:4 }}>{c.unit}</span>}
                     </div>
                   </div>
@@ -2506,13 +2430,13 @@ const MyFleet = () => {
 
                 {/* Location & data timeline */}
                 <div style={{ background:'#fff', padding:'14px 16px', display:'flex', flexDirection:'column', gap:10, overflow:'auto' }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:10, fontWeight:700, color:'#94A3B8', letterSpacing:'0.12em', fontFamily:"'Arvo',serif" }}><Ic n="pin" size={12} color="#CBD5E1" sw={1.5}/>LOCATION &amp; DATA</div>
+                  <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:10, fontWeight:700, color:'#94A3B8', letterSpacing:'0.12em', fontFamily:"'Plus Jakarta Sans',sans-serif" }}><Ic n="pin" size={12} color="#CBD5E1" sw={1.5}/>LOCATION &amp; DATA</div>
                   {coords ? (
                     <>
                       <div style={{ fontSize:12, fontFamily:'monospace', color:'#3A6FA8', fontWeight:700 }}>{coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}</div>
-                      {(() => { const k=`${coords.lat.toFixed(4)},${coords.lng.toFixed(4)}`; const addr=tableGeoMap.get(k); return addr ? <div style={{ fontSize:13, color:'#374151', fontFamily:"'Arvo',serif", lineHeight:1.5 }}>{addr}</div> : <div style={{ fontSize:12, color:'#CBD5E1', fontFamily:"'Arvo',serif" }}>Locating…</div>; })()}
+                      {(() => { const k=`${coords.lat.toFixed(4)},${coords.lng.toFixed(4)}`; const addr=tableGeoMap.get(k); return addr ? <div style={{ fontSize:13, color:'#374151', fontFamily:"'Plus Jakarta Sans',sans-serif", lineHeight:1.5 }}>{addr}</div> : <div style={{ fontSize:12, color:'#CBD5E1', fontFamily:"'Plus Jakarta Sans',sans-serif" }}>Locating…</div>; })()}
                     </>
-                  ) : <div style={{ fontSize:13, color:'#CBD5E1', fontFamily:"'Arvo',serif" }}>No GPS fix</div>}
+                  ) : <div style={{ fontSize:13, color:'#CBD5E1', fontFamily:"'Plus Jakarta Sans',sans-serif" }}>No GPS fix</div>}
 
                   {/* Timestamps — registered / first / last data packet (compact rows) */}
                   <div style={{ marginTop: 4, borderTop: '1px solid #F1F5F9' }}>
@@ -2537,17 +2461,17 @@ const MyFleet = () => {
 
                 {/* Sensors panel */}
                 <div style={{ background:'#fff', padding:'14px 16px', display:'flex', flexDirection:'column', gap:8, overflow:'auto' }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:10, fontWeight:700, color:'#94A3B8', letterSpacing:'0.12em', fontFamily:"'Arvo',serif" }}><Ic n="radio" size={12} color="#CBD5E1" sw={1.5}/>SENSORS</div>
+                  <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:10, fontWeight:700, color:'#94A3B8', letterSpacing:'0.12em', fontFamily:"'Plus Jakarta Sans',sans-serif" }}><Ic n="radio" size={12} color="#CBD5E1" sw={1.5}/>SENSORS</div>
                   {drawerSensors.length === 0 ? (
-                    <div style={{ fontSize:12, color:'#CBD5E1', fontFamily:"'Arvo',serif", fontStyle:'italic' }}>No sensors configured</div>
+                    <div style={{ fontSize:12, color:'#CBD5E1', fontFamily:"'Plus Jakarta Sans',sans-serif", fontStyle:'italic' }}>No sensors configured</div>
                   ) : drawerSensors.map(s => {
                     const g2=dv.deviceStatus?.gpsData||{}, st3=dv.deviceStatus?.status||{}, io2=g2.ioElements||{}, pm2=s.mappedParameter||'';
                     let lv2; if(pm2.startsWith('status.'))lv2=st3[pm2.slice(7)]; else if(pm2.startsWith('fuel.'))lv2=(dv.deviceStatus?.fuel||{})[pm2.slice(5)]; else if(['speed','latitude','longitude','altitude','satellites'].includes(pm2))lv2=g2[pm2]; else{const rr=io2[pm2];lv2=rr!==undefined?(typeof rr==='object'&&rr!==null?rr.value:rr):undefined;}
                     return (
                       <div key={s.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'4px 0', borderBottom:'1px solid #F8FAFC' }}>
                         <Ic n="activity" size={13} color="#CBD5E1" sw={1.5} />
-                        <span style={{ fontSize:11, color:'#94A3B8', fontFamily:"'Arvo',serif", flex:1 }}>{s.name}</span>
-                        <span style={{ fontSize:14, fontWeight:700, color: lv2!=null?'#1E293B':'#CBD5E1', fontFamily:"'Arvo',serif" }}>
+                        <span style={{ fontSize:11, color:'#94A3B8', fontFamily:"'Plus Jakarta Sans',sans-serif", flex:1 }}>{s.name}</span>
+                        <span style={{ fontSize:14, fontWeight:700, color: lv2!=null?'#1E293B':'#CBD5E1', fontFamily:"'Plus Jakarta Sans',sans-serif" }}>
                           {lv2!=null?`${String(lv2)}${s.unit?' '+s.unit:''}` : '—'}
                         </span>
                       </div>
@@ -2563,11 +2487,11 @@ const MyFleet = () => {
             {/* RIGHT — Vehicle details + edit button + sensors */}
             <div style={{ width:300, flexShrink:0, display:'flex', flexDirection:'column', overflow:'auto', background:'#fff' }}>
               <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 16px 10px', flexShrink:0 }}>
-                <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:10, fontWeight:700, color:'#94A3B8', letterSpacing:'0.12em', fontFamily:"'Arvo',serif" }}>
+                <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:10, fontWeight:700, color:'#94A3B8', letterSpacing:'0.12em', fontFamily:"'Plus Jakarta Sans',sans-serif" }}>
                   <Ic n="layers" size={13} color="#CBD5E1" sw={1.5} /> VEHICLE DETAILS
                 </div>
                 <button onClick={()=>setActiveTab('edit')}
-                  style={{ display:'flex', alignItems:'center', gap:5, padding:'4px 10px', background:'#F1F5F9', border:'1px solid #E2E8F0', borderRadius:0, cursor:'pointer', fontSize:10, fontWeight:700, color:'#475569', fontFamily:"'Arvo',serif" }}>
+                  style={{ display:'flex', alignItems:'center', gap:5, padding:'4px 10px', background:'#F1F5F9', border:'1px solid #E2E8F0', borderRadius:0, cursor:'pointer', fontSize:10, fontWeight:700, color:'#475569', fontFamily:"'Plus Jakarta Sans',sans-serif" }}>
                   <Ic n="edit" size={11} color="#475569" sw={1.5} /> Edit
                 </button>
               </div>
@@ -2583,8 +2507,8 @@ const MyFleet = () => {
                     { label:'SIM 2',        value: dv.sim2, mono:true },
                   ].filter(r=>r.value).map((r,i)=>(
                     <div key={i} style={{ display:'flex', flexDirection:'column', gap:2, gridColumn: r.full?'1 / -1':'auto', overflow:'hidden' }}>
-                      <span style={{ fontSize:9, color:'#B0B8C4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Arvo',serif" }}>{r.label}</span>
-                      <span style={{ fontSize:13, fontWeight:700, color:'#1E293B', fontFamily: r.mono?'monospace':"'Arvo',serif", overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', lineHeight:1.3 }}>{r.value}</span>
+                      <span style={{ fontSize:9, color:'#B0B8C4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Plus Jakarta Sans',sans-serif" }}>{r.label}</span>
+                      <span style={{ fontSize:13, fontWeight:700, color:'#1E293B', fontFamily: r.mono?'monospace':"'Plus Jakarta Sans',sans-serif", overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', lineHeight:1.3 }}>{r.value}</span>
                     </div>
                   ))}
                 </div>
@@ -2592,9 +2516,9 @@ const MyFleet = () => {
                 {/* ── Custom fields — view + add / edit / delete ── */}
                 <div style={{ borderTop:'1px solid #F1F5F9', paddingTop:12, display:'flex', flexDirection:'column', gap:8 }}>
                   <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                    <span style={{ fontSize:10, fontWeight:700, color:'#94A3B8', letterSpacing:'0.12em', fontFamily:"'Arvo',serif" }}>CUSTOM FIELDS</span>
+                    <span style={{ fontSize:10, fontWeight:700, color:'#94A3B8', letterSpacing:'0.12em', fontFamily:"'Plus Jakarta Sans',sans-serif" }}>CUSTOM FIELDS</span>
                     <button onClick={()=>openCfForm(null)} title="Add custom field"
-                      style={{ display:'flex', alignItems:'center', gap:4, padding:'3px 9px', background:'#2563EB', border:'none', borderRadius:4, cursor:'pointer', fontSize:10, fontWeight:700, color:'#fff', fontFamily:"'Arvo',serif" }}>
+                      style={{ display:'flex', alignItems:'center', gap:4, padding:'3px 9px', background:'#2563EB', border:'none', borderRadius:4, cursor:'pointer', fontSize:10, fontWeight:700, color:'#fff', fontFamily:"'Plus Jakarta Sans',sans-serif" }}>
                       <Ic n="plus" size={10} color="#fff" /> ADD
                     </button>
                   </div>
@@ -2602,28 +2526,28 @@ const MyFleet = () => {
                   {showCfForm && (
                     <div style={{ display:'flex', flexDirection:'column', gap:6, background:'#F8FAFC', border:'1px solid #E2E8F0', padding:8 }}>
                       <input value={cfForm.fieldName} onChange={e=>setCfForm({...cfForm, fieldName:e.target.value})} placeholder="Field name"
-                        style={{ padding:'7px 10px', border:'1px solid #E2E8F0', fontSize:12, outline:'none', fontFamily:"'Arvo',serif" }} />
+                        style={{ padding:'7px 10px', border:'1px solid #E2E8F0', fontSize:12, outline:'none', fontFamily:"'Plus Jakarta Sans',sans-serif" }} />
                       <input value={cfForm.fieldValue} onChange={e=>setCfForm({...cfForm, fieldValue:e.target.value})} placeholder="Value"
                         onKeyDown={e=>{ if(e.key==='Enter' && cfForm.fieldName.trim()) handleSaveCf(); }}
-                        style={{ padding:'7px 10px', border:'1px solid #E2E8F0', fontSize:12, outline:'none', fontFamily:"'Arvo',serif" }} />
+                        style={{ padding:'7px 10px', border:'1px solid #E2E8F0', fontSize:12, outline:'none', fontFamily:"'Plus Jakarta Sans',sans-serif" }} />
                       <div style={{ display:'flex', gap:6 }}>
                         <button onClick={handleSaveCf} disabled={savingCf || !cfForm.fieldName.trim()}
-                          style={{ flex:1, padding:'7px', background:'#2563EB', color:'#fff', border:'none', fontSize:11, fontWeight:700, cursor: savingCf||!cfForm.fieldName.trim()?'not-allowed':'pointer', opacity: savingCf||!cfForm.fieldName.trim()?0.5:1, fontFamily:"'Arvo',serif" }}>{savingCf?'…':editingCf?'SAVE':'ADD'}</button>
+                          style={{ flex:1, padding:'7px', background:'#2563EB', color:'#fff', border:'none', fontSize:11, fontWeight:700, cursor: savingCf||!cfForm.fieldName.trim()?'not-allowed':'pointer', opacity: savingCf||!cfForm.fieldName.trim()?0.5:1, fontFamily:"'Plus Jakarta Sans',sans-serif" }}>{savingCf?'…':editingCf?'SAVE':'ADD'}</button>
                         <button onClick={()=>setShowCfForm(false)}
-                          style={{ padding:'7px 12px', background:'#fff', border:'1px solid #E2E8F0', cursor:'pointer', fontSize:11, fontWeight:600, color:'#64748B', fontFamily:"'Arvo',serif" }}>Cancel</button>
+                          style={{ padding:'7px 12px', background:'#fff', border:'1px solid #E2E8F0', cursor:'pointer', fontSize:11, fontWeight:600, color:'#64748B', fontFamily:"'Plus Jakarta Sans',sans-serif" }}>Cancel</button>
                       </div>
                     </div>
                   )}
 
                   {customFields.length === 0 && !showCfForm ? (
-                    <div style={{ fontSize:11, color:'#CBD5E1', fontStyle:'italic', fontFamily:"'Arvo',serif" }}>No custom fields yet</div>
+                    <div style={{ fontSize:11, color:'#CBD5E1', fontStyle:'italic', fontFamily:"'Plus Jakarta Sans',sans-serif" }}>No custom fields yet</div>
                   ) : (
                     <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
                       {customFields.map(cf=>(
                         <div key={cf.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 8px', background:'#F8FAFC', border:'1px solid #EEF0F5' }}>
                           <div style={{ flex:1, minWidth:0 }}>
-                            <div style={{ fontSize:9, color:'#B0B8C4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em', fontFamily:"'Arvo',serif" }}>{cf.fieldName}</div>
-                            <div style={{ fontSize:12, fontWeight:700, color:'#1E293B', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontFamily:"'Arvo',serif" }}>{cf.fieldValue || '—'}</div>
+                            <div style={{ fontSize:9, color:'#B0B8C4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em', fontFamily:"'Plus Jakarta Sans',sans-serif" }}>{cf.fieldName}</div>
+                            <div style={{ fontSize:12, fontWeight:700, color:'#1E293B', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontFamily:"'Plus Jakarta Sans',sans-serif" }}>{cf.fieldValue || '—'}</div>
                           </div>
                           <button onClick={()=>openCfForm(cf)} title="Edit" style={{ background:'none', border:'none', cursor:'pointer', padding:2, display:'flex', flexShrink:0 }}><Ic n="edit" size={12} color="#64748B" sw={1.5} /></button>
                           <button onClick={()=>handleDeleteCf(cf.id)} title="Delete" style={{ background:'none', border:'none', cursor:'pointer', padding:2, display:'flex', flexShrink:0 }}><Ic n="trash" size={12} color="#DC2626" sw={1.5} /></button>
@@ -2651,7 +2575,7 @@ const MyFleet = () => {
       </div>
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drawerVehicle, activeTab, syncing, syncingId, liveShareEnabled, isPapaOrDealer, user, deviceStatesByType, sensors, drawerSensors, loadingSensors, showSensorForm, sensorForm, editingSensor, savingSensor, editForm, saving, reportFrom, reportTo, reportData, reportLoading, reportPage, reportTab, reportExporting, packetsDownloading, selectedVehicle, customFields, showCfForm, cfForm, editingCf, savingCf, tableGeoMap, sheetHeight, sheetWidth, sheetPos, viewMode]);
+  }, [drawerVehicle, activeTab, syncing, syncingId, liveShareEnabled, isPapaOrDealer, clientNodes, user, deviceStatesByType, sensors, drawerSensors, loadingSensors, showSensorForm, sensorForm, editingSensor, savingSensor, editForm, saving, reportFrom, reportTo, reportData, reportLoading, reportPage, reportTab, reportExporting, packetsDownloading, selectedVehicle, customFields, showCfForm, cfForm, editingCf, savingCf, tableGeoMap, sheetHeight, sheetWidth, sheetPos, viewMode]);
 
   /* ══════ DELETE / IMEI CONFIRM MODALS (fixed-position — shared by both views) ══════ */
   const confirmModalsJsx = (
@@ -2750,13 +2674,48 @@ const MyFleet = () => {
     </>
   );
 
+  /* ══════ TRANSFER / REASSIGN MODAL (fixed — shared by table + map views) ══════ */
+  const reassignModalJsx = reassignTarget && (
+    <div onClick={() => !reassigning && setReassignTarget(null)}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000 }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ background: '#fff', borderRadius: 12, width: 440, maxWidth: '92vw', boxShadow: '0 20px 60px rgba(0,0,0,0.3)', overflow: 'hidden' }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid #E2E8F0' }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: '#0F172A' }}>Transfer Vehicle</div>
+          <div style={{ fontSize: 12.5, color: '#64748B', marginTop: 2 }}>{reassignTarget.vehicleNumber || reassignTarget.vehicleName || `Vehicle #${reassignTarget.id}`}</div>
+        </div>
+        <div style={{ padding: '18px 20px' }}>
+          <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', display: 'block', marginBottom: 8 }}>Assign to client</label>
+          <select value={reassignClientId} onChange={e => setReassignClientId(e.target.value)}
+            style={{ width: '100%', padding: '10px 12px', border: '1px solid #CBD5E1', borderRadius: 8, fontSize: 13, background: '#fff' }}>
+            <option value="">Select a client…</option>
+            {clientNodes.filter(n => n.id !== reassignTarget.clientId).map(n => (
+              <option key={n.id} value={n.id}>{`${'— '.repeat(n.depth || 0)}${n.name}${n.email ? ` (${n.email})` : ''}`}</option>
+            ))}
+          </select>
+          <div style={{ fontSize: 11.5, color: '#94A3B8', marginTop: 10, lineHeight: 1.5 }}>
+            Trips, sensors and history move with the vehicle. It will be removed from this client's groups, geofences, alerts and active shares.
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', padding: '14px 20px', borderTop: '1px solid #E2E8F0' }}>
+          <button onClick={() => setReassignTarget(null)} disabled={reassigning}
+            style={{ padding: '9px 16px', border: '1px solid #E2E8F0', background: '#fff', borderRadius: 8, fontSize: 13, fontWeight: 700, color: '#64748B', cursor: 'pointer' }}>Cancel</button>
+          <button onClick={handleReassign} disabled={!reassignClientId || reassigning}
+            style={{ padding: '9px 18px', border: 'none', background: (!reassignClientId || reassigning) ? '#FDBA74' : '#EA580C', color: '#fff', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: (!reassignClientId || reassigning) ? 'not-allowed' : 'pointer' }}>
+            {reassigning ? 'Transferring…' : 'Transfer'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   /* ══════ TABLE VIEW ══════ */
   if (viewMode === 'table') {
     return (
       <div style={{ minHeight: '100%', fontFamily: "'Plus Jakarta Sans', sans-serif" }} onClick={() => cfPopover && setCfPopover(null)}>
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
-        {/* Stat cards — driven by fleetChips (dynamic from Master-Settings states) */}
+        {/* Stat cards — canonical state buckets (Running/Stopped/Offline/No Data) + Overspeed */}
         <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
           {visibleFleetChips.map(c => (
             <div key={c.id} onClick={() => setChipFilter(chipFilter === c.id ? null : c.id)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '11px 17px', background: c.gradient, borderRadius: 5, boxShadow: chipFilter === c.id ? `0 0 0 2px #fff, ${c.shadow}` : c.shadow, position: 'relative', overflow: 'hidden', flex: '0 0 auto', cursor: 'pointer', opacity: chipFilter && chipFilter !== c.id ? 0.55 : 1, transition: 'all 0.15s', transform: chipFilter === c.id ? 'scale(1.03)' : 'none' }}>
@@ -2884,14 +2843,15 @@ const MyFleet = () => {
               style={{ gap: '5px' }}
             >
               ● Status
-              {statusFilter.size < 3 && <span style={{ background: '#2563EB', color: '#fff', borderRadius: '10px', padding: '0 6px', fontSize: '11px', fontWeight: 700 }}>{statusFilter.size}</span>}
+              {statusFilter.size < 4 && <span style={{ background: '#2563EB', color: '#fff', borderRadius: '10px', padding: '0 6px', fontSize: '11px', fontWeight: 700 }}>{statusFilter.size}</span>}
             </button>
             {showStatusDrop && (
               <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 50, background: '#fff', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '6px', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', minWidth: '160px' }}>
                 {[
                   { label: 'Running', color: '#059669' },
-                  { label: 'Stopped', color: '#dc2626' },
-                  { label: 'Unknown', color: '#94a3b8' },
+                  { label: 'Stopped', color: '#ef4444' },
+                  { label: 'Offline', color: '#6b7280' },
+                  { label: 'No Data', color: '#94a3b8' },
                 ].map(({ label, color }) => (
                   <label key={label} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', cursor: 'pointer', borderRadius: '4px', userSelect: 'none' }}
                     onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
@@ -2905,7 +2865,7 @@ const MyFleet = () => {
                       })} />
                     <span style={{ color, fontWeight: 600, fontSize: '13px' }}>● {label}</span>
                     <span style={{ marginLeft: 'auto', fontSize: '12px', color: '#94a3b8' }}>
-                      {vehicles.filter(v => getVState(v, deviceStatesByType).stateName === label).length}
+                      {vehicles.filter(v => getVState(v).stateName === label).length}
                     </span>
                   </label>
                 ))}
@@ -3533,6 +3493,8 @@ const MyFleet = () => {
 
         {/* Delete / IMEI confirm modals — fixed-position, shared with map view */}
         {confirmModalsJsx}
+        {/* Transfer / reassign modal — shared with map view */}
+        {reassignModalJsx}
 
         {/* ── Download format picker modal ── */}
         {dlModal && (
@@ -3828,8 +3790,8 @@ const MyFleet = () => {
                   <div style={{ padding: '12px 14px' }}>
                     {/* Identity + status */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
-                      <div style={{ flexShrink: 0, width: 42, height: 42, borderRadius: 11, background: `${stColor}15`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <VehicleIcon icon={v.vehicleIcon} color={stColor} size={26} />
+                      <div style={{ flexShrink: 0, width: 54, height: 54, borderRadius: 13, background: `${stColor}15`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <VehicleIcon icon={v.vehicleIcon} color={stColor} size={40} />
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 15, fontWeight: 800, color: '#0F172A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.vehicleNumber || vehicleDisplayName(v)}</div>
@@ -3840,7 +3802,7 @@ const MyFleet = () => {
                         {stLabel}
                       </span>
                       <button title="Vehicle details"
-                        onClick={(e) => { e.stopPropagation(); selectVehicle(v); setDrawerVehicle(v); setActiveTab('overview'); }}
+                        onClick={(e) => { e.stopPropagation(); openDetails(v); }}
                         style={{ flexShrink: 0, width: 30, height: 30, borderRadius: 8, border: '1px solid #E2E8F0', background: '#F8FAFC', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all .15s' }}
                         onMouseEnter={e => { e.currentTarget.style.borderColor = '#3B82F6'; e.currentTarget.style.background = '#EFF6FF'; }}
                         onMouseLeave={e => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = '#F8FAFC'; }}>
@@ -3902,30 +3864,13 @@ const MyFleet = () => {
 
                 <div style={{ padding: '7px 8px 6px', display: 'flex', gap: 7 }}>
 
-                  {/* Left: single truck silhouette, white on state colour */}
+                  {/* Left: per-type vehicle icon, white on state colour */}
                   <div style={{
-                    flexShrink: 0, width: 36, height: 36, borderRadius: 0,
+                    flexShrink: 0, width: 46, height: 46, borderRadius: 0,
                     background: stColor,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}>
-                    <svg width="26" height="18" viewBox="0 0 64 44" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      {/* Cab */}
-                      <rect x="2" y="10" width="18" height="22" rx="2" fill="white" opacity="0.9"/>
-                      <rect x="4" y="12" width="12" height="10" rx="1" fill={stColor} opacity="0.6"/>
-                      {/* Body/trailer */}
-                      <rect x="20" y="4" width="42" height="28" rx="2" fill="white" opacity="0.9"/>
-                      {/* Chassis */}
-                      <rect x="2" y="30" width="60" height="4" rx="1" fill="white" opacity="0.7"/>
-                      {/* Wheels */}
-                      <circle cx="14" cy="38" r="6" fill="white" opacity="0.9"/>
-                      <circle cx="14" cy="38" r="3" fill={stColor}/>
-                      <circle cx="46" cy="38" r="6" fill="white" opacity="0.9"/>
-                      <circle cx="46" cy="38" r="3" fill={stColor}/>
-                      <circle cx="56" cy="38" r="6" fill="white" opacity="0.9"/>
-                      <circle cx="56" cy="38" r="3" fill={stColor}/>
-                      {/* Headlight */}
-                      <rect x="1" y="22" width="4" height="5" rx="1" fill="white" opacity="0.8"/>
-                    </svg>
+                    <VehicleIcon icon={v.vehicleIcon} color="#fff" size={34} />
                   </div>
 
                   {/* Right: all info */}
@@ -4034,7 +3979,7 @@ const MyFleet = () => {
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                     <button
                       title="Vehicle details"
-                      onClick={e => { e.stopPropagation(); selectVehicle(v); setDrawerVehicle(v); setActiveTab('overview'); }}
+                      onClick={e => { e.stopPropagation(); openDetails(v); }}
                       style={{
                         width: 26, height: 26, borderRadius: 7, border: '1px solid #E2E8F0',
                         cursor: 'pointer', background: '#F8FAFC',
@@ -4276,6 +4221,7 @@ const MyFleet = () => {
                   >
                     <VehiclePopup
                       vehicle={v}
+                      state={vState}
                       address={tableGeoMap.get(`${v.coords.lat.toFixed(4)},${v.coords.lng.toFixed(4)}`)}
                     />
                   </Popup>
@@ -4613,39 +4559,7 @@ const MyFleet = () => {
       {confirmModalsJsx}
 
       {/* ══════ MODALS (fixed — work anywhere in DOM) ══════ */}
-      {reassignTarget && (
-        <div onClick={() => !reassigning && setReassignTarget(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000 }}>
-          <div onClick={e => e.stopPropagation()}
-            style={{ background: '#fff', borderRadius: 12, width: 440, maxWidth: '92vw', boxShadow: '0 20px 60px rgba(0,0,0,0.3)', overflow: 'hidden' }}>
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid #E2E8F0' }}>
-              <div style={{ fontSize: 16, fontWeight: 800, color: '#0F172A' }}>Transfer Vehicle</div>
-              <div style={{ fontSize: 12.5, color: '#64748B', marginTop: 2 }}>{reassignTarget.vehicleNumber || reassignTarget.vehicleName || `Vehicle #${reassignTarget.id}`}</div>
-            </div>
-            <div style={{ padding: '18px 20px' }}>
-              <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', display: 'block', marginBottom: 8 }}>Assign to client</label>
-              <select value={reassignClientId} onChange={e => setReassignClientId(e.target.value)}
-                style={{ width: '100%', padding: '10px 12px', border: '1px solid #CBD5E1', borderRadius: 8, fontSize: 13, background: '#fff' }}>
-                <option value="">Select a client…</option>
-                {clientNodes.filter(n => n.id !== reassignTarget.clientId).map(n => (
-                  <option key={n.id} value={n.id}>{`${'— '.repeat(n.depth || 0)}${n.name}${n.email ? ` (${n.email})` : ''}`}</option>
-                ))}
-              </select>
-              <div style={{ fontSize: 11.5, color: '#94A3B8', marginTop: 10, lineHeight: 1.5 }}>
-                Trips, sensors and history move with the vehicle. It will be removed from this client's groups, geofences, alerts and active shares.
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', padding: '14px 20px', borderTop: '1px solid #E2E8F0' }}>
-              <button onClick={() => setReassignTarget(null)} disabled={reassigning}
-                style={{ padding: '9px 16px', border: '1px solid #E2E8F0', background: '#fff', borderRadius: 8, fontSize: 13, fontWeight: 700, color: '#64748B', cursor: 'pointer' }}>Cancel</button>
-              <button onClick={handleReassign} disabled={!reassignClientId || reassigning}
-                style={{ padding: '9px 18px', border: 'none', background: (!reassignClientId || reassigning) ? '#FDBA74' : '#EA580C', color: '#fff', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: (!reassignClientId || reassigning) ? 'not-allowed' : 'pointer' }}>
-                {reassigning ? 'Transferring…' : 'Transfer'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {reassignModalJsx}
       {showGroupModal && (
         <Modal title={editingGroup ? 'Edit Group' : 'New Group'} onClose={() => setShowGroupModal(false)}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>

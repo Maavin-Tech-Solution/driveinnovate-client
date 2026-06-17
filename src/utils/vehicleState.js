@@ -62,8 +62,13 @@ function getFieldValue(deviceStatus, field) {
       const staleSecs = secsSince(ts);
       if (staleSecs === null || staleSecs > 90) return null;
       if (mv === true || mv === 1) {
-        const spd = Number(g.speed ?? s.speed ?? 0) || 0;
-        if (spd <= 5) return false; // stationary by GPS speed → ignore sensor jitter
+        // Only trust a "moving" sensor reading when the server's
+        // displacement-confirmed runningStreak ALSO says the vehicle moved
+        // (real position change), not just a jittery sensor or a phantom GPS
+        // speed reading while parked.
+        const spd    = Number(g.speed ?? s.speed ?? 0) || 0;
+        const streak = Number(s.runningStreak ?? 0) || 0;
+        if (streak <= 0 && spd <= 5) return false; // no confirmed motion → ignore
       }
       return mv;
     }
@@ -138,6 +143,83 @@ function evaluateState(deviceStatus, stateDefinition) {
   if (!conditions || conditions.length === 0) return true;
   if (conditionLogic === 'OR') return conditions.some(c => evaluateCondition(deviceStatus, c));
   return conditions.every(c => evaluateCondition(deviceStatus, c));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Canonical, industry-standard vehicle state model.
+//
+// Exactly four MUTUALLY EXCLUSIVE states, evaluated top-to-bottom (first match
+// wins), so a vehicle is always in one and only one state:
+//
+//   1. No Data  — never sent a single packet (newly registered / never online).
+//   2. Offline  — was online before, but silent for longer than OFFLINE_SECS.
+//   3. Running  — online AND moving (debounced so brief stops/jitter don't flip it).
+//   4. Stopped  — online AND not moving (covers parked, idling, ignition off).
+//
+// "Online" is deliberately NOT a state: every Running/Stopped vehicle is online
+// by definition, so a separate "Online" bucket can only overlap them and cause
+// the Running↔Online flicker. Motion is derived from time-based signals plus a
+// short movement-memory debounce, never raw instantaneous speed, so the result
+// is stable from one evaluation to the next.
+// ─────────────────────────────────────────────────────────────────────────────
+export const VEHICLE_STATES = {
+  RUNNING: { stateName: 'Running', stateColor: '#059669', stateIcon: '🟢' },
+  STOPPED: { stateName: 'Stopped', stateColor: '#EF4444', stateIcon: '🔴' },
+  OFFLINE: { stateName: 'Offline', stateColor: '#6B7280', stateIcon: '⚫' },
+  NODATA:  { stateName: 'No Data', stateColor: '#94A3B8', stateIcon: '📵' },
+};
+
+export const STATE_THRESHOLDS = {
+  offlineSecs:   600,  // > 10 min with no packet → Offline
+  moveSpeed:     5,    // km/h — above this counts as moving
+  moveDebounce:  90,   // s — keep "Running" through brief zero-speed (lights/jitter)
+  movingFresh:   180,  // s — a "moving" reading older than this is treated as stale
+};
+
+// Per-vehicle memory of the last time the vehicle was confirmed moving. Used to
+// debounce the Running→Stopped transition for devices that don't report a
+// server-side speedZeroSince. Symmetric and self-healing (unlike a sticky lock).
+const _lastMovingAt = new Map();
+
+export function classifyVehicleState(deviceStatus, opts = {}) {
+  const offlineSecs  = opts.offlineSecs  ?? STATE_THRESHOLDS.offlineSecs;
+  const moveSpeed    = opts.moveSpeed    ?? STATE_THRESHOLDS.moveSpeed;
+  const moveDebounce = opts.moveDebounce ?? STATE_THRESHOLDS.moveDebounce;
+  const movingFresh  = opts.movingFresh  ?? STATE_THRESHOLDS.movingFresh;
+
+  const s = deviceStatus?.status  ?? {};
+  const g = deviceStatus?.gpsData ?? {};
+
+  // 1. No Data — nothing ever received.
+  const everSeen = deviceStatus?.lastUpdate || g.timestamp || g.latitude;
+  if (!everSeen) return { ...VEHICLE_STATES.NODATA };
+
+  // 2. Offline — silent beyond the offline window. secsSince returns null for a
+  //    future timestamp (device clock skew); null is treated as "just seen".
+  const lastSeen = secsSince(deviceStatus?.lastUpdate ?? g.timestamp);
+  if (lastSeen !== null && lastSeen > offlineSecs) return { ...VEHICLE_STATES.OFFLINE };
+
+  // 3 & 4. Online → Running vs Stopped, by debounced motion.
+  const speed = Number(g.speed ?? s.speed ?? 0) || 0;
+  const fresh = lastSeen === null || lastSeen <= movingFresh; // ignore stale "moving" packets
+  const movingNow = fresh && speed > moveSpeed;
+
+  const id  = opts.vehicleId;
+  const now = Date.now();
+  if (movingNow && id != null) _lastMovingAt.set(id, now);
+
+  // Prefer the server's displacement-confirmed zero-speed duration when present;
+  // otherwise fall back to the client movement-memory.
+  const zeroSecs = getFieldValue(deviceStatus, 'speedZeroSeconds');
+  let recentlyMoving = zeroSecs !== null && zeroSecs < moveDebounce;
+  if (!recentlyMoving && id != null) {
+    const last = _lastMovingAt.get(id);
+    if (last != null && (now - last) < moveDebounce * 1000) recentlyMoving = true;
+  }
+
+  return (movingNow || recentlyMoving)
+    ? { ...VEHICLE_STATES.RUNNING }
+    : { ...VEHICLE_STATES.STOPPED };
 }
 
 export function getVehicleState(deviceStatus, stateDefinitions) {
