@@ -496,67 +496,45 @@ const MapController = ({ center, focusKey }) => {
   return null;
 };
 
-// ─── Smooth marker animation ─────────────────────────────────────────────────
-// When a new poll arrives, each vehicle's marker gets a "motion segment":
-// animate from where it's currently displayed to the new target position over
-// MOTION_DURATION_MS.  A single shared RAF loop walks all active segments at
-// 60 Hz and calls marker.setLatLng() — no React re-renders during animation.
-//
-// Linear interpolation matches the visual fidelity needed for highway tracking
-// (at 100 km/h the vehicle covers ~140 m in 5 s, well within "looks like a
-// straight line" tolerance).  For sharp turns between polls the marker cuts
-// the corner slightly — acceptable trade-off vs. fetching routing data.
-const MOTION_DURATION_MS = 5000;          // matches poll interval
-const motionSegments = new Map();         // vehicleId -> { fromLat, fromLng, toLat, toLng, startedAt }
-
-const startMotionSegment = (vehicleId, fromLat, fromLng, toLat, toLng) => {
-  motionSegments.set(vehicleId, {
-    fromLat, fromLng, toLat, toLng,
-    startedAt: performance.now(),
-  });
-};
-
+// ─── Selected-vehicle auto-pan ───────────────────────────────────────────────
+// Marker positions are driven directly by react-leaflet (the live `position`
+// prop on each <SmoothMarker>), so MarkerClusterGroup re-lays-out correctly on
+// every poll and markers reliably track the latest fix. This controller only
+// keeps the SELECTED vehicle in view: it watches that marker's live LatLng and
+// gently pans the map when it drifts toward the edge.
 const SmoothMotionController = ({ markerRefs, selectedId }) => {
   const map = useMap();
 
   useEffect(() => {
+    if (!selectedId) return;
     let rafId;
     let lastPanAt = 0;
 
     const tick = () => {
       const now = performance.now();
-
-      motionSegments.forEach((seg, vehicleId) => {
-        const m = markerRefs.current.get(vehicleId)?.current;
-        if (!m) { motionSegments.delete(vehicleId); return; }
-
-        const t = Math.min((now - seg.startedAt) / MOTION_DURATION_MS, 1);
-        // easeOutCubic — fast start, soft landing on the target
-        const e = 1 - Math.pow(1 - t, 3);
-        const lat = seg.fromLat + (seg.toLat - seg.fromLat) * e;
-        const lng = seg.fromLng + (seg.toLng - seg.fromLng) * e;
-        m.setLatLng([lat, lng]);
-
-        if (t >= 1) motionSegments.delete(vehicleId);
-
-        // Selected-vehicle edge auto-pan
-        if (selectedId && vehicleId === selectedId && (now - lastPanAt > 600)) {
-          const latlng = L.latLng(lat, lng);
-          const b   = map.getBounds();
-          const ne  = b.getNorthEast();
-          const sw  = b.getSouthWest();
-          const pad = 0.2;
-          const inner = L.latLngBounds(
-            [sw.lat + (ne.lat - sw.lat) * pad, sw.lng + (ne.lng - sw.lng) * pad],
-            [ne.lat - (ne.lat - sw.lat) * pad, ne.lng - (ne.lng - sw.lng) * pad],
-          );
-          if (!inner.contains(latlng)) {
-            map.panTo(latlng, { animate: true, duration: 0.5 });
-            lastPanAt = now;
+      const m = markerRefs.current.get(selectedId)?.current;
+      // Only pan when the marker is a live, on-map layer with valid coords —
+      // panning toward a half-mounted/removed marker makes MarkerClusterGroup's
+      // showMarker throw on an undefined layer.
+      if (m && typeof m.getLatLng === 'function' && now - lastPanAt > 600) {
+        try {
+          const latlng = m.getLatLng();
+          if (latlng && Number.isFinite(latlng.lat) && Number.isFinite(latlng.lng)) {
+            const b   = map.getBounds();
+            const ne  = b.getNorthEast();
+            const sw  = b.getSouthWest();
+            const pad = 0.2;
+            const inner = L.latLngBounds(
+              [sw.lat + (ne.lat - sw.lat) * pad, sw.lng + (ne.lng - sw.lng) * pad],
+              [ne.lat - (ne.lat - sw.lat) * pad, ne.lng - (ne.lng - sw.lng) * pad],
+            );
+            if (!inner.contains(latlng)) {
+              map.panTo(latlng, { animate: true, duration: 0.5 });
+              lastPanAt = now;
+            }
           }
-        }
-      });
-
+        } catch { /* marker mid-update — skip this frame */ }
+      }
       rafId = requestAnimationFrame(tick);
     };
     rafId = requestAnimationFrame(tick);
@@ -580,54 +558,25 @@ const FocusBoundsController = ({ bounds }) => {
   return null;
 };
 
-// ─── SmoothMarker — registers its Leaflet marker ref into a shared map so
-// SmoothMotionController can drive position updates via setLatLng() at 60 Hz.
-//
-// We capture the initial position into a ref (`initialPos`) and pass it
-// unchanged for the marker's lifetime. The live poll keeps updating
-// vehicles[].deviceStatus.gpsData (which the sidebar / cards read), so the
-// `position` prop changes on every poll — but if we forwarded that to the
-// underlying Leaflet Marker, React-Leaflet would call setLatLng() and snap
-// the marker to "now", undoing RAF's smoother lagged-interpolated position.
-// Passing the stable initial value keeps RAF as the sole driver of motion.
-//
-// The marker key is {vehicleId}-{isSelected}.  State/colour changes update
-// the icon prop in-place without remounting so the RAF position buffer is
-// never lost.  Only selection toggle causes a remount (intentional — it
-// resizes the icon and re-anchors the position).
+// ─── SmoothMarker — a Leaflet marker that tracks the live position prop and
+// registers its ref so the auto-pan controller can read its position.
 const SmoothMarker = ({ vehicleId, markerRefs, position, icon, eventHandlers, children }) => {
-  const initialPos = useRef(position);  // stable — react-leaflet sees same ref forever
+  const initialPos = useRef(position);   // stable — react-leaflet places it once, never re-snaps
   const markerRef = useRef(null);
 
-  // Register / unregister this marker so SmoothMotionController can find it.
+  // Register so the marker-mover effect / auto-pan controller can drive it.
   useEffect(() => {
     if (!markerRefs || vehicleId == null) return;
     markerRefs.current.set(vehicleId, markerRef);
     return () => { markerRefs.current.delete(vehicleId); };
   }, [vehicleId, markerRefs]);
 
-  // When the position prop changes (new poll), start a new motion segment from
-  // the marker's CURRENT displayed position to the new target.  RAF takes it
-  // from here and interpolates over MOTION_DURATION_MS.  We deliberately do
-  // NOT forward `position` to <Marker> — that would let react-leaflet snap the
-  // marker straight to the target, defeating the animation.
-  useEffect(() => {
-    if (!position) return;
-    const [toLat, toLng] = position;
-    if (toLat == null || toLng == null) return;
-
-    const m = markerRef.current;
-    if (!m) return;
-    const cur = m.getLatLng();
-
-    // Skip if essentially unchanged (< ~1 m at the equator).
-    if (Math.abs(cur.lat - toLat) < 1e-6 && Math.abs(cur.lng - toLng) < 1e-6) {
-      motionSegments.delete(vehicleId);
-      return;
-    }
-    startMotionSegment(vehicleId, cur.lat, cur.lng, toLat, toLng);
-  }, [position, vehicleId]);
-
+  // We deliberately pass a STABLE position to <Marker>. If we forwarded the live
+  // `position`, react-leaflet would silently call setLatLng() on every poll —
+  // which updates the marker's internal LatLng but NOT the cluster layout, and
+  // also defeats the imperative mover (it would see "no change" and never call
+  // refreshClusters). Instead the mapVehicles effect drives setLatLng +
+  // refreshClusters so the cluster actually re-lays-out the moved marker.
   return (
     <Marker ref={markerRef} position={initialPos.current} icon={icon} eventHandlers={eventHandlers}>
       {children}
@@ -680,7 +629,8 @@ const VehiclePopup = ({ vehicle, address, state }) => {
 
   // Location address goes in the same single-line row list as everything else.
   const rows = [...metrics];
-  if (gps?.timestamp) rows.push({ label: 'Updated', value: new Date(gps.timestamp).toLocaleString('en-IN', { timeStyle: 'short', dateStyle: 'short' }), color: '#475569' });
+  const lastSeenTs = vehicle.deviceStatus?.lastUpdate || gps?.timestamp;
+  if (lastSeenTs) rows.push({ label: 'Updated', value: new Date(lastSeenTs).toLocaleString('en-IN', { timeStyle: 'short', dateStyle: 'short' }), color: '#475569' });
 
   return (
     <div style={{ fontFamily: "'Plus Jakarta Sans',-apple-system,sans-serif" }}>
@@ -1208,31 +1158,63 @@ const MyFleet = () => {
   // existing vehicle objects — full device status (fuel, battery, sensors)
   // already loaded on initial page load is preserved.
   useEffect(() => {
-    let lastSince = null;
     const effectClientId = viewClientId;
+    // ── Scalable incremental live poll (built for 5k+ vehicles) ──
+    // Most polls are INCREMENTAL: request only vehicles whose lastSeenAt is
+    // newer than a trailing watermark, so the payload is proportional to ACTIVE
+    // vehicles, not the whole fleet. Two safeguards make it correct:
+    //   1. TRAILING BUFFER — we ask for `watermark - SAFETY_BUFFER`, not the bare
+    //      max. This re-fetches a short trailing window so a vehicle whose packet
+    //      is stamped slightly behind by a different device-listener process
+    //      (clock skew) or arrives late is never starved out of the feed — the
+    //      exact bug that froze markers under a bare max-watermark cursor.
+    //   2. PERIODIC FULL SNAPSHOT — every FULL_REFRESH_EVERY-th poll we drop the
+    //      cursor and fetch everything, self-healing any gap regardless of skew.
+    // Client-side change-detection (below) dedupes the trailing/full re-fetches,
+    // so redundant rows cause no marker/list re-render.
+    const SAFETY_BUFFER_MS   = 20_000; // trailing window — absorbs listener clock skew
+    const FULL_REFRESH_EVERY = 6;      // every 6th poll (~30 s) → full self-healing snapshot
+    let watermark = null;              // ISO string — newest lastSeenAt observed
+    let pollCount = 0;
 
     const poll = async () => {
       if (document.visibilityState === 'hidden') return;
       try {
+        const fullRefresh = (pollCount % FULL_REFRESH_EVERY) === 0; // poll 0 is full
+        pollCount++;
         const params = [];
         if (effectClientId) params.push(`clientId=${effectClientId}`);
-        if (lastSince)       params.push(`since=${encodeURIComponent(lastSince)}`);
+        if (!fullRefresh && watermark) {
+          const since = new Date(new Date(watermark).getTime() - SAFETY_BUFFER_MS).toISOString();
+          params.push(`since=${encodeURIComponent(since)}`);
+        }
         const url = `/vehicles/live-positions${params.length ? '?' + params.join('&') : ''}`;
         const res = await api.get(url);
         const positions = Array.isArray(res.data) ? res.data : [];
         if (!positions.length) return;
 
-        // Advance the since cursor
-        const maxTime = positions.reduce((m, p) => {
-          const t = p.lastSeenAt;
-          if (!t) return m;
-          return m === null || new Date(t) > new Date(m) ? t : m;
-        }, lastSince);
-        if (maxTime) lastSince = maxTime;
+        // Advance the watermark to the newest lastSeenAt actually observed.
+        for (const p of positions) {
+          if (p.lastSeenAt && (watermark === null || new Date(p.lastSeenAt) > new Date(watermark))) {
+            watermark = p.lastSeenAt;
+          }
+        }
 
         setVehicles(prev => prev.map(v => {
           const p = positions.find(x => x.id === v.id);
           if (!p) return v;
+          // Preserve object identity when nothing meaningful changed so idle
+          // markers/rows don't re-render on every poll. A moving vehicle's
+          // lastSeenAt always advances (new server timestamp per packet), so it
+          // never short-circuits here.
+          const g = v.deviceStatus?.gpsData || {};
+          const st = v.deviceStatus?.status || {};
+          if ((!p.lastSeenAt || p.lastSeenAt === v.deviceStatus?.lastUpdate) &&
+              (p.lat == null || p.lat === g.latitude) &&
+              (p.lng == null || p.lng === g.longitude) &&
+              p.speed === g.speed && p.engineOn === st.ignition) {
+            return v;
+          }
           // Merge only the live fields; preserve existing deviceStatus shape
           return {
             ...v,
@@ -1426,13 +1408,34 @@ const MyFleet = () => {
   };
 
   // ─── Handlers ───────────────────────────────────────────────────────────────
+  // Sync pulls the comprehensive device status (fuel, battery, voltage, sensors,
+  // engine, trip…) that the slim 5 s live poll doesn't carry. It must NOT clobber
+  // the live-tracked fields — otherwise selecting a moving vehicle (auto-sync)
+  // would rewind its position/speed to the sync snapshot and freeze the marker.
+  // So we keep the synced rich fields but let the live poll's gpsData (position,
+  // speed), motion status, and lastUpdate win.
+  const mergeSyncedStatus = (live, synced) => {
+    if (!synced?.deviceStatus) return { ...live, ...synced };
+    const liveDs = live?.deviceStatus || {};
+    const syncDs = synced.deviceStatus || {};
+    return {
+      ...synced,
+      deviceStatus: {
+        ...syncDs,
+        gpsData:    { ...(syncDs.gpsData || {}), ...(liveDs.gpsData || {}) },
+        status:     { ...(syncDs.status  || {}), ...(liveDs.status  || {}) },
+        lastUpdate: liveDs.lastUpdate || syncDs.lastUpdate,
+      },
+    };
+  };
+
   const handleSync = async (v, silent = false) => {
     setSyncing(true); setSyncingId(v.id);
     try {
       const r = await syncVehicleData(v.id);
       const u = r.data;
-      setVehicles(p => p.map(x => x.id === u.id ? u : x));
-      if (selectedVehicle?.id === u.id) setSelectedVehicle(u);
+      setVehicles(p => p.map(x => x.id === u.id ? mergeSyncedStatus(x, u) : x));
+      if (selectedVehicle?.id === u.id) setSelectedVehicle(prev => mergeSyncedStatus(prev || {}, u));
       if (!silent) toast.success('Synced!');
     } catch (e) {
       if (!silent) toast.error('Sync failed: ' + (e.message || 'error'));
@@ -1796,7 +1799,7 @@ const MyFleet = () => {
             case 'satellites': return v.deviceStatus?.gpsData?.satellites ?? -1;
             case 'odometer':   return v.deviceStatus?.trip?.odometer ?? -1;
             case 'gps':        return getVehicleCoords(v) ? 0 : 1;
-            case 'lastUpdate':   return v.deviceStatus?.gpsData?.timestamp ? new Date(v.deviceStatus.gpsData.timestamp).getTime() : -1;
+            case 'lastUpdate':   { const t = v.deviceStatus?.lastUpdate || v.deviceStatus?.gpsData?.timestamp; return t ? new Date(t).getTime() : -1; }
             case 'firstPacket':  return (v.firstSeenAt||v.first_seen_at)  ? new Date(v.firstSeenAt||v.first_seen_at).getTime()  : -1;
             case 'registeredAt': return (v.registeredAt||v.registered_at) ? new Date(v.registeredAt||v.registered_at).getTime() : -1;
             default: return 0;
@@ -1850,10 +1853,11 @@ const MyFleet = () => {
     if (queued && !tableGeoActive.current) drainGeoQueue.current();
   }, [filteredVehicles, viewMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-open the detail popup for the focused vehicle (e.g. when a row is
-  // clicked in the list) and close the others. A focused vehicle may still be
-  // inside a cluster at the focus zoom, so use the cluster group's
-  // zoomToShowLayer() to reveal the marker first, then open its popup.
+  // Auto-open the detail popup ONLY when the selected vehicle CHANGES (a fresh
+  // selection from the list or a marker click) — never on the 5 s poll. Keying
+  // on selectedVehicle.id (not the object, which the poll re-creates every tick,
+  // nor filteredVehicles which changes every poll) means that once the user
+  // closes the popup it stays closed until they pick a vehicle again.
   useEffect(() => {
     if (viewMode !== 'map') return;
     const id = selectedVehicle?.id;
@@ -1877,7 +1881,7 @@ const MyFleet = () => {
       } catch { /* noop */ }
     }, 150);
     return () => clearTimeout(t);
-  }, [selectedVehicle, viewMode, filteredVehicles]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedVehicle?.id, viewMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Lazily load sensors for every visible vehicle when the map-view sidebar
   // is open. Placed AFTER filteredVehicles useMemo to avoid TDZ error.
@@ -1908,6 +1912,29 @@ const MyFleet = () => {
       : filteredVehicles;
     return source.map(v => ({ ...v, coords: getVehicleCoords(v) })).filter(v => v.coords);
   }, [filteredVehicles, focusedIds]);
+
+  // Drive marker movement on every poll. MarkerClusterGroup only repositions
+  // markers on a full re-render (which is why a manual refresh moved them but
+  // the silent poll didn't). Here we imperatively push each vehicle's latest
+  // coords onto its Leaflet marker and ask the cluster to re-layout, so running
+  // vehicles glide/jump to their new position live without a manual refresh.
+  useEffect(() => {
+    if (viewMode !== 'map') return;
+    const moved = [];
+    mapVehicles.forEach(v => {
+      const m = markerRefs.current.get(v.id)?.current;
+      if (!m || !v.coords) return;
+      const cur = m.getLatLng();
+      if (Math.abs(cur.lat - v.coords.lat) > 1e-7 || Math.abs(cur.lng - v.coords.lng) > 1e-7) {
+        m.setLatLng([v.coords.lat, v.coords.lng]);
+        moved.push(m);
+      }
+    });
+    if (moved.length && typeof clusterRef.current?.refreshClusters === 'function') {
+      // Refresh only the markers that actually moved — cheap even at 5k.
+      try { clusterRef.current.refreshClusters(moved); } catch { /* noop */ }
+    }
+  }, [mapVehicles, viewMode]);
 
   // Lat/lng pairs for the pinned (multi-tracked) set — drives FocusBoundsController.
   // Works for 1+ selected vehicles so the map always shows all checked vehicles.
@@ -3049,7 +3076,7 @@ const MyFleet = () => {
                     const gsmSignal  = statusObj?.gsmSignal;
                     const satellites = gps?.satellites;
                     const odometer   = tripObj?.odometer;
-                    const lastUpdate = gps?.timestamp;
+                    const lastUpdate = v.deviceStatus?.lastUpdate || gps?.timestamp;
 
                     const vs          = getVState(v, deviceStatesByType);
                     const statusColor = vs.stateColor;
@@ -3755,7 +3782,7 @@ const MyFleet = () => {
             const lvs        = getVState(v, deviceStatesByType);
             const stColor    = lvs.stateColor;
             const stLabel    = lvs.stateName;
-            const lastTs     = v.deviceStatus?.gpsData?.timestamp || v.deviceStatus?.lastUpdate;
+            const lastTs     = v.deviceStatus?.lastUpdate || v.deviceStatus?.gpsData?.timestamp;
             const minsAgo    = lastTs ? Math.round((Date.now() - new Date(lastTs).getTime()) / 60000) : null;
             const ageLabel   = minsAgo === null ? null : minsAgo < 2 ? 'Live' : minsAgo < 60 ? `${minsAgo}m` : minsAgo < 1440 ? `${Math.floor(minsAgo/60)}h` : `${Math.floor(minsAgo/1440)}d`;
             const ageColor   = minsAgo === null ? '#94A3B8' : minsAgo < 5 ? '#16a34a' : minsAgo < 30 ? '#d97706' : '#ef4444';
@@ -4016,7 +4043,7 @@ const MyFleet = () => {
           const hvSat    = hv.deviceStatus?.gpsData?.satellites;
           const hvFuel   = hv.deviceStatus?.fuel?.level;
           const hvOdo    = hv.deviceStatus?.status?.odometer ?? hv.deviceStatus?.status?.lastOdometerReading;
-          const hvLastTs = hv.deviceStatus?.gpsData?.timestamp || hv.deviceStatus?.lastUpdate;
+          const hvLastTs = hv.deviceStatus?.lastUpdate || hv.deviceStatus?.gpsData?.timestamp;
           const hvMinsAgo = hvLastTs ? Math.round((Date.now() - new Date(hvLastTs).getTime()) / 60000) : null;
           const hvAge    = hvMinsAgo === null ? '—' : hvMinsAgo < 2 ? 'Live' : hvMinsAgo < 60 ? `${hvMinsAgo}m ago` : hvMinsAgo < 1440 ? `${Math.floor(hvMinsAgo/60)}h ago` : `${Math.floor(hvMinsAgo/1440)}d ago`;
           const hvCoords = getVehicleCoords(hv);
@@ -4197,10 +4224,10 @@ const MyFleet = () => {
             {mapVehicles.map(v => {
               const isSel = selectedVehicle?.id === v.id;
               const vState = getVState(v, deviceStatesByType);
-              // SmoothMarker holds a stable initial position and registers a
-              // RAF-driven motion segment each time the position prop changes,
-              // so the marker glides from its current displayed spot to the
-              // new target over ~5 s instead of snapping every poll.
+              // Stable key per vehicle (NEVER position-based — re-keying remounts
+              // the marker every move, which leaves MarkerClusterGroup holding a
+              // stale reference and crashes its showMarker on the next map move).
+              // The mapVehicles effect moves the marker imperatively instead.
               return (
                 <SmoothMarker
                   key={v.id}
@@ -4263,7 +4290,7 @@ const MyFleet = () => {
           const stColor = dvs.stateColor;
           const stLabel = dvs.stateName;
           const ign     = getIgnition(sv);
-          const lastTs  = gps?.timestamp || sv.deviceStatus?.lastUpdate;
+          const lastTs  = sv.deviceStatus?.lastUpdate || gps?.timestamp;
           const minsAgo = lastTs ? Math.round((Date.now() - new Date(lastTs).getTime()) / 60000) : null;
           const ageStr  = minsAgo === null ? null : minsAgo < 2 ? 'Live now' : minsAgo < 60 ? `${minsAgo}m ago` : minsAgo < 1440 ? `${Math.floor(minsAgo/60)}h ago` : `${Math.floor(minsAgo/1440)}d ago`;
           const ageColor = minsAgo === null ? '#94a3b8' : minsAgo < 5 ? '#16a34a' : minsAgo < 30 ? '#d97706' : '#ef4444';
@@ -4953,7 +4980,7 @@ const OverviewTab = ({ vehicle, cf }) => {
         <InfoRow label="Speed"       value={gps?.speed !== undefined ? `${gps.speed} km/h` : null} />
         <InfoRow label="Satellites"  value={gps?.satellites} />
         <InfoRow label="Altitude"    value={gps?.altitude !== undefined ? `${gps.altitude} m` : null} />
-        <InfoRow label="Last Update" value={gps?.timestamp ? new Date(gps.timestamp).toLocaleString('en-IN') : null} />
+        <InfoRow label="Last Update" value={(ds?.lastUpdate || gps?.timestamp) ? new Date(ds?.lastUpdate || gps.timestamp).toLocaleString('en-IN') : null} />
       </SectionCard>
       <SectionCard icon="cpu" title="Device Status">
         <InfoRow label="Ignition"   value={status?.ignition === true ? 'ON' : status?.ignition === false ? 'OFF' : null}

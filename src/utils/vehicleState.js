@@ -173,7 +173,6 @@ export const STATE_THRESHOLDS = {
   offlineSecs:   600,  // > 10 min with no packet → Offline
   moveSpeed:     5,    // km/h — above this counts as moving
   moveDebounce:  90,   // s — keep "Running" through brief zero-speed (lights/jitter)
-  movingFresh:   180,  // s — a "moving" reading older than this is treated as stale
 };
 
 // Per-vehicle memory of the last time the vehicle was confirmed moving. Used to
@@ -185,7 +184,6 @@ export function classifyVehicleState(deviceStatus, opts = {}) {
   const offlineSecs  = opts.offlineSecs  ?? STATE_THRESHOLDS.offlineSecs;
   const moveSpeed    = opts.moveSpeed    ?? STATE_THRESHOLDS.moveSpeed;
   const moveDebounce = opts.moveDebounce ?? STATE_THRESHOLDS.moveDebounce;
-  const movingFresh  = opts.movingFresh  ?? STATE_THRESHOLDS.movingFresh;
 
   const s = deviceStatus?.status  ?? {};
   const g = deviceStatus?.gpsData ?? {};
@@ -199,10 +197,15 @@ export function classifyVehicleState(deviceStatus, opts = {}) {
   const lastSeen = secsSince(deviceStatus?.lastUpdate ?? g.timestamp);
   if (lastSeen !== null && lastSeen > offlineSecs) return { ...VEHICLE_STATES.OFFLINE };
 
-  // 3 & 4. Online → Running vs Stopped, by debounced motion.
-  const speed = Number(g.speed ?? s.speed ?? 0) || 0;
-  const fresh = lastSeen === null || lastSeen <= movingFresh; // ignore stale "moving" packets
-  const movingNow = fresh && speed > moveSpeed;
+  // 3 & 4. Online → Running vs Stopped. A vehicle is moving when its latest GPS
+  // fix shows speed over the threshold OR the server's displacement-confirmed
+  // runningStreak is positive. The live feed already nulls speed/streak once the
+  // GPS fix goes stale, so any positive reading here is recent, real motion —
+  // no extra freshness gate (which previously suppressed Running entirely for
+  // trackers that report every few minutes).
+  const speed  = Number(g.speed ?? g.spd ?? s.speed ?? 0) || 0;
+  const streak = Number(s.runningStreak ?? 0) || 0;
+  const movingNow = speed > moveSpeed || streak > 0;
 
   const id  = opts.vehicleId;
   const now = Date.now();

@@ -15,8 +15,13 @@ import { vehicleMarkerHtml, VEHICLE_ICON_LABELS } from '../utils/vehicleIcons';
 
 const INDIA_CENTER = [22.9734, 78.6569];
 
+// "Running" means actually moving (speed over threshold), consistent with the
+// canonical fleet-state model — not merely ignition on.
+const MOVE_SPEED = 5; // km/h
+const isMoving = (p) => Number(p?.speed ?? 0) > MOVE_SPEED;
+
 const makeIcon = (pos) => {
-  const running = pos.engineOn;
+  const running = isMoving(pos);
   const bg = running ? '#16a34a' : '#dc2626';
   
   return L.divIcon({
@@ -109,7 +114,7 @@ export default function LiveShareView() {
 
   const { info, positions, expiresAt } = shareData;
   const mapPositions = (positions || []).filter(p => p.lat && p.lng);
-  const runningCount = (positions || []).filter(p => p.engineOn).length;
+  const runningCount = (positions || []).filter(isMoving).length;
   const stoppedCount = (positions || []).length - runningCount;
 
   const isExpired = new Date() > new Date(expiresAt);
@@ -200,11 +205,11 @@ export default function LiveShareView() {
                     <div style={{ fontSize: 10, color: '#64748B', fontFamily: 'monospace', marginBottom: 4 }}>{pos.vehicleNumber}</div>
                   )}
                   <div style={{ display: 'flex', gap: 8, fontSize: 11 }}>
-                    <span style={{ color: pos.engineOn ? '#16a34a' : '#dc2626', fontWeight: 700 }}>{pos.engineOn ? '🟢 Running' : '🔴 Stopped'}</span>
+                    <span style={{ color: isMoving(pos) ? '#16a34a' : '#dc2626', fontWeight: 700 }}>{isMoving(pos) ? '🟢 Running' : '🔴 Stopped'}</span>
                     {pos.speed > 0 && <span style={{ color: '#64748B' }}>🚀 {Math.round(pos.speed)} km/h</span>}
                   </div>
-                  {pos.lastPacketTime && (
-                    <div style={{ fontSize: 10, color: '#94A3B8', marginTop: 4 }}>Last seen: {fmtTime(pos.lastPacketTime)}</div>
+                  {(pos.lastSeenAt || pos.lastPacketTime) && (
+                    <div style={{ fontSize: 10, color: '#94A3B8', marginTop: 4 }}>Last seen: {fmtTime(pos.lastSeenAt || pos.lastPacketTime)}</div>
                   )}
                 </div>
               </Tooltip>
@@ -225,7 +230,7 @@ export default function LiveShareView() {
                   <div style={{ fontSize: 12, fontWeight: 700, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pos.vehicleName || pos.vehicleNumber || `Vehicle ${pos.id}`}</div>
                   {pos.speed > 0 && <div style={{ fontSize: 10, color: '#64748B' }}>{Math.round(pos.speed)} km/h</div>}
                 </div>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: pos.engineOn ? '#22c55e' : '#ef4444', flexShrink: 0, boxShadow: pos.engineOn ? '0 0 5px #22c55e' : 'none' }} />
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: isMoving(pos) ? '#22c55e' : '#ef4444', flexShrink: 0, boxShadow: isMoving(pos) ? '0 0 5px #22c55e' : 'none' }} />
               </div>
             ))}
           </div>
