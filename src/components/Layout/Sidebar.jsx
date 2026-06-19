@@ -294,6 +294,11 @@ const Sidebar = ({ collapsed }) => {
           <NavGroup label="Clients" Icon={UsersIcon} items={clientItems} collapsed={collapsed} defaultOpen={false} />
         )}
 
+        {/* Teams — any account with the canManageTeams permission */}
+        {(isPapa || perms.canManageTeams === true) && (
+          <NavItem item={{ to: '/teams', label: 'Teams', Icon: UserGroupIcon }} collapsed={collapsed} />
+        )}
+
         {/* Account */}
         {accountItems.length > 0 && (
           <NavGroup label="Account" Icon={UserCircleIcon} items={accountItems} collapsed={collapsed} defaultOpen={false} />

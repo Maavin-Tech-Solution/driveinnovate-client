@@ -558,27 +558,35 @@ const FocusBoundsController = ({ bounds }) => {
   return null;
 };
 
-// ─── SmoothMarker — a Leaflet marker that tracks the live position prop and
-// registers its ref so the auto-pan controller can read its position.
+// ─── SmoothMarker — a plain Leaflet marker that tracks the LIVE position prop.
+// Markers are no longer wrapped in MarkerClusterGroup, so react-leaflet's own
+// setLatLng-on-position-change moves them reliably on every poll (the cluster
+// was swallowing those updates, which is why only a manual refresh moved them).
 const SmoothMarker = ({ vehicleId, markerRefs, position, icon, eventHandlers, children }) => {
-  const initialPos = useRef(position);   // stable — react-leaflet places it once, never re-snaps
   const markerRef = useRef(null);
 
-  // Register so the marker-mover effect / auto-pan controller can drive it.
+  // Register so the auto-pan controller can read this marker's position.
   useEffect(() => {
     if (!markerRefs || vehicleId == null) return;
     markerRefs.current.set(vehicleId, markerRef);
     return () => { markerRefs.current.delete(vehicleId); };
   }, [vehicleId, markerRefs]);
 
-  // We deliberately pass a STABLE position to <Marker>. If we forwarded the live
-  // `position`, react-leaflet would silently call setLatLng() on every poll —
-  // which updates the marker's internal LatLng but NOT the cluster layout, and
-  // also defeats the imperative mover (it would see "no change" and never call
-  // refreshClusters). Instead the mapVehicles effect drives setLatLng +
-  // refreshClusters so the cluster actually re-lays-out the moved marker.
+  // Move the underlying Leaflet marker EXPLICITLY whenever the live position
+  // changes. react-leaflet's `position` prop alone did not reliably move markers
+  // here — they only jumped on a full reload — so we drive setLatLng directly off
+  // the live lat/lng. Deps are the primitive coords so this fires only on real
+  // movement, not on every poll re-render.
+  const lat = position?.[0];
+  const lng = position?.[1];
+  useEffect(() => {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const m = markerRef.current;
+    if (m && typeof m.setLatLng === 'function') m.setLatLng([lat, lng]);
+  }, [lat, lng]);
+
   return (
-    <Marker ref={markerRef} position={initialPos.current} icon={icon} eventHandlers={eventHandlers}>
+    <Marker ref={markerRef} position={position} icon={icon} eventHandlers={eventHandlers}>
       {children}
     </Marker>
   );
@@ -1239,7 +1247,7 @@ const MyFleet = () => {
             },
           };
         }));
-      } catch (_) { /* silently ignore poll errors */ }
+      } catch (_) { /* transient poll errors are ignored; next tick retries */ }
     };
 
     const id = setInterval(poll, 5000);
@@ -1912,29 +1920,6 @@ const MyFleet = () => {
       : filteredVehicles;
     return source.map(v => ({ ...v, coords: getVehicleCoords(v) })).filter(v => v.coords);
   }, [filteredVehicles, focusedIds]);
-
-  // Drive marker movement on every poll. MarkerClusterGroup only repositions
-  // markers on a full re-render (which is why a manual refresh moved them but
-  // the silent poll didn't). Here we imperatively push each vehicle's latest
-  // coords onto its Leaflet marker and ask the cluster to re-layout, so running
-  // vehicles glide/jump to their new position live without a manual refresh.
-  useEffect(() => {
-    if (viewMode !== 'map') return;
-    const moved = [];
-    mapVehicles.forEach(v => {
-      const m = markerRefs.current.get(v.id)?.current;
-      if (!m || !v.coords) return;
-      const cur = m.getLatLng();
-      if (Math.abs(cur.lat - v.coords.lat) > 1e-7 || Math.abs(cur.lng - v.coords.lng) > 1e-7) {
-        m.setLatLng([v.coords.lat, v.coords.lng]);
-        moved.push(m);
-      }
-    });
-    if (moved.length && typeof clusterRef.current?.refreshClusters === 'function') {
-      // Refresh only the markers that actually moved — cheap even at 5k.
-      try { clusterRef.current.refreshClusters(moved); } catch { /* noop */ }
-    }
-  }, [mapVehicles, viewMode]);
 
   // Lat/lng pairs for the pinned (multi-tracked) set — drives FocusBoundsController.
   // Works for 1+ selected vehicles so the map always shows all checked vehicles.
@@ -4220,42 +4205,40 @@ const MyFleet = () => {
             />
           ))}
 
-          <MarkerClusterGroup ref={clusterRef} chunkedLoading iconCreateFunction={createClusterCustomIcon} maxClusterRadius={60} showCoverageOnHover={false} spiderfyOnMaxZoom={true} disableClusteringAtZoom={14}>
-            {mapVehicles.map(v => {
-              const isSel = selectedVehicle?.id === v.id;
-              const vState = getVState(v, deviceStatesByType);
-              // Stable key per vehicle (NEVER position-based — re-keying remounts
-              // the marker every move, which leaves MarkerClusterGroup holding a
-              // stale reference and crashes its showMarker on the next map move).
-              // The mapVehicles effect moves the marker imperatively instead.
-              return (
-                <SmoothMarker
-                  key={v.id}
-                  vehicleId={v.id}
-                  markerRefs={markerRefs}
-                  position={[v.coords.lat, v.coords.lng]}
-                  icon={makeVehicleIcon(v, isSel, vState.stateColor)}
-                  eventHandlers={{ click: (e) => { selectVehicle(v); e.target?.openPopup?.(); } }}
+          {/* Markers rendered directly (no MarkerClusterGroup) so react-leaflet
+              moves them live on every poll via the position prop. Clustering can
+              be re-introduced later with a move-compatible approach when the
+              fleet grows. */}
+          {mapVehicles.map(v => {
+            const isSel = selectedVehicle?.id === v.id;
+            const vState = getVState(v, deviceStatesByType);
+            return (
+              <SmoothMarker
+                key={v.id}
+                vehicleId={v.id}
+                markerRefs={markerRefs}
+                position={[v.coords.lat, v.coords.lng]}
+                icon={makeVehicleIcon(v, isSel, vState.stateColor)}
+                eventHandlers={{ click: (e) => { selectVehicle(v); e.target?.openPopup?.(); } }}
+              >
+                <Popup
+                  className="fv-popup"
+                  closeButton
+                  autoClose={false}
+                  closeOnClick={false}
+                  autoPan={true}
+                  autoPanPaddingTopLeft={[24, 28]}
+                  autoPanPaddingBottomRight={[24, 24]}
                 >
-                  <Popup
-                    className="fv-popup"
-                    closeButton
-                    autoClose={false}
-                    closeOnClick={false}
-                    autoPan={true}
-                    autoPanPaddingTopLeft={[24, 28]}
-                    autoPanPaddingBottomRight={[24, 24]}
-                  >
-                    <VehiclePopup
-                      vehicle={v}
-                      state={vState}
-                      address={tableGeoMap.get(`${v.coords.lat.toFixed(4)},${v.coords.lng.toFixed(4)}`)}
-                    />
-                  </Popup>
-                </SmoothMarker>
-              );
-            })}
-          </MarkerClusterGroup>
+                  <VehiclePopup
+                    vehicle={v}
+                    state={vState}
+                    address={tableGeoMap.get(`${v.coords.lat.toFixed(4)},${v.coords.lng.toFixed(4)}`)}
+                  />
+                </Popup>
+              </SmoothMarker>
+            );
+          })}
         </MapContainer>
 
         {/* Legend — glassmorphic, squared to match design system */}

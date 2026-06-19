@@ -34,6 +34,7 @@ const PERMISSION_LABELS = [
   { key: 'canViewRTO',           label: 'View RTO Details' },
   { key: 'canViewChallans',      label: 'View Challans' },
   { key: 'canViewNotifications', label: 'View Notifications' },
+  { key: 'canManageTeams',       label: 'Manage Teams' },
 ];
 
 const PermissionModal = ({ client, onClose, onSaved }) => {

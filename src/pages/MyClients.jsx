@@ -31,6 +31,7 @@ const PERMISSION_LABELS = [
   { key: 'canViewRTO',           label: 'View RTO Details' },
   { key: 'canViewChallans',      label: 'View Challans' },
   { key: 'canViewNotifications', label: 'Notifications' },
+  { key: 'canManageTeams',       label: 'Manage Teams' },
 ];
 
 // ─── Permission Modal ─────────────────────────────────────────────────────────
