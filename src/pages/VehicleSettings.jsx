@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import { getSettings, updateSettings, resetSettings } from '../services/settings.service';
 import { applyTheme } from '../utils/theme';
+import MenuManager from './MenuManager';
 
 // ─── Widget definitions (must match Dashboard.jsx + MyFleet.jsx) ─────────────
 // Card ids prefixed with "state_" are computed from live vehicle state and
@@ -217,7 +218,10 @@ const VehicleSettings = () => {
     <div style={{ minHeight: '100%' }}>
       {/* ── Main Content ── */}
       <div style={{ display: 'grid', gap: '20px' }}>
-        
+
+        {/* ── Sidebar Menu Manager ── */}
+        <MenuManager />
+
         {/* ── Theme & Appearance Card ── */}
         <div style={{ background: '#fff', borderRadius: '14px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
           <div style={{ padding: '20px 24px', borderBottom: '1px solid #f1f5f9' }}>

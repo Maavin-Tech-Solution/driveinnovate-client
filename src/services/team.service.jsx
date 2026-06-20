@@ -21,6 +21,18 @@ export const setTeamVehicles = (id, vehicleIds) => api.put(`/teams/${id}/vehicle
 /** GET /api/teams/assignable-vehicles — the owner's fleet (picker source) */
 export const getAssignableVehicles = () => api.get('/teams/assignable-vehicles');
 
+/** GET /api/teams/members — the owner's full member pool (with each member's teamIds) */
+export const getOwnerMembers = () => api.get('/teams/members');
+
+/** POST /api/teams/:id/vehicles/:vehicleId — add one vehicle to a team */
+export const addTeamVehicle = (teamId, vehicleId) => api.post(`/teams/${teamId}/vehicles/${vehicleId}`);
+
+/** DELETE /api/teams/:id/vehicles/:vehicleId — remove one vehicle from a team */
+export const removeTeamVehicle = (teamId, vehicleId) => api.delete(`/teams/${teamId}/vehicles/${vehicleId}`);
+
+/** POST /api/teams/:id/members/:userId — attach an EXISTING member to a team (multi-team) */
+export const attachTeamMember = (teamId, userId) => api.post(`/teams/${teamId}/members/${userId}`);
+
 /** POST /api/teams/:id/members — create a member login + attach to team */
 export const addTeamMember = (id, data) => api.post(`/teams/${id}/members`, data);
 

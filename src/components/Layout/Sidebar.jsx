@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { getSettings } from '../../services/settings.service';
+import { REGISTRY_BY_KEY, canSeePage } from '../../config/menuRegistry';
 import {
   Squares2X2Icon,
   MapIcon,
@@ -70,9 +72,12 @@ const NavItem = ({ item, collapsed, indent = false }) => {
         flexDirection: collapsed ? 'column' : 'row',
         alignItems: 'center',
         gap: collapsed ? '4px' : '11px',
-        padding: collapsed ? '9px 4px' : indent ? '8px 14px 8px 38px' : '9px 14px',
-        margin: collapsed ? '2px 4px' : '2px 10px',
+        // Indented (sub-menu) items stay visually nested in BOTH states: a left
+        // pad when expanded, and a right offset + connector line when collapsed.
+        padding: collapsed ? (indent ? '6px 3px' : '9px 4px') : indent ? '8px 14px 8px 38px' : '9px 14px',
+        margin: collapsed ? (indent ? '1px 6px 1px 26px' : '2px 4px') : '2px 10px',
         borderRadius: '8px',
+        borderLeft: collapsed && indent ? '2px solid rgba(255,255,255,0.25)' : undefined,
         justifyContent: collapsed ? 'center' : 'flex-start',
         color: isActive ? '#1D4ED8' : '#FFFFFF',
         background: isActive ? '#FFFFFF' : hovered ? 'rgba(255,255,255,0.12)' : 'transparent',
@@ -85,9 +90,9 @@ const NavItem = ({ item, collapsed, indent = false }) => {
         letterSpacing: isActive ? '-0.01em' : '0',
       })}
     >
-      <item.Icon style={{ width: collapsed ? '22px' : '18px', height: collapsed ? '22px' : '18px', flexShrink: 0 }} />
+      <item.Icon style={{ width: collapsed ? (indent ? '18px' : '22px') : '18px', height: collapsed ? (indent ? '18px' : '22px') : '18px', flexShrink: 0 }} />
       {collapsed
-        ? <span style={{ fontSize: '10px', fontWeight: 600, textAlign: 'center', lineHeight: 1.1, maxWidth: '76px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.label}</span>
+        ? <span style={{ fontSize: indent ? '9px' : '10px', fontWeight: 600, textAlign: 'center', lineHeight: 1.1, maxWidth: indent ? '64px' : '76px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: indent ? 0.85 : 1 }}>{item.label}</span>
         : <span>{item.label}</span>
       }
     </NavLink>
@@ -191,6 +196,20 @@ const Sidebar = ({ collapsed }) => {
     { to: '/user-activity', label: 'Activity',  Icon: ClockIcon },
   ].filter(Boolean);
 
+  // Per-user custom sidebar (Settings → Sidebar Menu). When present it REPLACES the
+  // default Fleet/Vehicles/Analytics/Clients grouping with a flat, indented list
+  // (depth 1 = nested). Dashboard + Account stay fixed so the user can always
+  // navigate and reach Settings to change it.
+  const [menuConfig, setMenuConfig] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    getSettings().then(r => { if (alive) setMenuConfig(r?.data?.menuConfig || null); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  const customItems = (menuConfig?.items || [])
+    .map(it => ({ ...REGISTRY_BY_KEY[it.key], depth: it.depth || 0 }))
+    .filter(p => p.key && canSeePage(p, user));
+
   return (
     <aside style={{
       width: collapsed ? '109px' : '260px',
@@ -274,29 +293,34 @@ const Sidebar = ({ collapsed }) => {
         {/* Dashboard — standalone */}
         <NavItem item={{ to: '/dashboard', label: 'Dashboard', Icon: Squares2X2Icon }} collapsed={collapsed} />
 
-        {/* Fleet */}
-        {fleetItems.length > 0 && (
-          <NavGroup label="Fleet" Icon={MapIcon} items={fleetItems} collapsed={collapsed} />
-        )}
-
-        {/* Vehicles */}
-        {vehicleItems.length > 0 && (
-          <NavGroup label="Vehicles" Icon={PlusCircleIcon} items={vehicleItems} collapsed={collapsed} />
-        )}
-
-        {/* Analytics */}
-        {analyticsItems.length > 0 && (
-          <NavGroup label="Analytics" Icon={ChartBarIcon} items={analyticsItems} collapsed={collapsed} />
-        )}
-
-        {/* Clients — papa / dealer only */}
-        {hasClients && clientItems.length > 0 && (
-          <NavGroup label="Clients" Icon={UsersIcon} items={clientItems} collapsed={collapsed} defaultOpen={false} />
-        )}
-
-        {/* Teams — any account with the canManageTeams permission */}
-        {(isPapa || perms.canManageTeams === true) && (
-          <NavItem item={{ to: '/teams', label: 'Teams', Icon: UserGroupIcon }} collapsed={collapsed} />
+        {customItems.length ? (
+          /* User-defined menu (Settings → Sidebar Menu): flat, indented list */
+          customItems.map((p) => (
+            <NavItem key={p.key} item={{ to: p.to, label: p.label, Icon: p.Icon }} collapsed={collapsed} indent={p.depth === 1} />
+          ))
+        ) : (
+          <>
+            {/* Fleet */}
+            {fleetItems.length > 0 && (
+              <NavGroup label="Fleet" Icon={MapIcon} items={fleetItems} collapsed={collapsed} />
+            )}
+            {/* Vehicles */}
+            {vehicleItems.length > 0 && (
+              <NavGroup label="Vehicles" Icon={PlusCircleIcon} items={vehicleItems} collapsed={collapsed} />
+            )}
+            {/* Analytics */}
+            {analyticsItems.length > 0 && (
+              <NavGroup label="Analytics" Icon={ChartBarIcon} items={analyticsItems} collapsed={collapsed} />
+            )}
+            {/* Clients — papa / dealer only */}
+            {hasClients && clientItems.length > 0 && (
+              <NavGroup label="Clients" Icon={UsersIcon} items={clientItems} collapsed={collapsed} defaultOpen={false} />
+            )}
+            {/* Teams — any account with the canManageTeams permission */}
+            {(isPapa || perms.canManageTeams === true) && (
+              <NavItem item={{ to: '/teams', label: 'Teams', Icon: UserGroupIcon }} collapsed={collapsed} />
+            )}
+          </>
         )}
 
         {/* Account */}
