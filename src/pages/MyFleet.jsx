@@ -1159,6 +1159,12 @@ const MyFleet = () => {
       .finally(() => setLoading(false));
   }, [viewClientId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // True once the first live-positions poll has resolved. Until then, a vehicle
+  // that would classify as "Stopped" is shown as "determining" (loader) in the
+  // list — so a vehicle whose real motion state is still arriving isn't flashed
+  // red as Stopped on first paint.
+  const [firstPollDone, setFirstPollDone] = useState(false);
+
   // ─── Live-position auto-refresh (5 s, pauses when tab hidden) ───────────────
   // Uses the lightweight /vehicles/live-positions endpoint (MySQL only, no
   // MongoDB per-vehicle queries) so the poll never causes a heap OOM crash.
@@ -1199,6 +1205,7 @@ const MyFleet = () => {
         const url = `/vehicles/live-positions${params.length ? '?' + params.join('&') : ''}`;
         const res = await api.get(url);
         const positions = Array.isArray(res.data) ? res.data : [];
+        setFirstPollDone(true); // states are now determinable from live data
         if (!positions.length) return;
 
         // Advance the watermark to the newest lastSeenAt actually observed.
@@ -3765,8 +3772,12 @@ const MyFleet = () => {
             const speed      = v.deviceStatus?.gpsData?.speed;
             const battery    = v.deviceStatus?.status?.battery;
             const lvs        = getVState(v, deviceStatesByType);
-            const stColor    = lvs.stateColor;
-            const stLabel    = lvs.stateName;
+            // "Stopped" is the fallback state, so it's the one that can show
+            // prematurely before live motion data has arrived. Until the first
+            // poll resolves, present it as "determining" (loader) instead of red.
+            const determining = !firstPollDone && lvs.stateName === 'Stopped';
+            const stColor    = determining ? '#94A3B8' : lvs.stateColor;
+            const stLabel    = determining ? 'Checking…' : lvs.stateName;
             const lastTs     = v.deviceStatus?.lastUpdate || v.deviceStatus?.gpsData?.timestamp;
             const minsAgo    = lastTs ? Math.round((Date.now() - new Date(lastTs).getTime()) / 60000) : null;
             const ageLabel   = minsAgo === null ? null : minsAgo < 2 ? 'Live' : minsAgo < 60 ? `${minsAgo}m` : minsAgo < 1440 ? `${Math.floor(minsAgo/60)}h` : `${Math.floor(minsAgo/1440)}d`;
@@ -3810,7 +3821,9 @@ const MyFleet = () => {
                         {v.vehicleName && v.vehicleNumber && <div style={{ fontSize: 12, color: '#94A3B8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.vehicleName}</div>}
                       </div>
                       <span style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 20, background: `${stColor}15`, color: stColor, fontSize: 11, fontWeight: 800 }}>
-                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: stColor }} />
+                        {determining
+                          ? <span style={{ width: 9, height: 9, borderRadius: '50%', border: '2px solid #CBD5E1', borderTopColor: '#64748B', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} />
+                          : <span style={{ width: 6, height: 6, borderRadius: '50%', background: stColor }} />}
                         {stLabel}
                       </span>
                       <button title="Vehicle details"

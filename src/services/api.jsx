@@ -19,16 +19,30 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response interceptor — handle 401 globally
+// Response interceptor.
+// - Unwraps the response body so callers get { success, data, message } directly.
+// - A 401 on an AUTHENTICATED request means the session expired → bounce to login.
+//   But a 401 from an /auth/* call (login, OTP, reset…) is a failed attempt, NOT
+//   an expired session — we must NOT redirect; the page surfaces err.message
+//   (e.g. "Invalid email or password") instead.
+// - Always rejects with the server's body ({ success:false, message }) when present,
+//   so every caller can show a proper message via err.message.
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
-    if (error.response?.status === 401) {
+    const url = error.config?.url || '';
+    const isAuthCall = url.includes('/auth/');
+    if (error.response?.status === 401 && !isAuthCall) {
       localStorage.removeItem('di_token');
       localStorage.removeItem('di_user');
       window.location.href = '/';
     }
-    return Promise.reject(error.response?.data || error);
+    const body = error.response?.data;
+    // Guarantee an err.message even for network errors / empty bodies.
+    if (body && typeof body === 'object' && !body.message) {
+      body.message = error.response?.statusText || 'Request failed';
+    }
+    return Promise.reject(body || { message: error.message || 'Network error. Please try again.' });
   }
 );
 
