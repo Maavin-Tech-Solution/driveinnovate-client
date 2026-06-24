@@ -213,6 +213,11 @@ const ClientNode = ({ node, depth, onPermissions, onNavigate }) => {
             }}>
               {node.status === 'active' ? 'Active' : 'Inactive'}
             </span>
+            {node.kind === 'member' && (
+              <span style={{ fontSize: '10px', fontWeight: 700, padding: '1px 8px', borderRadius: '20px', background: '#FEF3C7', color: '#B45309', whiteSpace: 'nowrap' }}>
+                Member
+              </span>
+            )}
           </div>
           <div style={{ fontSize: '12px', color: '#64748B', marginTop: '1px', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
             <span>{node.email}</span>
@@ -303,6 +308,9 @@ const SearchItem = ({ node, onSelect }) => (
     )}
     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
       <span style={{ fontWeight: 700, fontSize: '13.5px', color: '#0F172A' }}>{node.name}</span>
+      {node.kind === 'member' && (
+        <span style={{ fontSize: '10px', fontWeight: 700, padding: '1px 7px', borderRadius: '20px', background: '#FEF3C7', color: '#B45309' }}>Member</span>
+      )}
       <span style={{ fontSize: '11px', color: '#6B7280' }}>{node.email}</span>
       <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#2563EB', fontWeight: 600 }}>
         <TruckIcon style={{ width: '11px', height: '11px' }} />
