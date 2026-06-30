@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { getSettings } from '../../services/settings.service';
-import { REGISTRY_BY_KEY, canSeePage } from '../../config/menuRegistry';
+import { getSystemSettings } from '../../services/master.service';
+import { REGISTRY_BY_KEY, canSeePage, FIXED_KEYS } from '../../config/menuRegistry';
 import {
   Squares2X2Icon,
   MapIcon,
@@ -24,6 +25,9 @@ import {
   BellIcon,
   ChevronDownIcon,
   UsersIcon,
+  BanknotesIcon,
+  CurrencyRupeeIcon,
+  DocumentTextIcon,
 } from '@heroicons/react/24/outline';
 
 /* ── Transport graphic SVG ── */
@@ -188,6 +192,17 @@ const Sidebar = ({ collapsed }) => {
     (perms.canAddClient !== false) && { to: '/add-client', label: 'Add Client', Icon: UserGroupIcon },
   ].filter(Boolean);
 
+  // Billing group — only when the module is enabled network-wide, and only for
+  // those it applies to: papa / billing managers (who run the chain) or a client
+  // whose own billing type is prepaid. Postpaid clients never see it.
+  const canManageBilling = isPapa || perms.canManageBilling === true;
+  const isPrepaid = user?.billingType === 'prepaid';
+  const billingItems = (canManageBilling || isPrepaid) ? [
+    { to: '/wallet', label: 'Wallet', Icon: BanknotesIcon },
+    canManageBilling && { to: '/billing-rates', label: 'Billing Rates', Icon: CurrencyRupeeIcon },
+    { to: '/invoices', label: 'Invoices', Icon: DocumentTextIcon },
+  ].filter(Boolean) : [];
+
   // Account group
   const accountItems = [
     perms.canViewNotifications !== false && { to: '/notifications', label: 'Notifications', Icon: BellIcon },
@@ -197,18 +212,32 @@ const Sidebar = ({ collapsed }) => {
   ].filter(Boolean);
 
   // Per-user custom sidebar (Settings → Sidebar Menu). When present it REPLACES the
-  // default Fleet/Vehicles/Analytics/Clients grouping with a flat, indented list
-  // (depth 1 = nested). Dashboard + Account stay fixed so the user can always
-  // navigate and reach Settings to change it.
+  // default grouping with the user's own SECTIONS (each a NavGroup of pages).
+  // Dashboard (top) plus fixed Settings + Profile stay rendered so a custom menu
+  // can never lock the user out of the page that edits it.
+  // Is the prepaid billing module switched on network-wide?
+  const [billingEnabled, setBillingEnabled] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    getSystemSettings().then(r => { if (alive) setBillingEnabled(!!r?.data?.billingEnabled); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
   const [menuConfig, setMenuConfig] = useState(null);
   useEffect(() => {
     let alive = true;
     getSettings().then(r => { if (alive) setMenuConfig(r?.data?.menuConfig || null); }).catch(() => {});
     return () => { alive = false; };
   }, []);
-  const customItems = (menuConfig?.items || [])
-    .map(it => ({ ...REGISTRY_BY_KEY[it.key], depth: it.depth || 0 }))
-    .filter(p => p.key && canSeePage(p, user));
+  const customGroups = (menuConfig?.groups || [])
+    .map(g => ({
+      label: g.label,
+      items: (g.items || [])
+        .map(k => REGISTRY_BY_KEY[k])
+        .filter(p => p && !FIXED_KEYS.includes(p.key) && canSeePage(p, user))
+        .map(p => ({ to: p.to, label: p.label, Icon: p.Icon })),
+    }))
+    .filter(g => g.items.length);
 
   return (
     <aside style={{
@@ -293,11 +322,16 @@ const Sidebar = ({ collapsed }) => {
         {/* Dashboard — standalone */}
         <NavItem item={{ to: '/dashboard', label: 'Dashboard', Icon: Squares2X2Icon }} collapsed={collapsed} />
 
-        {customItems.length ? (
-          /* User-defined menu (Settings → Sidebar Menu): flat, indented list */
-          customItems.map((p) => (
-            <NavItem key={p.key} item={{ to: p.to, label: p.label, Icon: p.Icon }} collapsed={collapsed} indent={p.depth === 1} />
-          ))
+        {customGroups.length ? (
+          /* User-defined menu (Settings → Sidebar Menu): the user's own sections */
+          <>
+            {customGroups.map((g, i) => (
+              <NavGroup key={i} label={g.label} Icon={RectangleGroupIcon} items={g.items} collapsed={collapsed} />
+            ))}
+            {/* Always-reachable fixed entries so a custom menu can't lock the user out */}
+            <NavItem item={{ to: '/vehicle-settings', label: 'Settings', Icon: Cog6ToothIcon }} collapsed={collapsed} />
+            <NavItem item={{ to: '/profile', label: 'Profile', Icon: UserCircleIcon }} collapsed={collapsed} />
+          </>
         ) : (
           <>
             {/* Fleet */}
@@ -316,16 +350,19 @@ const Sidebar = ({ collapsed }) => {
             {hasClients && clientItems.length > 0 && (
               <NavGroup label="Clients" Icon={UsersIcon} items={clientItems} collapsed={collapsed} defaultOpen={false} />
             )}
+            {/* Billing — only when the module is enabled */}
+            {billingEnabled && billingItems.length > 0 && (
+              <NavGroup label="Billing" Icon={BanknotesIcon} items={billingItems} collapsed={collapsed} defaultOpen={false} />
+            )}
             {/* Teams — any account with the canManageTeams permission */}
             {(isPapa || perms.canManageTeams === true) && (
               <NavItem item={{ to: '/teams', label: 'Teams', Icon: UserGroupIcon }} collapsed={collapsed} />
             )}
+            {/* Account */}
+            {accountItems.length > 0 && (
+              <NavGroup label="Account" Icon={UserCircleIcon} items={accountItems} collapsed={collapsed} defaultOpen={false} />
+            )}
           </>
-        )}
-
-        {/* Account */}
-        {accountItems.length > 0 && (
-          <NavGroup label="Account" Icon={UserCircleIcon} items={accountItems} collapsed={collapsed} defaultOpen={false} />
         )}
 
         {/* Master Settings — papa only */}

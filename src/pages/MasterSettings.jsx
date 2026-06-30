@@ -275,9 +275,13 @@ export default function MasterSettings() {
   const [savingState,    setSavingState]    = useState(false);
   const [resettingStates, setResettingStates] = useState(false);
 
-  const [systemSettings,  setSystemSettings]  = useState({ liveShareEnabled: false, trialAccountEnabled: false, trialDurationDays: 30 });
+  const [systemSettings,  setSystemSettings]  = useState({ liveShareEnabled: false, trialAccountEnabled: false, trialDurationDays: 30, billingEnabled: false, defaultMonthlyPrice: 0, defaultTaxPercent: 0 });
   const [savingSettings,  setSavingSettings]  = useState(false);
   const [trialDaysInput,  setTrialDaysInput]  = useState('30');
+  const [defaultPriceInput, setDefaultPriceInput] = useState('0');
+  const [defaultTaxInput,   setDefaultTaxInput]   = useState('0');
+  const [testDaysInput,     setTestDaysInput]     = useState('30');
+  const [graceDaysInput,    setGraceDaysInput]    = useState('15');
 
   // ── Load devices on mount ────────────────────────────────────────────────
   const loadDevices = useCallback(async () => {
@@ -305,9 +309,48 @@ export default function MasterSettings() {
         const s = res.data || {};
         setSystemSettings(s);
         setTrialDaysInput(String(s.trialDurationDays ?? 30));
+        setDefaultPriceInput(String(s.defaultMonthlyPrice ?? 0));
+        setDefaultTaxInput(String(s.defaultTaxPercent ?? 0));
+        setTestDaysInput(String(s.testPeriodDays ?? 30));
+        setGraceDaysInput(String(s.gracePeriodDays ?? 15));
       })
       .catch(() => toast.error('Failed to load platform settings'));
   }, []);
+
+  const handleToggleBilling = async () => {
+    setSavingSettings(true);
+    try {
+      const next = !systemSettings.billingEnabled;
+      const res = await updateSystemSettings({ billingEnabled: next });
+      setSystemSettings(res.data || {});
+      toast.success(`Prepaid billing ${next ? 'enabled' : 'disabled'}`);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update setting');
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  const handleSaveBillingDefaults = async () => {
+    const price = Number(defaultPriceInput);
+    const tax = Number(defaultTaxInput);
+    const testDays = parseInt(testDaysInput, 10);
+    const graceDays = parseInt(graceDaysInput, 10);
+    if (isNaN(price) || price < 0) { toast.error('Default price must be 0 or more'); return; }
+    if (isNaN(tax) || tax < 0 || tax > 100) { toast.error('Default GST % must be 0–100'); return; }
+    if (isNaN(testDays) || testDays < 1) { toast.error('Test period must be at least 1 day'); return; }
+    if (isNaN(graceDays) || graceDays < 1) { toast.error('Grace period must be at least 1 day'); return; }
+    setSavingSettings(true);
+    try {
+      const res = await updateSystemSettings({ defaultMonthlyPrice: price, defaultTaxPercent: tax, testPeriodDays: testDays, gracePeriodDays: graceDays });
+      setSystemSettings(res.data || {});
+      toast.success('Billing defaults updated');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update setting');
+    } finally {
+      setSavingSettings(false);
+    }
+  };
 
   const handleToggleLiveShare = async () => {
     setSavingSettings(true);
@@ -567,6 +610,53 @@ export default function MasterSettings() {
             }}
           >
             {savingSettings ? 'Saving…' : systemSettings.trialAccountEnabled ? '✓ Enabled' : 'Disabled'}
+          </button>
+        </div>
+
+        {/* Divider */}
+        <div style={{ height: 1, background: '#f1f5f9', margin: '4px 0' }} />
+
+        {/* Prepaid Billing row */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>Prepaid Billing (Vehicle Tokens)</div>
+            <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+              When enabled, wallets hold vehicle tokens (1 token = 1 vehicle for 1 year). Adding/renewing a vehicle spends 1 token.
+              Set the network-wide fallback price per vehicle (1 year) and default GST — dealers can override the price per client under Billing Rates.
+            </div>
+            {systemSettings.billingEnabled && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>Default price ₹/veh/yr:</label>
+                <input type="number" min="0" value={defaultPriceInput} onChange={e => setDefaultPriceInput(e.target.value)}
+                  style={{ width: 90, padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, color: '#0f172a' }} />
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>Default GST %:</label>
+                <input type="number" min="0" max="100" value={defaultTaxInput} onChange={e => setDefaultTaxInput(e.target.value)}
+                  style={{ width: 70, padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, color: '#0f172a' }} />
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>Test token (days):</label>
+                <input type="number" min="1" value={testDaysInput} onChange={e => setTestDaysInput(e.target.value)}
+                  style={{ width: 70, padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, color: '#0f172a' }} />
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>Grace token (days):</label>
+                <input type="number" min="1" value={graceDaysInput} onChange={e => setGraceDaysInput(e.target.value)}
+                  style={{ width: 70, padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, color: '#0f172a' }} />
+                <button onClick={handleSaveBillingDefaults} disabled={savingSettings}
+                  style={{ padding: '4px 12px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: 'none', background: '#2563eb', color: '#fff', cursor: savingSettings ? 'not-allowed' : 'pointer' }}>
+                  {savingSettings ? '…' : 'Save'}
+                </button>
+              </div>
+            )}
+          </div>
+          <button
+            onClick={handleToggleBilling}
+            disabled={savingSettings}
+            style={{
+              flexShrink: 0, padding: '7px 18px', fontSize: 13, fontWeight: 600, borderRadius: 8, border: 'none',
+              cursor: savingSettings ? 'not-allowed' : 'pointer',
+              background: systemSettings.billingEnabled ? '#dcfce7' : '#f1f5f9',
+              color:      systemSettings.billingEnabled ? '#166534' : '#475569',
+              transition: 'background 0.15s',
+            }}
+          >
+            {savingSettings ? 'Saving…' : systemSettings.billingEnabled ? '✓ Enabled' : 'Disabled'}
           </button>
         </div>
       </div>

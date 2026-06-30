@@ -1,11 +1,11 @@
-@import url('https://fonts.googleapis.com/css2?family=Arvo:wght@400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600;700;800&display=swap');
 
 *, *::before, *::after { box-sizing: border-box; }
 
-/* Use the Arvo type family everywhere — overrides inline font-family
+/* Use the Open Sans type family everywhere — overrides inline font-family
    declarations (e.g. 'Plus Jakarta Sans' / monospace) across the app. */
-*, *::before, *::after { font-family: 'Arvo', Georgia, 'Times New Roman', serif !important; }
-.leaflet-container { font-family: 'Arvo', Georgia, serif !important; }
+*, *::before, *::after { font-family: 'Open Sans', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important; }
+.leaflet-container { font-family: 'Open Sans', 'Segoe UI', Roboto, sans-serif !important; }
 
 /* ── Leaflet tile fix ────────────────────────────────────────────── */
 .leaflet-container img {
@@ -15,7 +15,7 @@
 
 body {
   margin: 0;
-  font-family: 'Arvo', Georgia, 'Times New Roman', serif;
+  font-family: 'Open Sans', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background-color: var(--bg);

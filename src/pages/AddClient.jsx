@@ -36,6 +36,7 @@ const initialForm = {
   password: '',
   confirmPassword: '',
   accountType: 'trial',
+  billingType: 'postpaid',
   companyName: '',
   address: '',
   state: '',
@@ -162,6 +163,35 @@ const AddClient = () => {
                       <span style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.4, paddingLeft: 20 }}>
                         {opt.desc}
                       </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div style={fieldStyle}>
+                <label style={labelStyle}>Billing Type *</label>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  {[
+                    { value: 'postpaid', label: 'Postpaid', desc: 'Billed outside the wallet. No tokens used.' },
+                    { value: 'prepaid',  label: 'Prepaid',  desc: 'Uses wallet vehicle-tokens (when the module is on).' },
+                  ].map(opt => (
+                    <label
+                      key={opt.value}
+                      style={{
+                        flex: 1, display: 'flex', flexDirection: 'column', gap: 4,
+                        padding: '10px 13px', borderRadius: 8,
+                        border: `2px solid ${form.billingType === opt.value ? '#2563eb' : '#e2e8f0'}`,
+                        background: form.billingType === opt.value ? '#eff6ff' : '#fafafa',
+                        cursor: 'pointer', transition: 'all 0.15s',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                        <input type="radio" name="billingType" value={opt.value}
+                          checked={form.billingType === opt.value} onChange={handleChange}
+                          style={{ accentColor: '#2563eb' }} />
+                        <span style={{ fontSize: 13, fontWeight: 700, color: form.billingType === opt.value ? '#1d4ed8' : '#374151' }}>{opt.label}</span>
+                      </div>
+                      <span style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.4, paddingLeft: 20 }}>{opt.desc}</span>
                     </label>
                   ))}
                 </div>

@@ -29,6 +29,9 @@ import MyClients from './pages/MyClients';
 import ClientDetail from './pages/ClientDetail';
 import MasterSettings from './pages/MasterSettings';
 import Teams from './pages/Teams';
+import Wallet from './pages/Wallet';
+import BillingRates from './pages/BillingRates';
+import Invoices from './pages/Invoices';
 const Debug = React.lazy(() => import('./pages/Debug'));
 
 const G = ({ p, role, children }) => (
@@ -85,6 +88,9 @@ function App() {
             <Route path="my-clients/:id"   element={<G role="dealer_or_papa"><ClientDetail /></G>} />
             <Route path="add-client"       element={<G p="canAddClient"><AddClient /></G>} />
             <Route path="teams"            element={<G p="canManageTeams"><Teams /></G>} />
+            <Route path="wallet"           element={<Wallet />} />
+            <Route path="billing-rates"    element={<G p="canManageBilling"><BillingRates /></G>} />
+            <Route path="invoices"         element={<Invoices />} />
             <Route path="master-settings"  element={<G role="papa"><MasterSettings /></G>} />
             {/* Always accessible */}
             <Route path="support"          element={<Support />} />

@@ -39,6 +39,9 @@ export const getClientDetail = (clientId) => api.get(`/users/clients/${clientId}
 /** GET /api/users/client-tree — full recursive network tree */
 export const getClientTree = () => api.get('/users/client-tree');
 
+/** PUT /api/users/clients/:clientId/billing-type — switch prepaid/postpaid */
+export const setClientBillingType = (clientId, billingType) => api.put(`/users/clients/${clientId}/billing-type`, { billingType });
+
 /**
  * POST /api/users/clients/:clientId/upgrade
  * Body: { plan: '3months' | '6months' | '1year' }

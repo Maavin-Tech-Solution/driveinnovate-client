@@ -455,6 +455,12 @@ const Dashboard = () => {
             Icon: ClockIcon, to: '/rto-details', subtitle: 'within 30 days',
             gradient: 'linear-gradient(135deg, #A855F7 0%, #6B21A8 100%)',
           },
+          subscription_expiring: {
+            label: 'Subscriptions Expiring', value: fmtInt(stats?.subscriptionExpiringSoon),
+            Icon: ClockIcon, to: '/invoices',
+            subtitle: (stats?.subscriptionInGrace ? `${stats.subscriptionInGrace} in grace · ` : '') + 'within 30 days',
+            gradient: 'linear-gradient(135deg, #F97316 0%, #C2410C 100%)',
+          },
           overspeed: {
             label: 'Overspeed (24h)', value: fmtInt(overspeedVehicles.length),
             Icon: BoltIcon, to: '/reports',

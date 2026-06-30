@@ -18,6 +18,7 @@ const ALL_DASH_CARDS_DEF = [
   { id: 'overspeed',   title: 'Overspeed Alerts',    icon: '⚠️' },
   { id: 'challans',    title: 'Pending Challans',    icon: '📋' },
   { id: 'renewals',    title: 'Upcoming Renewals',   icon: '📅' },
+  { id: 'subscription_expiring', title: 'Subscriptions Expiring', icon: '⏳' },
   { id: 'activity',    title: 'Activity (7d)',       icon: '📈' },
   // Fleet-state cards — counts derived live from the canonical state model
   // (Running / Stopped / Offline / No Data — mutually exclusive).
@@ -27,7 +28,7 @@ const ALL_DASH_CARDS_DEF = [
   { id: 'state_stopped',  title: 'Stopped (state)',   icon: '🔴' },
   { id: 'state_nodata',   title: 'No Data (state)',   icon: '📵' },
 ];
-const DEFAULT_DASH_CARDS   = ['registered','active','overspeed','inactive','gps_active','challans','renewals'];
+const DEFAULT_DASH_CARDS   = ['registered','active','overspeed','inactive','gps_active','challans','renewals','subscription_expiring'];
 
 const ALL_FLEET_CHIPS_DEF = [
   { id: 'total',     label: 'Total',     icon: '🚗', dot: '#64748b' },

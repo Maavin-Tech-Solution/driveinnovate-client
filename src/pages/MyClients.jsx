@@ -32,6 +32,7 @@ const PERMISSION_LABELS = [
   { key: 'canViewChallans',      label: 'View Challans' },
   { key: 'canViewNotifications', label: 'Notifications' },
   { key: 'canManageTeams',       label: 'Manage Teams' },
+  { key: 'canManageBilling',     label: 'Manage Billing' },
 ];
 
 // ─── Permission Modal ─────────────────────────────────────────────────────────

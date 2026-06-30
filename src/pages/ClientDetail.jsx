@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
 import { toast } from 'react-toastify';
 import { useAuth } from '../context/AuthContext';
-import { upgradeClient, extendClientTrial } from '../services/user.service';
+import { upgradeClient, extendClientTrial, setClientBillingType } from '../services/user.service';
 import { VehicleIcon } from '../utils/vehicleIcons';
 import {
   ArrowLeftIcon,
@@ -35,6 +35,7 @@ const PERMISSION_LABELS = [
   { key: 'canViewChallans',      label: 'View Challans' },
   { key: 'canViewNotifications', label: 'View Notifications' },
   { key: 'canManageTeams',       label: 'Manage Teams' },
+  { key: 'canManageBilling',     label: 'Manage Billing' },
 ];
 
 const PermissionModal = ({ client, onClose, onSaved }) => {
@@ -247,6 +248,18 @@ const ClientDetail = () => {
   const [loading, setLoading] = useState(true);
   const [editingPerms, setEditingPerms] = useState(null);
   const [showUpgrade, setShowUpgrade] = useState(false);
+  const [savingBilling, setSavingBilling] = useState(false);
+
+  const toggleBilling = async () => {
+    const next = data?.client?.billingType === 'prepaid' ? 'postpaid' : 'prepaid';
+    setSavingBilling(true);
+    try {
+      await setClientBillingType(clientId, next);
+      toast.success(`Billing type set to ${next}`);
+      load();
+    } catch (e) { toast.error(e?.message || 'Failed to update billing type'); }
+    finally { setSavingBilling(false); }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -291,6 +304,9 @@ const ClientDetail = () => {
             <div style={{ fontSize: '20px', fontWeight: 800, color: '#111827' }}>{client.name}</div>
             <StatusBadge status={client.status} />
             <AccountTypeBadge type={client.accountType || 'trial'} />
+            <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: client.billingType === 'prepaid' ? '#dcfce7' : '#f1f5f9', color: client.billingType === 'prepaid' ? '#15803d' : '#64748b' }}>
+              {client.billingType === 'prepaid' ? 'Prepaid' : 'Postpaid'}
+            </span>
             {client.accountType === 'trial' && client.trialExpiresAt && (
               <span style={{ fontSize: '11px', color: new Date(client.trialExpiresAt) < new Date() ? '#dc2626' : '#d97706', fontWeight: 600 }}>
                 {new Date(client.trialExpiresAt) < new Date()
@@ -327,6 +343,11 @@ const ClientDetail = () => {
           {canManage && (client.accountType === 'trial' || client.accountType === 'demo' || !client.accountType) && (
             <button onClick={() => setShowUpgrade(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', border: '1px solid #bfdbfe', background: '#eff6ff', color: '#2563eb', cursor: 'pointer', fontSize: '13px', fontWeight: 700, whiteSpace: 'nowrap' }}>
               Manage Account
+            </button>
+          )}
+          {canManage && (
+            <button onClick={toggleBilling} disabled={savingBilling} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', border: '1px solid #e5e7eb', background: '#f9fafb', color: '#374151', cursor: savingBilling ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap', opacity: savingBilling ? 0.7 : 1 }}>
+              {savingBilling ? '…' : client.billingType === 'prepaid' ? 'Set Postpaid' : 'Set Prepaid'}
             </button>
           )}
           <button onClick={() => setEditingPerms(client)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', border: '1px solid #e5e7eb', background: '#f9fafb', color: '#374151', cursor: 'pointer', fontSize: '13px', fontWeight: 600, flexShrink: 0 }}>

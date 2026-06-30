@@ -12,6 +12,8 @@ import { addVehicle } from '../services/vehicle.service';
 import { createCustomField } from '../services/vehicle.service';
 import { getClientTree } from '../services/user.service';
 import { useAuth } from '../context/AuthContext';
+import { getMyWallet, getNetworkWallets, formatVehicles } from '../services/billing.service';
+import { getSystemSettings } from '../services/master.service';
 import { DEVICE_TYPE_OPTIONS, portForDeviceType, PORT_LABELS } from '../utils/deviceTypes';
 
 const inputStyle = {
@@ -242,6 +244,31 @@ const AddVehicle = () => {
   const [clients, setClients]           = useState([]);
   const [loading, setLoading]           = useState(false);
 
+  // ── Prepaid token billing ────────────────────────────────────────────────
+  // Adding a vehicle spends 1 token of the chosen type; validity depends on type.
+  const [billingEnabled, setBillingEnabled] = useState(false);
+  const [billingSettings, setBillingSettings] = useState({ testPeriodDays: 30, gracePeriodDays: 15 });
+  const [tokenType, setTokenType]           = useState('PAID');
+  const [myWallet, setMyWallet]             = useState(null);   // { balancePaid, balanceTesting, balanceGrace }
+  const [netWallets, setNetWallets]         = useState([]);     // [{id, balancePaid,...}] best-effort
+
+  // The wallet that pays = the vehicle owner (self, or the assigned client).
+  const effectiveClientId = forClientId ? Number(forClientId) : user?.id;
+  // Tokens only apply when the module is on AND the owning client is prepaid.
+  const targetIsPrepaid = forClientId
+    ? (clients.find(c => String(c.id) === String(forClientId))?.billingType === 'prepaid')
+    : (user?.billingType === 'prepaid');
+  const showBilling = billingEnabled && targetIsPrepaid;
+  const targetWallet = effectiveClientId === user?.id ? myWallet : netWallets.find(w => w.id === effectiveClientId);
+  const balKey = { PAID: 'balancePaid', TESTING: 'balanceTesting', GRACE: 'balanceGrace' }[tokenType];
+  const typeBalance = targetWallet ? Number(targetWallet[balKey] ?? 0) : null;
+  const insufficient = showBilling && typeBalance != null && typeBalance < 1;
+  const durationLabel = tokenType === 'TESTING'
+    ? `${billingSettings.testPeriodDays} days (test)`
+    : tokenType === 'GRACE'
+      ? `${billingSettings.gracePeriodDays} days (grace)`
+      : '1 year (+ grace)';
+
   // Custom fields — collected locally and saved after vehicle creation
   const [pendingCf, setPendingCf]       = useState([]);   // [{ fieldName, fieldValue }]
   const [cfName,  setCfName]            = useState('');
@@ -252,6 +279,16 @@ const AddVehicle = () => {
     getClientTree()
       .then(r => setClients(flattenTree(r.data || [])))
       .catch(() => {});
+  }, [isAdmin]);
+
+  // Is the prepaid billing module turned on? + my per-type balances + (admin) clients' balances.
+  useEffect(() => {
+    getSystemSettings().then(r => {
+      setBillingEnabled(!!r.data?.billingEnabled);
+      setBillingSettings({ testPeriodDays: r.data?.testPeriodDays ?? 30, gracePeriodDays: r.data?.gracePeriodDays ?? 15 });
+    }).catch(() => {});
+    getMyWallet().then(r => setMyWallet(r.data || null)).catch(() => {});
+    if (isAdmin) getNetworkWallets().then(r => setNetWallets(r.data || [])).catch(() => {});
   }, [isAdmin]);
 
   const handleChange = (e) => {
@@ -283,16 +320,25 @@ const AddVehicle = () => {
       const payload = { ...form };
       if (payload.vehicleNumber) payload.vehicleNumber = payload.vehicleNumber.toUpperCase();
       if (forClientId) payload.forClientId = Number(forClientId);
+      // Token deduction is enforced server-side; send the chosen type when it applies.
+      if (showBilling) payload.tokenType = tokenType;
       const res = await addVehicle(payload);
       const newId = res?.data?.id || res?.data?.vehicle?.id;
       // Save custom fields if any were added, using the new vehicle's id
       if (newId && pendingCf.length > 0) {
         await Promise.all(pendingCf.map(cf => createCustomField(newId, cf).catch(() => {})));
       }
-      toast.success('Vehicle registered successfully!');
+      const expiry = res?.data?.subscriptionExpiresAt;
+      toast.success(showBilling && expiry
+        ? `Vehicle registered — 1 vehicle used, valid till ${new Date(expiry).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}.`
+        : 'Vehicle registered successfully!');
       navigate('/my-fleet');
     } catch (err) {
-      toast.error(err.message || 'Failed to register vehicle');
+      if (err.code === 'INSUFFICIENT_FUNDS') {
+        toast.error('No vehicle tokens left in the wallet. Ask your dealer to recharge it.');
+      } else {
+        toast.error(err.message || 'Failed to register vehicle');
+      }
     } finally {
       setLoading(false);
     }
@@ -548,15 +594,15 @@ const AddVehicle = () => {
             <div style={{ padding: '0 24px 24px', display: 'flex', gap: '10px' }}>
               <button
                 type="submit"
-                disabled={loading || !form.vehicleNumber || !form.imei || !form.deviceType || !form.serverPort}
+                disabled={loading || !form.vehicleNumber || !form.imei || !form.deviceType || !form.serverPort || insufficient}
                 style={{
-                  flex: 1, padding: '12px', background: (!form.vehicleNumber || !form.imei || !form.deviceType || !form.serverPort || loading) ? '#93c5fd' : '#2563eb',
+                  flex: 1, padding: '12px', background: (!form.vehicleNumber || !form.imei || !form.deviceType || !form.serverPort || loading || insufficient) ? '#93c5fd' : '#2563eb',
                   color: '#fff', border: 'none', borderRadius: '10px',
-                  fontWeight: 700, fontSize: '14px', cursor: (!form.vehicleNumber || loading) ? 'not-allowed' : 'pointer',
+                  fontWeight: 700, fontSize: '14px', cursor: (!form.vehicleNumber || loading || insufficient) ? 'not-allowed' : 'pointer',
                   transition: 'background 0.15s',
                 }}
               >
-                {loading ? '⏳ Registering...' : '✅ Register Vehicle'}
+                {loading ? '⏳ Registering...' : insufficient ? '🚗 No vehicles left' : showBilling ? '✅ Register & use 1 vehicle' : '✅ Register Vehicle'}
               </button>
               <button
                 type="button"
@@ -575,6 +621,39 @@ const AddVehicle = () => {
 
         {/* ── Right column ── */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+          {/* Prepaid billing — token cost (prepaid clients only) */}
+          {showBilling && (
+            <div style={{ background: '#fff', borderRadius: '14px', border: '1px solid #bfdbfe', padding: '20px 22px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: '#1d4ed8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '14px' }}>
+                🚗 Subscription
+              </div>
+
+              <label style={labelStyle}>Token type</label>
+              <select value={tokenType} onChange={e => setTokenType(e.target.value)} style={{ ...inputStyle, marginBottom: 12 }}>
+                <option value="PAID">Paid — 1 year</option>
+                <option value="TESTING">Testing — {billingSettings.testPeriodDays} days</option>
+                <option value="GRACE">Grace — {billingSettings.gracePeriodDays} days</option>
+              </select>
+
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', fontSize: 13 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontWeight: 800, color: '#0f172a' }}>
+                  <span>Cost</span><span>1 {tokenType.toLowerCase()} token</span>
+                </div>
+                <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 4 }}>Billed-till will be set to {durationLabel} from today.</div>
+              </div>
+
+              <div style={{ marginTop: 12, fontSize: 12.5, display: 'flex', justifyContent: 'space-between', color: typeBalance != null && insufficient ? '#dc2626' : '#15803d' }}>
+                <span style={{ color: '#64748b' }}>{effectiveClientId === user?.id ? 'Your' : "Client's"} {tokenType.toLowerCase()} tokens</span>
+                <strong>{typeBalance != null ? formatVehicles(typeBalance) : '—'}</strong>
+              </div>
+              {insufficient && (
+                <div style={{ marginTop: 10, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 12px', fontSize: 12.5, color: '#b91c1c' }}>
+                  No {tokenType.toLowerCase()} tokens left. {effectiveClientId === user?.id ? 'Ask your dealer to recharge your wallet.' : "Recharge the client's wallet from the Wallet page first."}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Field checklist */}
           <div style={{ background: '#fff', borderRadius: '14px', border: '1px solid #e2e8f0', padding: '20px 22px' }}>

@@ -3523,23 +3523,23 @@ const MyFleet = () => {
               <div style={{ background:'var(--theme-sidebar-bg)', padding:'16px 20px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
                 <div style={{ display:'flex', alignItems:'center', gap:10 }}>
                   <Ic n="download" size={16} color="#fff" />
-                  <span style={{ fontSize:14, fontWeight:700, color:'#fff', fontFamily:"'Arvo',serif" }}>Export Fleet Data</span>
+                  <span style={{ fontSize:14, fontWeight:700, color:'#fff', fontFamily:"'Open Sans',sans-serif" }}>Export Fleet Data</span>
                 </div>
                 <button onClick={() => setDlModal(false)} style={{ background:'rgba(255,255,255,0.15)', border:'none', borderRadius:6, width:28, height:28, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
                   <Ic n="x" size={13} color="#fff" />
                 </button>
               </div>
               <div style={{ padding:'20px' }}>
-                <p style={{ margin:'0 0 6px', fontSize:13, color:'#64748B', fontFamily:"'Arvo',serif" }}>
+                <p style={{ margin:'0 0 6px', fontSize:13, color:'#64748B', fontFamily:"'Open Sans',sans-serif" }}>
                   Exporting <strong style={{ color:'#1E293B' }}>{filteredVehicles.length} vehicle{filteredVehicles.length !== 1 ? 's' : ''}</strong>
                   {filteredVehicles.length < vehicles.length ? ` (filtered from ${vehicles.length})` : ''}.
                 </p>
-                <p style={{ margin:'0 0 20px', fontSize:12, color:'#94A3B8', fontFamily:"'Arvo',serif" }}>
+                <p style={{ margin:'0 0 20px', fontSize:12, color:'#94A3B8', fontFamily:"'Open Sans',sans-serif" }}>
                   Includes status, speed, GPS, location, sensors, and custom fields.
                 </p>
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
                   <button onClick={exportExcel}
-                    style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:10, padding:'20px 16px', border:'2px solid #E2E8F0', borderRadius:10, cursor:'pointer', background:'#F8FAFC', fontFamily:"'Arvo',serif", transition:'all .15s' }}
+                    style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:10, padding:'20px 16px', border:'2px solid #E2E8F0', borderRadius:10, cursor:'pointer', background:'#F8FAFC', fontFamily:"'Open Sans',sans-serif", transition:'all .15s' }}
                     onMouseEnter={e => { e.currentTarget.style.borderColor='#059669'; e.currentTarget.style.background='#F0FDF4'; }}
                     onMouseLeave={e => { e.currentTarget.style.borderColor='#E2E8F0'; e.currentTarget.style.background='#F8FAFC'; }}>
                     <div style={{ width:44, height:44, borderRadius:10, background:'#059669', display:'flex', alignItems:'center', justifyContent:'center' }}>
@@ -3551,7 +3551,7 @@ const MyFleet = () => {
                     </div>
                   </button>
                   <button onClick={exportPdf}
-                    style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:10, padding:'20px 16px', border:'2px solid #E2E8F0', borderRadius:10, cursor:'pointer', background:'#F8FAFC', fontFamily:"'Arvo',serif", transition:'all .15s' }}
+                    style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:10, padding:'20px 16px', border:'2px solid #E2E8F0', borderRadius:10, cursor:'pointer', background:'#F8FAFC', fontFamily:"'Open Sans',sans-serif", transition:'all .15s' }}
                     onMouseEnter={e => { e.currentTarget.style.borderColor='#DC2626'; e.currentTarget.style.background='#FEF2F2'; }}
                     onMouseLeave={e => { e.currentTarget.style.borderColor='#E2E8F0'; e.currentTarget.style.background='#F8FAFC'; }}>
                     <div style={{ width:44, height:44, borderRadius:10, background:'#DC2626', display:'flex', alignItems:'center', justifyContent:'center' }}>
@@ -4532,23 +4532,23 @@ const MyFleet = () => {
             <div style={{ background:'var(--theme-sidebar-bg)', padding:'16px 20px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
               <div style={{ display:'flex', alignItems:'center', gap:10 }}>
                 <Ic n="download" size={16} color="#fff" />
-                <span style={{ fontSize:14, fontWeight:700, color:'#fff', fontFamily:"'Arvo',serif" }}>Export Fleet Data</span>
+                <span style={{ fontSize:14, fontWeight:700, color:'#fff', fontFamily:"'Open Sans',sans-serif" }}>Export Fleet Data</span>
               </div>
               <button onClick={() => setDlModal(false)} style={{ background:'rgba(255,255,255,0.15)', border:'none', borderRadius:6, width:28, height:28, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
                 <Ic n="x" size={13} color="#fff" />
               </button>
             </div>
             <div style={{ padding:'20px' }}>
-              <p style={{ margin:'0 0 6px', fontSize:13, color:'#64748B', fontFamily:"'Arvo',serif" }}>
+              <p style={{ margin:'0 0 6px', fontSize:13, color:'#64748B', fontFamily:"'Open Sans',sans-serif" }}>
                 Exporting <strong style={{ color:'#1E293B' }}>{filteredVehicles.length} vehicle{filteredVehicles.length !== 1 ? 's' : ''}</strong>
                 {filteredVehicles.length < vehicles.length ? ` (filtered from ${vehicles.length})` : ''}.
               </p>
-              <p style={{ margin:'0 0 20px', fontSize:12, color:'#94A3B8', fontFamily:"'Arvo',serif" }}>
+              <p style={{ margin:'0 0 20px', fontSize:12, color:'#94A3B8', fontFamily:"'Open Sans',sans-serif" }}>
                 Includes status, speed, GPS, location, sensors, and custom fields.
               </p>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
                 <button onClick={exportExcel}
-                  style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:10, padding:'20px 16px', border:'2px solid #E2E8F0', borderRadius:10, cursor:'pointer', background:'#F8FAFC', fontFamily:"'Arvo',serif", transition:'all .15s' }}
+                  style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:10, padding:'20px 16px', border:'2px solid #E2E8F0', borderRadius:10, cursor:'pointer', background:'#F8FAFC', fontFamily:"'Open Sans',sans-serif", transition:'all .15s' }}
                   onMouseEnter={e => { e.currentTarget.style.borderColor='#059669'; e.currentTarget.style.background='#F0FDF4'; }}
                   onMouseLeave={e => { e.currentTarget.style.borderColor='#E2E8F0'; e.currentTarget.style.background='#F8FAFC'; }}>
                   <div style={{ width:44, height:44, borderRadius:10, background:'#059669', display:'flex', alignItems:'center', justifyContent:'center' }}>
@@ -4560,7 +4560,7 @@ const MyFleet = () => {
                   </div>
                 </button>
                 <button onClick={exportPdf}
-                  style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:10, padding:'20px 16px', border:'2px solid #E2E8F0', borderRadius:10, cursor:'pointer', background:'#F8FAFC', fontFamily:"'Arvo',serif", transition:'all .15s' }}
+                  style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:10, padding:'20px 16px', border:'2px solid #E2E8F0', borderRadius:10, cursor:'pointer', background:'#F8FAFC', fontFamily:"'Open Sans',sans-serif", transition:'all .15s' }}
                   onMouseEnter={e => { e.currentTarget.style.borderColor='#DC2626'; e.currentTarget.style.background='#FEF2F2'; }}
                   onMouseLeave={e => { e.currentTarget.style.borderColor='#E2E8F0'; e.currentTarget.style.background='#F8FAFC'; }}>
                   <div style={{ width:44, height:44, borderRadius:10, background:'#DC2626', display:'flex', alignItems:'center', justifyContent:'center' }}>
