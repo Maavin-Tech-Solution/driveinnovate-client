@@ -23,15 +23,19 @@ const isMoving = (p) => Number(p?.speed ?? 0) > MOVE_SPEED;
 const makeIcon = (pos) => {
   const running = isMoving(pos);
   const bg = running ? '#16a34a' : '#dc2626';
-  
+  const size = 42;
+  const pinH = 10;
+  const totalW = size;
+  const totalH = size + pinH;
+
+  // Reuse the shared inline-SVG vehicle marker (coloured circle badge + pin),
+  // coloured green when moving / red when stopped. Falls back to the 'car' glyph
+  // for unknown icon types.
   return L.divIcon({
     className: '',
-    html: `<div style="display:flex;flex-direction:column;align-items:center;">
-      <div style="width:40px;height:40px;background:${bg};border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px;border:2.5px solid #fff;box-shadow:0 3px 10px rgba(0,0,0,0.3);">${emoji}</div>
-      <div style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:7px solid ${bg};margin-top:-1px;"></div>
-    </div>`,
-    iconSize: [40, 48],
-    iconAnchor: [20, 48],
+    html: vehicleMarkerHtml(pos.vehicleIcon, bg, size, false),
+    iconSize: [totalW, totalH],
+    iconAnchor: [totalW / 2, totalH], // pin tip = exact GPS point
   });
 };
 
@@ -196,7 +200,7 @@ export default function LiveShareView() {
 
           {mapPositions.map(pos => (
             <Marker key={pos.id} position={[pos.lat, pos.lng]} icon={makeIcon(pos)}>
-              <Tooltip direction="top" offset={[0, -48]} permanent={false}>
+              <Tooltip direction="top" offset={[0, -52]} permanent={false}>
                 <div style={{ fontFamily: "'Plus Jakarta Sans',sans-serif", minWidth: 160 }}>
                   <div style={{ fontWeight: 800, fontSize: 13, color: '#0F172A', marginBottom: 4 }}>
                     {pos.vehicleName || pos.vehicleNumber || `Vehicle ${pos.id}`}
