@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'react-toastify';
+import { getProfile } from '../services/user.service';
 
 const AuthContext = createContext(null);
 
@@ -83,15 +84,36 @@ export const AuthProvider = ({ children }) => {
     };
   }, [token, resetInactivityTimer]);
 
+  // Refresh the derived hierarchy fields (role/hasClients/clientIds/permissions/
+  // billingType) from the server — the login snapshot goes stale when the user's
+  // position in the tree changes (e.g. a client creates a sub-account → dealer).
+  const refreshUser = useCallback(async () => {
+    try {
+      const res = await getProfile();
+      const fresh = res?.data;
+      if (!fresh) return null;
+      let merged;
+      setUser((prev) => {
+        merged = { ...(prev || {}), ...fresh };
+        localStorage.setItem('di_user', JSON.stringify(merged));
+        return merged;
+      });
+      return merged;
+    } catch {
+      return null; // keep the cached user on failure
+    }
+  }, []);
+
   useEffect(() => {
     const storedToken = localStorage.getItem('di_token');
     const storedUser = localStorage.getItem('di_user');
     if (storedToken && storedUser) {
       setToken(storedToken);
       setUser(JSON.parse(storedUser));
+      refreshUser();
     }
     setLoading(false);
-  }, []);
+  }, [refreshUser]);
 
   const login = (userData, jwtToken) => {
     setUser(userData);
@@ -107,7 +129,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, logout, updateUser }}>
+    <AuthContext.Provider value={{ user, token, loading, login, logout, updateUser, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

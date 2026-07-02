@@ -192,16 +192,15 @@ const Sidebar = ({ collapsed }) => {
     (perms.canAddClient !== false) && { to: '/add-client', label: 'Add Client', Icon: UserGroupIcon },
   ].filter(Boolean);
 
-  // Billing group — only when the module is enabled network-wide, and only for
-  // those it applies to: papa / billing managers (who run the chain) or a client
-  // whose own billing type is prepaid. Postpaid clients never see it.
-  const canManageBilling = isPapa || perms.canManageBilling === true;
-  const isPrepaid = user?.billingType === 'prepaid';
-  const billingItems = (canManageBilling || isPrepaid) ? [
+  // Billing group — shown to EVERY account when the module is enabled network-wide
+  // (Wallet + Invoices are self-scoped, so it works at any level of the hierarchy).
+  // Billing Rates is restricted to papa / dealers / billing managers.
+  const canManageBilling = isPapa || role === 'dealer' || user?.hasClients === true || perms.canManageBilling === true;
+  const billingItems = [
     { to: '/wallet', label: 'Wallet', Icon: BanknotesIcon },
     canManageBilling && { to: '/billing-rates', label: 'Billing Rates', Icon: CurrencyRupeeIcon },
     { to: '/invoices', label: 'Invoices', Icon: DocumentTextIcon },
-  ].filter(Boolean) : [];
+  ].filter(Boolean);
 
   // Account group
   const accountItems = [

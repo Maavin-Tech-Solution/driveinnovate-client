@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { toast } from 'react-toastify';
 import { createClient } from '../services/user.service';
+import { useAuth } from '../context/AuthContext';
 
 const inputStyle = {
   width: '100%',
@@ -37,6 +38,7 @@ const initialForm = {
   confirmPassword: '',
   accountType: 'trial',
   billingType: 'postpaid',
+  graceDays: '0',
   companyName: '',
   address: '',
   state: '',
@@ -48,6 +50,7 @@ const initialForm = {
 };
 
 const AddClient = () => {
+  const { refreshUser } = useAuth();
   const [form, setForm] = useState(initialForm);
   const [loading, setLoading] = useState(false);
 
@@ -80,6 +83,9 @@ const AddClient = () => {
       if (res.success) {
         toast.success('Client created successfully');
         setForm(initialForm);
+        // Creating the first sub-account promotes a client to dealer — refresh the
+        // session so the sidebar Billing menu, wallet pill, and My Clients appear.
+        refreshUser();
       }
     } catch (err) {
       toast.error(err.message || 'Failed to create client');
@@ -196,6 +202,16 @@ const AddClient = () => {
                   ))}
                 </div>
               </div>
+
+              {form.billingType === 'prepaid' && (
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>Grace Period (days)</label>
+                  <input type="number" name="graceDays" min="0" step="1" style={inputStyle} placeholder="e.g. 10" value={form.graceDays} onChange={handleChange} />
+                  <span style={{ fontSize: 11, color: '#94a3b8', display: 'block', marginTop: 4 }}>
+                    Extra days added beyond the 1-year term when a vehicle is added/renewed (e.g. 10 → expiry = 1 year + 10 days).
+                  </span>
+                </div>
+              )}
             </div>
 
             <div style={{ borderTop: '1px solid #f1f5f9', padding: '20px 24px 0' }}>

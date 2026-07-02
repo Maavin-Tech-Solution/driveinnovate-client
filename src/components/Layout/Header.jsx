@@ -1,8 +1,50 @@
-import React from 'react';
-import { useLocation } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { toISTDateString } from '../../utils/dateFormat';
-import { Bars3Icon, CalendarDaysIcon } from '@heroicons/react/24/outline';
+import { Bars3Icon, CalendarDaysIcon, TruckIcon } from '@heroicons/react/24/outline';
 import NotificationBell from '../common/NotificationBell';
+import { useAuth } from '../../context/AuthContext';
+import { getMyWallet } from '../../services/billing.service';
+import { getSystemSettings } from '../../services/master.service';
+
+// Persistent wallet-token indicator (top bar). Shows for those the billing
+// module applies to when it's enabled: papa / dealers / prepaid clients.
+const WalletPill = () => {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [enabled, setEnabled] = useState(false);
+  const [balance, setBalance] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    getSystemSettings().then(r => { if (alive) setEnabled(!!r?.data?.billingEnabled); }).catch(() => {});
+    getMyWallet().then(r => { if (alive) setBalance(Number(r?.data?.balance ?? 0)); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  if (!enabled || balance == null) return null;
+
+  const low = balance <= 0;
+  return (
+    <button
+      onClick={() => navigate('/wallet')}
+      title="Open wallet"
+      style={{
+        display: 'flex', alignItems: 'center', gap: '8px',
+        fontSize: '12.5px', color: 'rgba(255,255,255,0.92)',
+        background: 'rgba(255,255,255,0.12)',
+        border: '1px solid rgba(255,255,255,0.18)',
+        padding: '5px 13px', borderRadius: '20px', fontWeight: 600, cursor: 'pointer',
+        fontFamily: 'inherit',
+      }}
+      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.2)'; }}
+      onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.12)'; }}
+    >
+      <TruckIcon style={{ width: '15px', height: '15px', opacity: 0.85 }} />
+      <span><strong style={{ fontWeight: 800, color: low ? '#fca5a5' : '#fff' }}>{balance.toLocaleString('en-IN')}</strong> <span style={{ opacity: 0.8 }}>token{balance === 1 ? '' : 's'}</span></span>
+    </button>
+  );
+};
 
 const pageTitles = {
   '/dashboard':        { title: 'Dashboard',       subtitle: 'Fleet overview & live tracking' },
@@ -75,6 +117,7 @@ const Header = ({ onToggleSidebar }) => {
       </div>
 
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <WalletPill />
         <div style={{
           display: 'flex', alignItems: 'center', gap: '7px',
           fontSize: '12.5px', color: 'rgba(255,255,255,0.9)',

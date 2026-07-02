@@ -205,6 +205,23 @@ const getVState = (v, _statesMap) => {
 };
 const vehicleDisplayName = (v) => (v.vehicleName || v.vehicleNumber || `Vehicle #${v.id}`).toUpperCase();
 
+// Subscription-expiry display for a vehicle. Uses the grace-inclusive date to
+// decide status: red past grace, amber in grace / expiring ≤30d, green otherwise.
+const fmtExpiry = (d) => (d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
+const expiryInfo = (v) => {
+  const actual = v.subscriptionExpiresAt || v.subscription_expires_at || null;
+  const grace  = v.graceExpiresAt || v.grace_expires_at || actual;
+  if (!actual) return { text: '—', color: '#94A3B8', label: 'Not set', set: false };
+  const now = Date.now();
+  const a = new Date(actual).getTime();
+  const g = new Date(grace).getTime();
+  if (g < now) return { text: fmtExpiry(actual), color: '#dc2626', label: 'Expired', set: true };
+  if (a < now) return { text: fmtExpiry(actual), color: '#d97706', label: 'In grace', set: true };
+  const days = Math.ceil((a - now) / 86400000);
+  if (days <= 30) return { text: fmtExpiry(actual), color: '#d97706', label: `${days}d left`, set: true };
+  return { text: fmtExpiry(actual), color: '#16a34a', label: 'Active', set: true };
+};
+
 // Builds a debug tooltip string from matched state conditions.
 const stateConditionTooltip = (state) => {
   if (!state?.matchedConditions?.length) return state?.stateName || '';
@@ -639,6 +656,8 @@ const VehiclePopup = ({ vehicle, address, state }) => {
   const rows = [...metrics];
   const lastSeenTs = vehicle.deviceStatus?.lastUpdate || gps?.timestamp;
   if (lastSeenTs) rows.push({ label: 'Updated', value: new Date(lastSeenTs).toLocaleString('en-IN', { timeStyle: 'short', dateStyle: 'short' }), color: '#475569' });
+  const exp = expiryInfo(vehicle);
+  if (exp.set) rows.push({ label: 'Expiry', value: `${exp.text} · ${exp.label}`, color: exp.color });
 
   return (
     <div style={{ fontFamily: "'Plus Jakarta Sans',-apple-system,sans-serif" }}>
@@ -696,6 +715,7 @@ const COL_DEFS = {
   lastUpdate:   { label: 'Last Update',    icon: 'clock',    ic: '#475569' },
   firstPacket:  { label: 'First Packet',   icon: 'clock',    ic: '#059669' },
   registeredAt: { label: 'Registered At',  icon: 'calendar', ic: '#7c3aed' },
+  expiry:       { label: 'Expiry',         icon: 'calendar', ic: '#dc2626' },
   actions:    { label: 'Actions',     icon: 'gear',     ic: '#6b7280' },
 };
 
@@ -796,9 +816,9 @@ const MyFleet = () => {
   const [sortDir, setSortDir] = useState('asc');
   const TABLE_PAGE_SIZE = 50;
   const [tablePage, setTablePage] = useState(0);
-  const [colOrder, setColOrder] = useState(['icon','vehicle','branch','sim','regNo','imei','status','gps','speed','fuel','battery','voltage','gsm','satellites','odometer','lastUpdate','firstPacket','registeredAt','actions']);
+  const [colOrder, setColOrder] = useState(['icon','vehicle','branch','sim','regNo','imei','status','gps','speed','fuel','battery','voltage','gsm','satellites','odometer','lastUpdate','firstPacket','registeredAt','expiry','actions']);
   const [visibleChips, setVisibleChips] = useState(getVisibleFleetChips);
-  const [visibleCols, setVisibleCols] = useState(new Set(['icon','vehicle','branch','sim','imei','status','gps','speed','fuel','battery','voltage','gsm','satellites','odometer','lastUpdate','registeredAt','actions']));
+  const [visibleCols, setVisibleCols] = useState(new Set(['icon','vehicle','branch','sim','imei','status','gps','speed','fuel','battery','voltage','gsm','satellites','odometer','lastUpdate','registeredAt','expiry','actions']));
   const [dragSrcCol, setDragSrcCol] = useState(null);
   const [dragOverCol, setDragOverCol] = useState(null);
 
@@ -1817,6 +1837,7 @@ const MyFleet = () => {
             case 'lastUpdate':   { const t = v.deviceStatus?.lastUpdate || v.deviceStatus?.gpsData?.timestamp; return t ? new Date(t).getTime() : -1; }
             case 'firstPacket':  return (v.firstSeenAt||v.first_seen_at)  ? new Date(v.firstSeenAt||v.first_seen_at).getTime()  : -1;
             case 'registeredAt': return (v.registeredAt||v.registered_at) ? new Date(v.registeredAt||v.registered_at).getTime() : -1;
+            case 'expiry':       { const d = v.subscriptionExpiresAt||v.subscription_expires_at; return d ? new Date(d).getTime() : -1; }
             default: return 0;
           }
         };
@@ -2524,10 +2545,11 @@ const MyFleet = () => {
                     { label:'IMEI',         value: dv.imei, mono:true, full:true },
                     { label:'SIM 1',        value: dv.sim1, mono:true },
                     { label:'SIM 2',        value: dv.sim2, mono:true },
+                    (() => { const e = expiryInfo(dv); return { label:'Subscription Expiry', value: e.set ? `${e.text} · ${e.label}` : null, color: e.color, full:true }; })(),
                   ].filter(r=>r.value).map((r,i)=>(
                     <div key={i} style={{ display:'flex', flexDirection:'column', gap:2, gridColumn: r.full?'1 / -1':'auto', overflow:'hidden' }}>
                       <span style={{ fontSize:9, color:'#B0B8C4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Plus Jakarta Sans',sans-serif" }}>{r.label}</span>
-                      <span style={{ fontSize:13, fontWeight:700, color:'#1E293B', fontFamily: r.mono?'monospace':"'Plus Jakarta Sans',sans-serif", overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', lineHeight:1.3 }}>{r.value}</span>
+                      <span style={{ fontSize:13, fontWeight:700, color: r.color || '#1E293B', fontFamily: r.mono?'monospace':"'Plus Jakarta Sans',sans-serif", overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', lineHeight:1.3 }}>{r.value}</span>
                     </div>
                   ))}
                 </div>
@@ -3320,6 +3342,17 @@ const MyFleet = () => {
                             : '—'}
                         </td>
                       ),
+                      expiry: (() => {
+                        const e = expiryInfo(v);
+                        return (
+                          <td key="expiry" style={{ whiteSpace: 'nowrap' }}>
+                            <span style={{ display: 'inline-flex', flexDirection: 'column', lineHeight: 1.25 }}>
+                              <span style={{ color: e.color, fontWeight: 700 }}>{e.text}</span>
+                              <span style={{ fontSize: 10, color: e.color, opacity: 0.9 }}>{e.label}</span>
+                            </span>
+                          </td>
+                        );
+                      })(),
                       actions: (
                         <td key="actions" className="ft-cell row-actions-cell" onClick={e => e.stopPropagation()}>
                           <div className="row-actions" style={{ opacity: 1 }}>
@@ -3847,6 +3880,13 @@ const MyFleet = () => {
                         </div>
                       ))}
                     </div>
+                    {/* Subscription expiry (only when on a paid subscription) */}
+                    {(() => { const e = expiryInfo(v); return e.set ? (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, fontSize: 11.5 }}>
+                        <span style={{ color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', fontSize: 9.5 }}>Expiry</span>
+                        <span style={{ color: e.color, fontWeight: 800 }}>{e.text} · {e.label}</span>
+                      </div>
+                    ) : null; })()}
                     {/* Signals + location */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
                       {[
@@ -3949,6 +3989,12 @@ const MyFleet = () => {
                           {speed} km/h
                         </span>
                       )}
+                      {/* Subscription expiry chip (only when on a paid subscription) */}
+                      {(() => { const e = expiryInfo(v); return e.set ? (
+                        <span title={`Subscription ${e.label} — expires ${e.text}`} style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: `${e.color}14`, color: e.color, border: `1px solid ${e.color}40` }}>
+                          ⏳ {e.text}
+                        </span>
+                      ) : null; })()}
                       {/* Status icons (ignition + GPS / satellites / GSM / battery) */}
                       {(() => {
                         const COVERED = new Set(['ignition','status.ignition','engineOn','latitude','longitude','hasLocation','satellites','gpsData.satellites','gsmSignal','status.gsmSignal','rssi','battery','status.battery','batteryLevel']);

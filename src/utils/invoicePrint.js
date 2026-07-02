@@ -23,8 +23,9 @@ export const buildInvoiceHtml = (inv) => {
   const veh = inv.vehicleSnapshot || {};
   const isRecharge = inv.type === 'RECHARGE';
   const qty = isRecharge ? (inv.vehicleCount || 0) : 1;
+  const SAC_CODE = '997331'; // GST Service Accounting Code for the subscription service
   const taxRow = Number(inv.taxPercent) > 0
-    ? `<tr><td class="r" colspan="3">GST (${Number(inv.taxPercent)}%)</td><td class="r">${formatCoins(inv.taxAmount)}</td></tr>`
+    ? `<tr><td class="r" colspan="4">GST (${Number(inv.taxPercent)}%)</td><td class="r">${formatCoins(inv.taxAmount)}</td></tr>`
     : '';
   const lineDesc = isRecharge
     ? `Vehicle subscription tokens — ${qty} × 1 year`
@@ -88,22 +89,23 @@ export const buildInvoiceHtml = (inv) => {
     </div>
 
     <table>
-      <thead><tr><th>Description</th><th class="r">Qty</th><th class="r">Rate / vehicle</th><th class="r">Amount</th></tr></thead>
+      <thead><tr><th>Description</th><th class="r">SAC</th><th class="r">Qty</th><th class="r">Rate / token</th><th class="r">Amount</th></tr></thead>
       <tbody>
         <tr>
           <td>${esc(lineDesc)}</td>
+          <td class="r">${SAC_CODE}</td>
           <td class="r">${qty}</td>
           <td class="r">${formatCoins(inv.monthlyPrice)}</td>
           <td class="r">${formatCoins(inv.baseAmount)}</td>
         </tr>
-        <tr><td class="r" colspan="3">Subtotal</td><td class="r">${formatCoins(inv.baseAmount)}</td></tr>
+        <tr><td class="r" colspan="4">Subtotal</td><td class="r">${formatCoins(inv.baseAmount)}</td></tr>
         ${taxRow}
-        <tr class="total"><td class="r" colspan="3">Total</td><td class="r">${formatCoins(inv.totalAmount)}</td></tr>
+        <tr class="total"><td class="r" colspan="4">Total</td><td class="r">${formatCoins(inv.totalAmount)}</td></tr>
       </tbody>
     </table>
 
     <div class="foot">
-      Each vehicle token = 1 vehicle for 1 year. This is a computer-generated invoice.
+      Each token = 1 vehicle for 1 year · SAC ${SAC_CODE}. This is a computer-generated invoice.
     </div>
   </div>
   <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 250); };</script>

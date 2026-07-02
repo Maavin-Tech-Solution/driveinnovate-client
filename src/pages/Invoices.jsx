@@ -7,24 +7,32 @@ import {
   getBillingSettings, updateBillingSettings, formatCoins, formatVehicles,
 } from '../services/billing.service';
 import { getVehicles } from '../services/vehicle.service';
-import { getSystemSettings } from '../services/master.service';
 import { printInvoice } from '../utils/invoicePrint';
 
-const card = { background: '#fff', borderRadius: '14px', border: '1px solid #e2e8f0', padding: '20px 22px' };
-const inputStyle = { width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '14px', color: '#1e293b', background: '#fff', outline: 'none', boxSizing: 'border-box' };
-const btnPrimary = { padding: '10px 18px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '13.5px', cursor: 'pointer' };
-const btnGhost = { padding: '9px 16px', background: '#f8fafc', color: '#475569', border: '1px solid #e2e8f0', borderRadius: '8px', fontWeight: 600, fontSize: '13px', cursor: 'pointer' };
+const card = { background: '#fff', borderRadius: '14px', border: '1px solid #e2e8f0', padding: '20px 22px' };   // modal box
+const panel = { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: '18px 20px' };      // page card
+const inputStyle = { width: '100%', padding: '10px 13px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, color: '#0f172a', background: '#fff', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' };
+const btnPrimary = { padding: '8px 16px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' };
+const btnGhost = { padding: '8px 16px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' };
+const sectionTitle = { fontSize: 14, fontWeight: 800, color: '#0f172a', marginBottom: 14 };
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
+
+const EmptyState = ({ emoji, title, sub }) => (
+  <div style={{ textAlign: 'center', padding: '56px 20px', color: '#94a3b8' }}>
+    <div style={{ fontSize: 46, marginBottom: 12 }}>{emoji}</div>
+    <div style={{ fontSize: 15, fontWeight: 700, color: '#475569', marginBottom: 4 }}>{title}</div>
+    {sub && <div style={{ fontSize: 13 }}>{sub}</div>}
+  </div>
+);
 
 // ── Renew modal ───────────────────────────────────────────────────────────────
 // Renewing spends 1 vehicle token and extends billed-till by 1 year.
 // Papa additionally gets a manual expiry override (no token spend).
 const toDateInput = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '');
 
-const RenewModal = ({ isPapa, settings, onClose, onDone }) => {
+const RenewModal = ({ isPapa, onClose, onDone }) => {
   const [vehicles, setVehicles] = useState([]);
   const [vehicleId, setVehicleId] = useState('');
-  const [tokenType, setTokenType] = useState('PAID');
   const [saving, setSaving] = useState(false);
   const [ovrActual, setOvrActual] = useState('');
   const [ovrGrace, setOvrGrace] = useState('');
@@ -35,8 +43,6 @@ const RenewModal = ({ isPapa, settings, onClose, onDone }) => {
   }, []);
 
   const selected = vehicles.find(v => String(v.id) === String(vehicleId));
-  const testDays = settings?.testPeriodDays ?? 30;
-  const graceDays = settings?.gracePeriodDays ?? 15;
 
   // Prefill the override fields when a vehicle is picked.
   useEffect(() => {
@@ -48,12 +54,12 @@ const RenewModal = ({ isPapa, settings, onClose, onDone }) => {
     if (!vehicleId) { toast.error('Select a vehicle'); return; }
     setSaving(true);
     try {
-      const res = await renewVehicle(vehicleId, tokenType);
+      const res = await renewVehicle(vehicleId);
       toast.success(`Renewed — valid till ${fmtDate(res.data.graceExpiresAt || res.data.subscriptionExpiresAt)}`);
       onDone();
     } catch (err) {
       if (err.code === 'INSUFFICIENT_FUNDS') {
-        toast.error('No vehicle tokens left in the wallet. Recharge it first.');
+        toast.error('No tokens left in the wallet. Recharge it first.');
       } else {
         toast.error(err.message || 'Renewal failed');
       }
@@ -105,25 +111,18 @@ const RenewModal = ({ isPapa, settings, onClose, onDone }) => {
           </div>
         )}
 
-        <label style={{ fontSize: 12, fontWeight: 700, color: '#64748b' }}>Token type</label>
-        <select value={tokenType} onChange={e => setTokenType(e.target.value)} style={{ ...inputStyle, margin: '6px 0 14px' }}>
-          <option value="PAID">Paid — 1 year</option>
-          <option value="TESTING">Testing — {testDays} days</option>
-          <option value="GRACE">Grace — {graceDays} days</option>
-        </select>
-
         <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', marginBottom: 16, fontSize: 13 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontWeight: 800, color: '#0f172a' }}>
-            <span>Cost</span><span>1 {tokenType.toLowerCase()} token</span>
+            <span>Cost</span><span>1 token</span>
           </div>
           <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 4 }}>
-            Extends by {tokenType === 'TESTING' ? `${testDays} days` : tokenType === 'GRACE' ? `${graceDays} days` : '1 year (+ grace buffer)'} from the current expiry.
+            Extends by 1 year (+ the client's grace period) from the current expiry.
           </div>
         </div>
 
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={btnGhost}>Cancel</button>
-          <button onClick={submit} disabled={saving || !vehicleId} style={{ ...btnPrimary, opacity: (saving || !vehicleId) ? 0.6 : 1 }}>{saving ? 'Renewing…' : 'Renew (1 vehicle)'}</button>
+          <button onClick={submit} disabled={saving || !vehicleId} style={{ ...btnPrimary, opacity: (saving || !vehicleId) ? 0.6 : 1 }}>{saving ? 'Renewing…' : 'Renew (1 token)'}</button>
         </div>
 
         {/* Papa-only manual override */}
@@ -216,9 +215,6 @@ const Invoices = () => {
   const [showRenew, setShowRenew] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [printingId, setPrintingId] = useState(null);
-  const [settings, setSettings] = useState(null);
-
-  useEffect(() => { getSystemSettings().then(r => setSettings(r.data || null)).catch(() => {}); }, []);
 
   const load = useCallback(async (page = 1) => {
     setLoading(true);
@@ -242,76 +238,105 @@ const Invoices = () => {
   };
 
   const totalPages = Math.max(1, Math.ceil(data.total / data.limit));
+  const FILTERS = [
+    { label: 'All', value: '' },
+    { label: 'Recharges', value: 'RECHARGE' },
+    { label: 'Renewals', value: 'RENEWAL' },
+    { label: 'Activations', value: 'ACTIVATION' },
+  ];
 
   return (
-    <div style={{ maxWidth: 1080, margin: '0 auto' }}>
+    <div style={{ padding: '24px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+
+      {/* Page title row */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18, flexWrap: 'wrap', gap: 10 }}>
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 800, color: '#0f172a', margin: 0 }}>Invoices</h1>
-          <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>Every vehicle activation & renewal generates a bill you can print.</div>
-        </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          {canManage && <button onClick={() => setShowSettings(true)} style={{ ...btnGhost, display: 'flex', alignItems: 'center', gap: 6 }}><Cog6ToothIcon style={{ width: 16 }} /> Invoice settings</button>}
-          <button onClick={() => setShowRenew(true)} style={{ ...btnPrimary, display: 'flex', alignItems: 'center', gap: 6 }}><ArrowPathIcon style={{ width: 16 }} /> Renew vehicle</button>
+        <div style={{ fontSize: 20, fontWeight: 800, color: '#1e293b' }}>Invoices</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {canManage && (
+            <button onClick={() => setShowSettings(true)} style={{ padding: '8px 16px', background: '#f1f5f9', border: '1px solid #e2e8f0', color: '#475569', cursor: 'pointer', fontSize: 13, fontWeight: 700, borderRadius: 8, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Cog6ToothIcon style={{ width: 16 }} /> Invoice settings
+            </button>
+          )}
+          <button onClick={() => setShowRenew(true)} style={{ padding: '8px 18px', background: '#2563eb', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 700, borderRadius: 8, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <ArrowPathIcon style={{ width: 16 }} /> Renew vehicle
+          </button>
         </div>
       </div>
 
-      <div style={card}>
-        {loading ? (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><div className="spinner" /></div>
-        ) : data.rows.length === 0 ? (
-          <div style={{ fontSize: 13, color: '#94a3b8', padding: '12px 0' }}>No invoices yet.</div>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5 }}>
-              <thead>
-                <tr style={{ textAlign: 'left', color: '#64748b', fontSize: 11.5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  <th style={{ padding: '8px 10px' }}>Invoice #</th>
-                  <th style={{ padding: '8px 10px' }}>Date</th>
-                  <th style={{ padding: '8px 10px' }}>Billed to</th>
-                  <th style={{ padding: '8px 10px' }}>Type</th>
-                  <th style={{ padding: '8px 10px', textAlign: 'right' }}>Vehicles</th>
-                  <th style={{ padding: '8px 10px', textAlign: 'right' }}>Total</th>
-                  <th style={{ padding: '8px 10px', textAlign: 'right' }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.rows.map(inv => (
-                  <tr key={inv.id} style={{ borderTop: '1px solid #f1f5f9' }}>
-                    <td style={{ padding: '10px', fontWeight: 700, color: '#0f172a', fontFamily: 'monospace' }}>{inv.invoiceNumber}</td>
-                    <td style={{ padding: '10px', color: '#475569', whiteSpace: 'nowrap' }}>{fmtDate(inv.createdAt)}</td>
-                    <td style={{ padding: '10px', color: '#475569' }}>{inv.client?.name || inv.clientSnapshot?.name || '—'}</td>
-                    <td style={{ padding: '10px' }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: inv.type === 'RECHARGE' ? '#dcfce7' : '#f3e8ff', color: inv.type === 'RECHARGE' ? '#15803d' : '#7c3aed' }}>
-                        {inv.type === 'RECHARGE' ? 'Recharge' : inv.type === 'ACTIVATION' ? 'Activation' : 'Renewal'}
-                      </span>
-                      {inv.tokenType && inv.tokenType !== 'PAID' && (
-                        <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 10, background: '#fef3c7', color: '#92400e', textTransform: 'capitalize' }}>{inv.tokenType.toLowerCase()}</span>
-                      )}
-                    </td>
-                    <td style={{ padding: '10px', textAlign: 'right', color: '#475569', fontWeight: 600 }}>{inv.vehicleCount ?? (inv.vehicleSnapshot?.vehicleNumber ? 1 : '—')}</td>
-                    <td style={{ padding: '10px', textAlign: 'right', fontWeight: 700, color: '#0f172a' }}>{formatCoins(inv.totalAmount)}</td>
-                    <td style={{ padding: '10px', textAlign: 'right' }}>
-                      <button onClick={() => doPrint(inv.id)} disabled={printingId === inv.id} style={{ ...btnGhost, padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                        <PrinterIcon style={{ width: 14 }} /> {printingId === inv.id ? '…' : 'Print'}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {totalPages > 1 && (
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
-                <button disabled={data.page <= 1} onClick={() => load(data.page - 1)} style={{ ...btnGhost, opacity: data.page <= 1 ? 0.5 : 1 }}>Prev</button>
-                <span style={{ fontSize: 12.5, color: '#64748b', alignSelf: 'center' }}>Page {data.page} of {totalPages}</span>
-                <button disabled={data.page >= totalPages} onClick={() => load(data.page + 1)} style={{ ...btnGhost, opacity: data.page >= totalPages ? 0.5 : 1 }}>Next</button>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+        {/* Filters */}
+        <div style={{ ...panel, padding: '12px 16px', display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#64748b', marginRight: 4 }}>Show:</span>
+          {FILTERS.map(f => (
+            <button key={f.value || 'all'} onClick={() => setTypeFilter(f.value)}
+              style={{ padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+                border: `1px solid ${typeFilter === f.value ? '#2563eb' : '#e2e8f0'}`,
+                background: typeFilter === f.value ? '#2563eb' : '#fff',
+                color: typeFilter === f.value ? '#fff' : '#64748b' }}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Invoice list */}
+        <div style={panel}>
+          <div style={sectionTitle}>Invoices</div>
+          {loading ? (
+            <div style={{ padding: 60, textAlign: 'center', color: '#94A3B8', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}><span className="spinner" /> Loading invoices…</div>
+          ) : data.rows.length === 0 ? (
+            <EmptyState emoji="🧾" title="No invoices yet" sub="Recharges and renewals generate printable bills here." />
+          ) : (
+            <>
+              <div className="table-container" style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: 'left' }}>Invoice #</th>
+                      <th style={{ textAlign: 'left' }}>Date</th>
+                      <th style={{ textAlign: 'left' }}>Billed to</th>
+                      <th>Type</th>
+                      <th>Tokens</th>
+                      <th>Total</th>
+                      <th>Print</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.rows.map(inv => (
+                      <tr key={inv.id}>
+                        <td style={{ textAlign: 'left', fontWeight: 700, color: '#2563eb', fontFamily: 'monospace', letterSpacing: '0.02em' }}>{inv.invoiceNumber}</td>
+                        <td style={{ textAlign: 'left', color: '#475569', whiteSpace: 'nowrap' }}>{fmtDate(inv.createdAt)}</td>
+                        <td style={{ textAlign: 'left', color: '#0f172a', fontWeight: 600 }}>{inv.client?.name || inv.clientSnapshot?.name || '—'}</td>
+                        <td>
+                          <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: inv.type === 'RECHARGE' ? '#dcfce7' : '#f3e8ff', color: inv.type === 'RECHARGE' ? '#15803d' : '#7c3aed' }}>
+                            {inv.type === 'RECHARGE' ? 'Recharge' : inv.type === 'ACTIVATION' ? 'Activation' : 'Renewal'}
+                          </span>
+                        </td>
+                        <td style={{ color: '#475569', fontWeight: 600 }}>{inv.vehicleCount ?? (inv.vehicleSnapshot?.vehicleNumber ? 1 : '—')}</td>
+                        <td style={{ fontWeight: 700, color: '#0f172a' }}>{formatCoins(inv.totalAmount)}</td>
+                        <td>
+                          <button onClick={() => doPrint(inv.id)} disabled={printingId === inv.id} style={{ ...btnGhost, padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                            <PrinterIcon style={{ width: 14 }} /> {printingId === inv.id ? '…' : 'Print'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            )}
-          </div>
-        )}
+              {totalPages > 1 && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 14 }}>
+                  <button disabled={data.page <= 1} onClick={() => load(data.page - 1)} style={{ ...btnGhost, opacity: data.page <= 1 ? 0.5 : 1 }}>← Prev</button>
+                  <span style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}>Page {data.page} of {totalPages}</span>
+                  <button disabled={data.page >= totalPages} onClick={() => load(data.page + 1)} style={{ ...btnGhost, opacity: data.page >= totalPages ? 0.5 : 1 }}>Next →</button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
-      {showRenew && <RenewModal isPapa={user?.role === 'papa'} settings={settings} onClose={() => setShowRenew(false)} onDone={() => { setShowRenew(false); load(1); }} />}
+      {showRenew && <RenewModal isPapa={user?.role === 'papa'} onClose={() => setShowRenew(false)} onDone={() => { setShowRenew(false); load(1); }} />}
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
     </div>
   );

@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
 import { toast } from 'react-toastify';
 import { useAuth } from '../context/AuthContext';
-import { upgradeClient, extendClientTrial, setClientBillingType } from '../services/user.service';
+import { upgradeClient, extendClientTrial, setClientBillingType, setClientBilling } from '../services/user.service';
 import { VehicleIcon } from '../utils/vehicleIcons';
 import {
   ArrowLeftIcon,
@@ -146,7 +146,7 @@ const UpgradeModal = ({ client, onClose, onDone }) => {
     setSaving(true);
     try {
       if (mode === 'upgrade') {
-        await upgradeClient(client.id, plan);
+        await upgradeClient(client.id);
         toast.success('Account upgraded to Billable');
       } else {
         await extendClientTrial(client.id, new Date(extendDate).toISOString());
@@ -194,19 +194,9 @@ const UpgradeModal = ({ client, onClose, onDone }) => {
 
         {mode === 'upgrade' ? (
           <>
-            <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 14 }}>
-              Select a plan. Subscription expiry will be set on all active vehicles under this account from today.
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
-              {PLAN_OPTIONS.map(opt => (
-                <label key={opt.value} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 8, border: `2px solid ${plan === opt.value ? '#2563eb' : '#e5e7eb'}`, background: plan === opt.value ? '#eff6ff' : '#fff', cursor: 'pointer' }}>
-                  <input type="radio" name="plan" value={opt.value} checked={plan === opt.value} onChange={() => setPlan(opt.value)} style={{ accentColor: '#2563eb' }} />
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: plan === opt.value ? '#1d4ed8' : '#111827' }}>{opt.label}</div>
-                    <div style={{ fontSize: 12, color: '#9ca3af' }}>{opt.desc}</div>
-                  </div>
-                </label>
-              ))}
+            <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 20, lineHeight: 1.6 }}>
+              This switches the account from <strong>Trial</strong> to <strong>Billable</strong>. There's no fixed plan duration —
+              each vehicle's validity comes from the tokens spent when it's added or renewed (1 token = 1 year + grace).
             </div>
           </>
         ) : (
@@ -250,6 +240,9 @@ const ClientDetail = () => {
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [savingBilling, setSavingBilling] = useState(false);
 
+  const [graceInput, setGraceInput] = useState('0');
+  const [savingGrace, setSavingGrace] = useState(false);
+
   const toggleBilling = async () => {
     const next = data?.client?.billingType === 'prepaid' ? 'postpaid' : 'prepaid';
     setSavingBilling(true);
@@ -259,6 +252,18 @@ const ClientDetail = () => {
       load();
     } catch (e) { toast.error(e?.message || 'Failed to update billing type'); }
     finally { setSavingBilling(false); }
+  };
+
+  const saveGrace = async () => {
+    const g = Number(graceInput);
+    if (!Number.isInteger(g) || g < 0) { toast.error('Grace period must be a whole number ≥ 0'); return; }
+    setSavingGrace(true);
+    try {
+      await setClientBilling(clientId, { graceDays: g });
+      toast.success('Grace period updated');
+      load();
+    } catch (e) { toast.error(e?.message || 'Failed to update grace period'); }
+    finally { setSavingGrace(false); }
   };
 
   const load = useCallback(async () => {
@@ -275,6 +280,7 @@ const ClientDetail = () => {
   }, [clientId, navigate]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (data?.client) setGraceInput(String(data.client.graceDays ?? 0)); }, [data]);
 
   if (loading) return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px' }}>
@@ -345,16 +351,42 @@ const ClientDetail = () => {
               Manage Account
             </button>
           )}
-          {canManage && (
-            <button onClick={toggleBilling} disabled={savingBilling} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', border: '1px solid #e5e7eb', background: '#f9fafb', color: '#374151', cursor: savingBilling ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap', opacity: savingBilling ? 0.7 : 1 }}>
-              {savingBilling ? '…' : client.billingType === 'prepaid' ? 'Set Postpaid' : 'Set Prepaid'}
-            </button>
-          )}
           <button onClick={() => setEditingPerms(client)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', border: '1px solid #e5e7eb', background: '#f9fafb', color: '#374151', cursor: 'pointer', fontSize: '13px', fontWeight: 600, flexShrink: 0 }}>
             <PencilSquareIcon style={{ width: '15px', height: '15px' }} />Permissions
           </button>
         </div>
       </div>
+
+      {/* Billing settings (papa / dealer) */}
+      {canManage && (
+        <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb', padding: '16px 22px', marginBottom: '18px', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: '#0f172a' }}>Billing</div>
+            <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: client.billingType === 'prepaid' ? '#dcfce7' : '#f1f5f9', color: client.billingType === 'prepaid' ? '#15803d' : '#64748b' }}>
+              {client.billingType === 'prepaid' ? 'Prepaid' : 'Postpaid'}
+            </span>
+            <button onClick={toggleBilling} disabled={savingBilling} style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid #e5e7eb', background: '#f9fafb', color: '#374151', cursor: savingBilling ? 'not-allowed' : 'pointer', fontSize: 12.5, fontWeight: 600, opacity: savingBilling ? 0.7 : 1 }}>
+              {savingBilling ? '…' : client.billingType === 'prepaid' ? 'Switch to Postpaid' : 'Switch to Prepaid'}
+            </button>
+
+            {client.billingType === 'prepaid' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
+                <label style={{ fontSize: 12.5, fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>Grace period (days):</label>
+                <input type="number" min="0" step="1" value={graceInput} onChange={e => setGraceInput(e.target.value)}
+                  style={{ width: 80, padding: '5px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, color: '#0f172a' }} />
+                <button onClick={saveGrace} disabled={savingGrace} style={{ padding: '5px 14px', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff', cursor: savingGrace ? 'not-allowed' : 'pointer', fontSize: 12.5, fontWeight: 700, opacity: savingGrace ? 0.7 : 1 }}>
+                  {savingGrace ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            )}
+          </div>
+          {client.billingType === 'prepaid' && (
+            <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 8 }}>
+              When a vehicle is added or renewed for this client, expiry = 1 year + {Number(graceInput) || 0} day{Number(graceInput) === 1 ? '' : 's'} grace.
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Stats row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px', marginBottom: '24px' }}>
