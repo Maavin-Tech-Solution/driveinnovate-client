@@ -28,11 +28,10 @@ export const buildInvoiceHtml = (inv) => {
     ? `<tr><td class="r" colspan="4">GST (${Number(inv.taxPercent)}%)</td><td class="r">${formatCoins(inv.taxAmount)}</td></tr>`
     : '';
   const lineDesc = isRecharge
-    ? `Vehicle subscription tokens — ${qty} × 1 year`
-    : `Vehicle ${inv.type === 'ACTIVATION' ? 'activation' : 'renewal'} — 1 year`;
+    ? `Vehicle subscription tokens — ${qty}`
+    : `Vehicle ${inv.type === 'ACTIVATION' ? 'activation' : 'renewal'}`;
   const metaHtml = isRecharge
-    ? `<div><span>Vehicles:</span> <strong>${qty}</strong></div>
-       <div><span>Term:</span> 1 year each</div>`
+    ? `<div><span>Vehicle tokens:</span> <strong>${qty}</strong></div>`
     : `<div><span>Vehicle:</span> <strong>${esc(veh.vehicleNumber || veh.imei || '—')}</strong></div>
        <div><span>Billed till:</span> ${fmtDate(inv.periodEnd)}</div>`;
 
@@ -105,7 +104,7 @@ export const buildInvoiceHtml = (inv) => {
     </table>
 
     <div class="foot">
-      Each token = 1 vehicle for 1 year · SAC ${SAC_CODE}. This is a computer-generated invoice.
+      Each token = 1 vehicle subscription · SAC ${SAC_CODE}. This is a computer-generated invoice.
     </div>
   </div>
   <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 250); };</script>

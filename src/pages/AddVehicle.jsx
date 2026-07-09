@@ -621,7 +621,7 @@ const AddVehicle = () => {
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontWeight: 800, color: '#0f172a' }}>
                   <span>Cost</span><span>1 token</span>
                 </div>
-                <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 4 }}>Billed-till will be set to 1 year (+ the client's grace period) from today.</div>
+                <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 4 }}>Billed-till will be set to the token validity (+ the client's grace period) from today.</div>
               </div>
 
               <div style={{ marginTop: 12, fontSize: 12.5, display: 'flex', justifyContent: 'space-between', color: tokenBalance != null && insufficient ? '#dc2626' : '#15803d' }}>

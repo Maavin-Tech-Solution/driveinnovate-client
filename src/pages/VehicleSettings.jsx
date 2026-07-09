@@ -18,7 +18,7 @@ const ALL_DASH_CARDS_DEF = [
   { id: 'overspeed',   title: 'Overspeed Alerts',    icon: '⚠️' },
   { id: 'challans',    title: 'Pending Challans',    icon: '📋' },
   { id: 'renewals',    title: 'Upcoming Renewals',   icon: '📅' },
-  { id: 'subscription_expiring', title: 'Subscriptions Expiring', icon: '⏳' },
+  { id: 'subscription_expiring', title: 'Expiring (7 days)', icon: '⏳' },
   { id: 'activity',    title: 'Activity (7d)',       icon: '📈' },
   // Fleet-state cards — counts derived live from the canonical state model
   // (Running / Stopped / Offline / No Data — mutually exclusive).
@@ -37,8 +37,9 @@ const ALL_FLEET_CHIPS_DEF = [
   { id: 'offline',   label: 'Offline',   icon: '⚫', dot: '#6b7280' },
   { id: 'nodata',    label: 'No Data',   icon: '📵', dot: '#94a3b8' },
   { id: 'overspeed', label: 'Overspeed', icon: '🏎️', dot: '#dc2626' },
+  { id: 'expiring',  label: 'Expiring (7d)', icon: '⏳', dot: '#f59e0b' },
 ];
-const DEFAULT_FLEET_CHIPS = ['total','running','stopped','offline','nodata'];
+const DEFAULT_FLEET_CHIPS = ['total','running','stopped','offline','nodata','expiring'];
 
 const inputStyle = {
   width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0',

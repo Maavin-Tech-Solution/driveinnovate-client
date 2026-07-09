@@ -71,7 +71,7 @@ const TransferModal = ({ child, onClose, onDone }) => {
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><XMarkIcon style={{ width: 20, color: '#94a3b8' }} /></button>
         </div>
         <div style={{ fontSize: 12.5, color: '#64748b', marginBottom: 14 }}>
-          Tokens move from your wallet into theirs. Each token = 1 vehicle for 1 year (+ the client's grace period).
+          Tokens move from your wallet into theirs. Each token = 1 vehicle subscription (+ the client's grace period).
         </div>
 
         <div style={{ display: 'flex', gap: 12 }}>
@@ -292,7 +292,7 @@ const Wallet = () => {
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Available tokens</div>
             <div style={{ fontSize: 34, fontWeight: 800, color: '#0f172a', lineHeight: 1.1, marginTop: 2 }}>{balance.toLocaleString('en-IN')}</div>
-            <div style={{ fontSize: 12.5, color: '#94a3b8' }}>token{balance === 1 ? '' : 's'} · 1 token = 1 vehicle for 1 year</div>
+            <div style={{ fontSize: 12.5, color: '#94a3b8' }}>token{balance === 1 ? '' : 's'} · 1 token = 1 vehicle subscription</div>
           </div>
         </div>
 

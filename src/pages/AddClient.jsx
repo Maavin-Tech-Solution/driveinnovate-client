@@ -79,6 +79,8 @@ const AddClient = () => {
     setLoading(true);
     try {
       const { confirmPassword, ...payload } = form;
+      // Billing type only applies to billable accounts.
+      if (payload.accountType !== 'billable') payload.billingType = 'postpaid';
       const res = await createClient(payload);
       if (res.success) {
         toast.success('Client created successfully');
@@ -174,12 +176,13 @@ const AddClient = () => {
                 </div>
               </div>
 
+              {form.accountType === 'billable' && (
               <div style={fieldStyle}>
                 <label style={labelStyle}>Billing Type *</label>
                 <div style={{ display: 'flex', gap: 10 }}>
                   {[
                     { value: 'postpaid', label: 'Postpaid', desc: 'Billed outside the wallet. No tokens used.' },
-                    { value: 'prepaid',  label: 'Prepaid',  desc: 'Uses wallet vehicle-tokens (when the module is on).' },
+                    { value: 'prepaid',  label: 'Prepaid',  desc: 'Uses wallet tokens (when the module is on).' },
                   ].map(opt => (
                     <label
                       key={opt.value}
@@ -202,13 +205,14 @@ const AddClient = () => {
                   ))}
                 </div>
               </div>
+              )}
 
-              {form.billingType === 'prepaid' && (
+              {form.accountType === 'billable' && form.billingType === 'prepaid' && (
                 <div style={fieldStyle}>
                   <label style={labelStyle}>Grace Period (days)</label>
                   <input type="number" name="graceDays" min="0" step="1" style={inputStyle} placeholder="e.g. 10" value={form.graceDays} onChange={handleChange} />
                   <span style={{ fontSize: 11, color: '#94a3b8', display: 'block', marginTop: 4 }}>
-                    Extra days added beyond the 1-year term when a vehicle is added/renewed (e.g. 10 → expiry = 1 year + 10 days).
+                    Extra days added beyond the token validity when a vehicle is added/renewed (e.g. 10 → expiry = 1 month + 10 days).
                   </span>
                 </div>
               )}

@@ -456,9 +456,9 @@ const Dashboard = () => {
             gradient: 'linear-gradient(135deg, #A855F7 0%, #6B21A8 100%)',
           },
           subscription_expiring: {
-            label: 'Subscriptions Expiring', value: fmtInt(stats?.subscriptionExpiringSoon),
-            Icon: ClockIcon, to: '/invoices',
-            subtitle: (stats?.subscriptionInGrace ? `${stats.subscriptionInGrace} in grace · ` : '') + 'within 30 days',
+            label: 'Expiring (7 days)', value: fmtInt(stats?.subscriptionExpiringSoon),
+            Icon: ClockIcon, to: '/my-fleet',
+            subtitle: (stats?.subscriptionInGrace ? `${stats.subscriptionInGrace} in grace · ` : '') + 'within 7 days',
             gradient: 'linear-gradient(135deg, #F97316 0%, #C2410C 100%)',
           },
           overspeed: {

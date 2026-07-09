@@ -132,7 +132,6 @@ const PLAN_OPTIONS = [
 
 const UpgradeModal = ({ client, onClose, onDone }) => {
   const [mode, setMode] = useState('upgrade'); // 'upgrade' | 'extend'
-  const [plan, setPlan] = useState('3months');
   const [extendDate, setExtendDate] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -196,7 +195,7 @@ const UpgradeModal = ({ client, onClose, onDone }) => {
           <>
             <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 20, lineHeight: 1.6 }}>
               This switches the account from <strong>Trial</strong> to <strong>Billable</strong>. There's no fixed plan duration —
-              each vehicle's validity comes from the tokens spent when it's added or renewed (1 token = 1 year + grace).
+              each vehicle's validity comes from the tokens spent when it's added or renewed (1 token = the configured validity + grace).
             </div>
           </>
         ) : (
@@ -382,7 +381,7 @@ const ClientDetail = () => {
           </div>
           {client.billingType === 'prepaid' && (
             <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 8 }}>
-              When a vehicle is added or renewed for this client, expiry = 1 year + {Number(graceInput) || 0} day{Number(graceInput) === 1 ? '' : 's'} grace.
+              When a vehicle is added or renewed for this client, expiry = token validity + {Number(graceInput) || 0} day{Number(graceInput) === 1 ? '' : 's'} grace.
             </div>
           )}
         </div>

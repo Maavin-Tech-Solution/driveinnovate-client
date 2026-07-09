@@ -116,7 +116,7 @@ const RenewModal = ({ isPapa, onClose, onDone }) => {
             <span>Cost</span><span>1 token</span>
           </div>
           <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 4 }}>
-            Extends by 1 year (+ the client's grace period) from the current expiry.
+            Extends by the token validity (+ the client's grace period) from the current expiry.
           </div>
         </div>
 

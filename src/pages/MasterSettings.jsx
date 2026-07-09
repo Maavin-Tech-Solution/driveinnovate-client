@@ -281,6 +281,7 @@ export default function MasterSettings() {
   const [trialLimitInput, setTrialLimitInput] = useState('10');
   const [defaultPriceInput, setDefaultPriceInput] = useState('0');
   const [defaultTaxInput,   setDefaultTaxInput]   = useState('0');
+  const [tokenMonthsInput,  setTokenMonthsInput]  = useState('1');
 
   // ── Load devices on mount ────────────────────────────────────────────────
   const loadDevices = useCallback(async () => {
@@ -311,6 +312,7 @@ export default function MasterSettings() {
         setTrialLimitInput(String(s.trialVehicleLimit ?? 10));
         setDefaultPriceInput(String(s.defaultMonthlyPrice ?? 0));
         setDefaultTaxInput(String(s.defaultTaxPercent ?? 0));
+        setTokenMonthsInput(String(s.tokenValidityMonths ?? 1));
       })
       .catch(() => toast.error('Failed to load platform settings'));
   }, []);
@@ -332,11 +334,13 @@ export default function MasterSettings() {
   const handleSaveBillingDefaults = async () => {
     const price = Number(defaultPriceInput);
     const tax = Number(defaultTaxInput);
+    const months = parseInt(tokenMonthsInput, 10);
     if (isNaN(price) || price < 0) { toast.error('Default price must be 0 or more'); return; }
     if (isNaN(tax) || tax < 0 || tax > 100) { toast.error('Default GST % must be 0–100'); return; }
+    if (isNaN(months) || months < 1) { toast.error('Token validity must be at least 1 month'); return; }
     setSavingSettings(true);
     try {
-      const res = await updateSystemSettings({ defaultMonthlyPrice: price, defaultTaxPercent: tax });
+      const res = await updateSystemSettings({ defaultMonthlyPrice: price, defaultTaxPercent: tax, tokenValidityMonths: months });
       setSystemSettings(res.data || {});
       toast.success('Billing defaults updated');
     } catch (err) {
@@ -632,7 +636,10 @@ export default function MasterSettings() {
             </div>
             {systemSettings.billingEnabled && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>Default price ₹/veh/yr:</label>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>Token validity (months):</label>
+                <input type="number" min="1" value={tokenMonthsInput} onChange={e => setTokenMonthsInput(e.target.value)}
+                  style={{ width: 64, padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, color: '#0f172a' }} />
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>Default price ₹/veh:</label>
                 <input type="number" min="0" value={defaultPriceInput} onChange={e => setDefaultPriceInput(e.target.value)}
                   style={{ width: 90, padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, color: '#0f172a' }} />
                 <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>Default GST %:</label>

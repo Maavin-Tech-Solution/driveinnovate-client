@@ -205,21 +205,23 @@ const getVState = (v, _statesMap) => {
 };
 const vehicleDisplayName = (v) => (v.vehicleName || v.vehicleNumber || `Vehicle #${v.id}`).toUpperCase();
 
-// Subscription-expiry display for a vehicle. Uses the grace-inclusive date to
-// decide status: red past grace, amber in grace / expiring ≤30d, green otherwise.
+// Subscription-expiry display for a vehicle. Green normally; RED when the vehicle
+// expires within 7 days, is in grace, or has expired. Exposes actual + grace
+// dates separately (v.subscriptionExpiresAt = actual, v.graceExpiresAt = grace).
 const fmtExpiry = (d) => (d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
 const expiryInfo = (v) => {
   const actual = v.subscriptionExpiresAt || v.subscription_expires_at || null;
-  const grace  = v.graceExpiresAt || v.grace_expires_at || actual;
-  if (!actual) return { text: '—', color: '#94A3B8', label: 'Not set', set: false };
+  const grace  = v.graceExpiresAt || v.grace_expires_at || null;
+  if (!actual) return { set: false, color: '#94A3B8', label: 'Not set', text: '—', actualText: '—', graceText: '—' };
   const now = Date.now();
   const a = new Date(actual).getTime();
-  const g = new Date(grace).getTime();
-  if (g < now) return { text: fmtExpiry(actual), color: '#dc2626', label: 'Expired', set: true };
-  if (a < now) return { text: fmtExpiry(actual), color: '#d97706', label: 'In grace', set: true };
+  const g = grace ? new Date(grace).getTime() : a;
   const days = Math.ceil((a - now) / 86400000);
-  if (days <= 30) return { text: fmtExpiry(actual), color: '#d97706', label: `${days}d left`, set: true };
-  return { text: fmtExpiry(actual), color: '#16a34a', label: 'Active', set: true };
+  let color = '#16a34a', label = 'Active';
+  if (g < now)         { color = '#dc2626'; label = 'Expired'; }
+  else if (a < now)    { color = '#dc2626'; label = 'In grace'; }
+  else if (days <= 7)  { color = '#dc2626'; label = `${days}d left`; }
+  return { set: true, color, label, text: fmtExpiry(actual), actualText: fmtExpiry(actual), graceText: fmtExpiry(grace || actual), hasGrace: !!grace && g > a };
 };
 
 // Builds a debug tooltip string from matched state conditions.
@@ -240,8 +242,9 @@ const ALL_FLEET_CHIPS = [
   { id: 'offline',   label: 'Offline',   dot: '#6b7280', gradient: 'linear-gradient(135deg, #374151 0%, #6B7280 100%)', shadow: '0 4px 14px rgba(55,65,81,0.28)',    icon: '⚫' },
   { id: 'overspeed', label: 'Overspeed', dot: '#dc2626', gradient: 'linear-gradient(135deg, #991B1B 0%, #DC2626 100%)', shadow: '0 4px 14px rgba(153,27,27,0.28)',   icon: '⚠️' },
   { id: 'nodata',    label: 'No Data',   dot: '#94A3B8', gradient: 'linear-gradient(135deg, #64748B 0%, #94A3B8 100%)', shadow: '0 4px 14px rgba(100,116,139,0.28)', icon: '📵' },
+  { id: 'expiring',  label: 'Expiring (7d)', dot: '#f59e0b', gradient: 'linear-gradient(135deg, #B45309 0%, #F59E0B 100%)', shadow: '0 4px 14px rgba(217,119,6,0.28)', icon: '⏳' },
 ];
-const DEFAULT_FLEET_CHIPS = ['total', 'running', 'stopped', 'offline', 'nodata'];
+const DEFAULT_FLEET_CHIPS = ['total', 'running', 'stopped', 'offline', 'nodata', 'expiring'];
 
 function getVisibleFleetChips() {
   try {
@@ -657,7 +660,10 @@ const VehiclePopup = ({ vehicle, address, state }) => {
   const lastSeenTs = vehicle.deviceStatus?.lastUpdate || gps?.timestamp;
   if (lastSeenTs) rows.push({ label: 'Updated', value: new Date(lastSeenTs).toLocaleString('en-IN', { timeStyle: 'short', dateStyle: 'short' }), color: '#475569' });
   const exp = expiryInfo(vehicle);
-  if (exp.set) rows.push({ label: 'Expiry', value: `${exp.text} · ${exp.label}`, color: exp.color });
+  if (exp.set) {
+    rows.push({ label: 'Expiry', value: `${exp.actualText} · ${exp.label}`, color: exp.color });
+    if (exp.hasGrace) rows.push({ label: 'Grace till', value: exp.graceText, color: '#64748B' });
+  }
 
   return (
     <div style={{ fontFamily: "'Plus Jakarta Sans',-apple-system,sans-serif" }}>
@@ -866,23 +872,69 @@ const MyFleet = () => {
 
   // Table-view reverse geocoding: queue-based so Nominatim rate limit is respected.
   const [tableGeoMap, setTableGeoMap] = useState(new Map()); // coordKey → address
+  // Ref mirror so the queue/enqueue callbacks (held in refs, and thus otherwise
+  // frozen on their first-render closure) always see the latest resolved map.
+  const tableGeoMapRef = useRef(tableGeoMap);
   const tableGeoQueue  = useRef([]);  // [{ key, lat, lng }]
   const tableGeoActive = useRef(false);
 
+  // Single write path for resolved addresses. Every view that shows a location
+  // (list card, table, marker popup, detail drawer) reads tableGeoMap, so a
+  // result found on ANY path — including one the hover popover fetched on
+  // demand — is shared with all of them.
+  const setGeoAddr = useRef((key, text) => {
+    if (tableGeoMapRef.current.get(key) === text) return;
+    const next = new Map(tableGeoMapRef.current).set(key, text);
+    tableGeoMapRef.current = next;
+    setTableGeoMap(next);
+  });
+
   const drainGeoQueue = useRef(() => {
+    // Drop any coords resolved since they were queued (e.g. by the hover popover).
+    while (tableGeoQueue.current.length && tableGeoMapRef.current.has(tableGeoQueue.current[0].key)) {
+      tableGeoQueue.current.shift();
+    }
     if (!tableGeoQueue.current.length) { tableGeoActive.current = false; return; }
     tableGeoActive.current = true;
     const { key, lat, lng } = tableGeoQueue.current.shift();
+    // Abort a hung request after 8 s. Without this, one stuck Nominatim call
+    // freezes the whole queue and leaves every vehicle behind it on "Locating…"
+    // forever — the exact symptom the hover popover (which bypasses the queue)
+    // does not have.
+    const ctrl  = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
     // Use the full display_name so the list card, detail card and table all show
     // the same complete address that the card-hover popover shows.
-    fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=16`)
+    fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=16&addressdetails=0`,
+          { signal: ctrl.signal, headers: { 'Accept-Language': 'en' } })
       .then(r => r.json())
       .then(d => {
-        const text = d.display_name?.trim() || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-        setTableGeoMap(m => new Map(m).set(key, text));
+        const text = d.display_name?.trim();
+        // Only cache a real address. On an empty/blocked response leave the key
+        // unset so a later poll retries, rather than permanently pinning a bare
+        // coordinate the way hover never would.
+        if (text) setGeoAddr.current(key, text);
       })
-      .catch(() => setTableGeoMap(m => new Map(m).set(key, `${lat.toFixed(4)}, ${lng.toFixed(4)}`)))
-      .finally(() => setTimeout(drainGeoQueue.current, 1200)); // 1.2 s between calls
+      .catch(() => { /* aborted or network error — leave unset for a later retry */ })
+      .finally(() => { clearTimeout(timer); setTimeout(drainGeoQueue.current, 1200); }); // 1.2 s between calls
+  });
+
+  // Enqueue a coordinate for reverse geocoding into the shared tableGeoMap.
+  // `priority` jumps it to the front of the queue so a just-opened detail popup
+  // or marker resolves right away instead of waiting behind the whole fleet.
+  const enqueueGeocode = useRef((lat, lng, priority = false) => {
+    if (lat == null || lng == null) return;
+    const key = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+    if (tableGeoMapRef.current.has(key)) return;
+    const idx = tableGeoQueue.current.findIndex(q => q.key === key);
+    if (idx === -1) {
+      if (priority) tableGeoQueue.current.unshift({ key, lat, lng });
+      else          tableGeoQueue.current.push({ key, lat, lng });
+    } else if (priority && idx > 0) {
+      const [item] = tableGeoQueue.current.splice(idx, 1);
+      tableGeoQueue.current.unshift(item);
+    }
+    if (!tableGeoActive.current) drainGeoQueue.current();
   });
 
   // Custom-fields popover (table view icon click)
@@ -1092,8 +1144,18 @@ const MyFleet = () => {
     if (!coords) { setGeoAddress(null); return; }
 
     const key = `${coords.lat.toFixed(5)},${coords.lng.toFixed(5)}`;
+    // Shared table/card/detail cache is keyed at 4 dp — reuse and back-fill it so
+    // the two geocoding systems never disagree.
+    const tableKey = `${coords.lat.toFixed(4)},${coords.lng.toFixed(4)}`;
     if (geoCache.current.has(key)) {
       setGeoAddress(geoCache.current.get(key));
+      return;
+    }
+    // Already resolved by the shared queue — show it instantly, no extra fetch.
+    if (tableGeoMapRef.current.has(tableKey)) {
+      const cached = tableGeoMapRef.current.get(tableKey);
+      geoCache.current.set(key, cached);
+      setGeoAddress(cached);
       return;
     }
 
@@ -1109,6 +1171,9 @@ const MyFleet = () => {
         const addr = data?.display_name || null;
         geoCache.current.set(key, addr);
         setGeoAddress(addr);
+        // Back-fill the shared cache so the card, table and detail drawer for
+        // this vehicle stop showing "Locating…" the moment the user hovers it.
+        if (addr) setGeoAddr.current(tableKey, addr);
       })
       .catch(() => setGeoAddress(null))
       .finally(() => setGeoLoading(false));
@@ -1530,6 +1595,10 @@ const MyFleet = () => {
     setDrawerVehicle(v);
     setActiveTab('overview');
     setReportData(null);
+    // Resolve this vehicle's address first instead of letting it wait behind the
+    // whole fleet in the geocode queue, so the drawer doesn't sit on "Locating…".
+    const c = getVehicleCoords(v);
+    if (c) enqueueGeocode.current(c.lat, c.lng, true);
     fillEditForm(v);
   };
 
@@ -1541,7 +1610,12 @@ const MyFleet = () => {
     setActiveTab('overview');
     setReportData(null);
     const coords = getVehicleCoords(v);
-    if (coords) setMapCenter([coords.lat, coords.lng]);
+    if (coords) {
+      setMapCenter([coords.lat, coords.lng]);
+      // The map marker popup that opens on select reads the shared geocode cache
+      // — prioritise this coord so the popup shows the address, not "Locating…".
+      enqueueGeocode.current(coords.lat, coords.lng, true);
+    }
     // Always bump the focus key — even if coords are missing on this click,
     // a later poll may resolve them and the user expects the next click to
     // re-fly.  MapController gates flyTo on mapCenter being non-null.
@@ -2002,6 +2076,14 @@ const MyFleet = () => {
   // Fleet stat chips are the fixed, mutually-exclusive canonical state set
   // (Running / Stopped / Offline / No Data) plus the virtual Overspeed chip —
   // every count buckets each vehicle into exactly one state.
+  const _nowMs = Date.now();
+  const _in7ms = _nowMs + 7 * 24 * 60 * 60 * 1000;
+  const expiringCount = chipScopedVehicles.filter(v => {
+    const a = v.subscriptionExpiresAt ? new Date(v.subscriptionExpiresAt).getTime() : null;
+    if (a == null) return false;
+    const g = v.graceExpiresAt ? new Date(v.graceExpiresAt).getTime() : a;
+    return a <= _in7ms && g >= _nowMs; // expiring within 7 days (incl. grace), not yet fully expired
+  }).length;
   const CHIP_COUNTS = {
     total:     chipScopedVehicles.length,
     running:   runningCount,
@@ -2009,6 +2091,7 @@ const MyFleet = () => {
     offline:   offlineCount,
     overspeed: overspeedCount,
     nodata:    noDataCount,
+    expiring:  expiringCount,
   };
   const visibleFleetChips = ALL_FLEET_CHIPS.filter(c => visibleChips.includes(c.id));
 
@@ -2545,7 +2628,8 @@ const MyFleet = () => {
                     { label:'IMEI',         value: dv.imei, mono:true, full:true },
                     { label:'SIM 1',        value: dv.sim1, mono:true },
                     { label:'SIM 2',        value: dv.sim2, mono:true },
-                    (() => { const e = expiryInfo(dv); return { label:'Subscription Expiry', value: e.set ? `${e.text} · ${e.label}` : null, color: e.color, full:true }; })(),
+                    (() => { const e = expiryInfo(dv); return { label:'Actual Expiry', value: e.set ? `${e.actualText} · ${e.label}` : null, color: e.color, full:true }; })(),
+                    (() => { const e = expiryInfo(dv); return { label:'Grace Expiry', value: (e.set && e.hasGrace) ? e.graceText : null, color:'#475569', full:true }; })(),
                   ].filter(r=>r.value).map((r,i)=>(
                     <div key={i} style={{ display:'flex', flexDirection:'column', gap:2, gridColumn: r.full?'1 / -1':'auto', overflow:'hidden' }}>
                       <span style={{ fontSize:9, color:'#B0B8C4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.10em', fontFamily:"'Plus Jakarta Sans',sans-serif" }}>{r.label}</span>
@@ -3346,10 +3430,13 @@ const MyFleet = () => {
                         const e = expiryInfo(v);
                         return (
                           <td key="expiry" style={{ whiteSpace: 'nowrap' }}>
-                            <span style={{ display: 'inline-flex', flexDirection: 'column', lineHeight: 1.25 }}>
-                              <span style={{ color: e.color, fontWeight: 700 }}>{e.text}</span>
-                              <span style={{ fontSize: 10, color: e.color, opacity: 0.9 }}>{e.label}</span>
-                            </span>
+                            {e.set ? (
+                              <span style={{ display: 'inline-flex', flexDirection: 'column', lineHeight: 1.3, alignItems: 'flex-start' }}>
+                                <span style={{ color: e.color, fontWeight: 700 }}>{e.actualText}</span>
+                                {e.hasGrace && <span style={{ fontSize: 10, color: '#94A3B8' }}>grace: {e.graceText}</span>}
+                                <span style={{ fontSize: 10, color: e.color, opacity: 0.9, fontWeight: 700 }}>{e.label}</span>
+                              </span>
+                            ) : <span style={{ color: '#CBD5E1' }}>—</span>}
                           </td>
                         );
                       })(),

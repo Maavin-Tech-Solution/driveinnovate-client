@@ -239,6 +239,13 @@ const ClientNode = ({ node, depth, onPermissions, onNavigate }) => {
             <TruckIcon style={{ width: '13px', height: '13px', color: '#2563EB' }} />
             <span style={{ fontSize: '12px', fontWeight: 700, color: '#2563EB' }}>{node.networkVehicleCount}</span>
           </div>
+          {/* Vehicles expiring within 7 days (this client + sub-network) */}
+          {node.networkExpiringSoon > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: '6px', padding: '4px 10px' }} title="Vehicles expiring within 7 days">
+              <span style={{ fontSize: '12px' }}>⏳</span>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: '#c2410c' }}>{node.networkExpiringSoon}</span>
+            </div>
+          )}
           {/* Sub-clients */}
           {node.children?.length > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: '6px', padding: '4px 10px' }} title="Direct sub-clients">
@@ -453,6 +460,7 @@ const MyClients = () => {
           <div style={{ padding: '12px 16px', borderBottom: '1px solid #F1F5F9', background: '#F8FAFC', display: 'flex', alignItems: 'center', gap: '20px' }}>
             <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.07em', flex: 1, paddingLeft: '52px' }}>Client</span>
             <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.07em', width: '120px', textAlign: 'center' }}>Vehicles</span>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: '#c2410c', textTransform: 'uppercase', letterSpacing: '0.07em', width: '110px', textAlign: 'center' }}>Expiring 7d</span>
             <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.07em', width: '100px', textAlign: 'center' }}>Actions</span>
           </div>
 

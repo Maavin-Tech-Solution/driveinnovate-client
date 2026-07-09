@@ -46,7 +46,7 @@ const fieldStyle = { marginBottom: '18px' };
 const Profile = () => {
   const { user, updateUser } = useAuth();
 
-  const [profile, setProfile] = useState({ name: '', phone: '' });
+  const [profile, setProfile] = useState({ name: '', phone: '', autoRenew: false });
   const [pwForm, setPwForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [notifs, setNotifs] = useState({ emailNotifications: true, smsNotifications: false, marketingNotifications: false });
   const [loading, setLoading] = useState({ profile: false, password: false, notifs: false, sc: false, scTest: false });
@@ -64,7 +64,7 @@ const Profile = () => {
     getProfile()
       .then((res) => {
         const u = res.data;
-        setProfile({ name: u.name || '', phone: u.phone || '' });
+        setProfile({ name: u.name || '', phone: u.phone || '', autoRenew: !!u.autoRenew });
         setNotifs({
           emailNotifications: u.emailNotifications ?? true,
           smsNotifications: u.smsNotifications ?? false,
@@ -209,6 +209,21 @@ const Profile = () => {
                 <label style={labelStyle}>Phone Number</label>
                 <input style={inputStyle} type="tel" value={profile.phone} onChange={(e) => setProfile({ ...profile, phone: e.target.value })} placeholder="+91 9876543210" />
               </div>
+
+              {/* Auto-renewal (prepaid billing) */}
+              <div style={{ ...fieldStyle, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, padding: '12px 14px', border: '1px solid #e2e8f0', borderRadius: 10, background: '#f8fafc' }}>
+                <div>
+                  <div style={{ fontSize: 13.5, fontWeight: 700, color: '#0f172a' }}>Auto-renew vehicles</div>
+                  <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 2 }}>When ON and your wallet has tokens, vehicles are renewed automatically as they reach expiry.</div>
+                </div>
+                <label style={{ position: 'relative', display: 'inline-block', width: 44, height: 24, flexShrink: 0 }}>
+                  <input type="checkbox" checked={!!profile.autoRenew} onChange={(e) => setProfile({ ...profile, autoRenew: e.target.checked })} style={{ opacity: 0, width: 0, height: 0 }} />
+                  <span style={{ position: 'absolute', cursor: 'pointer', inset: 0, background: profile.autoRenew ? '#16a34a' : '#cbd5e1', borderRadius: 24, transition: '0.2s' }}>
+                    <span style={{ position: 'absolute', height: 18, width: 18, left: profile.autoRenew ? 23 : 3, top: 3, background: '#fff', borderRadius: '50%', transition: '0.2s' }} />
+                  </span>
+                </label>
+              </div>
+
               <button
                 type="submit"
                 disabled={loading.profile}
