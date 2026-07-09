@@ -659,11 +659,9 @@ const VehiclePopup = ({ vehicle, address, state }) => {
   const rows = [...metrics];
   const lastSeenTs = vehicle.deviceStatus?.lastUpdate || gps?.timestamp;
   if (lastSeenTs) rows.push({ label: 'Updated', value: new Date(lastSeenTs).toLocaleString('en-IN', { timeStyle: 'short', dateStyle: 'short' }), color: '#475569' });
+  // Subscription expiry is rendered as its own highlighted band below (not a
+  // plain row), so it stands out the moment the popup opens.
   const exp = expiryInfo(vehicle);
-  if (exp.set) {
-    rows.push({ label: 'Expiry', value: `${exp.actualText} · ${exp.label}`, color: exp.color });
-    if (exp.hasGrace) rows.push({ label: 'Grace till', value: exp.graceText, color: '#64748B' });
-  }
 
   return (
     <div style={{ fontFamily: "'Plus Jakarta Sans',-apple-system,sans-serif" }}>
@@ -690,6 +688,18 @@ const VehiclePopup = ({ vehicle, address, state }) => {
             {address || (coords ? 'Locating…' : 'No location')}
           </span>
         </div>
+        {/* Subscription expiry — highlighted band with colored accent + status pill */}
+        {exp.set && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '10px 16px', borderBottom: '1px solid #F1F5F9', background: `${exp.color}12`, borderLeft: `4px solid ${exp.color}` }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+              <span style={{ fontSize: 10, color: '#94A3B8', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase' }}>Subscription Expiry</span>
+              <span style={{ fontSize: 13.5, fontWeight: 800, color: exp.color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {exp.actualText}{exp.hasGrace ? ` · grace ${exp.graceText}` : ''}
+              </span>
+            </div>
+            <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 800, color: '#FFFFFF', background: exp.color, padding: '3px 10px', borderRadius: 20, whiteSpace: 'nowrap' }}>{exp.label}</span>
+          </div>
+        )}
         {rows.map(m => (
           <div key={m.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, padding: '10px 16px', borderBottom: '1px solid #F1F5F9' }}>
             <span style={{ fontSize: 12.5, color: '#94A3B8', fontWeight: 600, flexShrink: 0 }}>{m.label}</span>
@@ -3967,13 +3977,6 @@ const MyFleet = () => {
                         </div>
                       ))}
                     </div>
-                    {/* Subscription expiry (only when on a paid subscription) */}
-                    {(() => { const e = expiryInfo(v); return e.set ? (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, fontSize: 11.5 }}>
-                        <span style={{ color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', fontSize: 9.5 }}>Expiry</span>
-                        <span style={{ color: e.color, fontWeight: 800 }}>{e.text} · {e.label}</span>
-                      </div>
-                    ) : null; })()}
                     {/* Signals + location */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
                       {[
@@ -4076,12 +4079,6 @@ const MyFleet = () => {
                           {speed} km/h
                         </span>
                       )}
-                      {/* Subscription expiry chip (only when on a paid subscription) */}
-                      {(() => { const e = expiryInfo(v); return e.set ? (
-                        <span title={`Subscription ${e.label} — expires ${e.text}`} style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: `${e.color}14`, color: e.color, border: `1px solid ${e.color}40` }}>
-                          ⏳ {e.text}
-                        </span>
-                      ) : null; })()}
                       {/* Status icons (ignition + GPS / satellites / GSM / battery) */}
                       {(() => {
                         const COVERED = new Set(['ignition','status.ignition','engineOn','latitude','longitude','hasLocation','satellites','gpsData.satellites','gsmSignal','status.gsmSignal','rssi','battery','status.battery','batteryLevel']);
