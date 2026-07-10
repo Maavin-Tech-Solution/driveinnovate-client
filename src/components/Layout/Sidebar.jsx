@@ -157,6 +157,12 @@ const Sidebar = ({ collapsed }) => {
   const { logout, user } = useAuth();
   const navigate = useNavigate();
   const [logoutHover, setLogoutHover] = useState(false);
+  // Per-account brand logo. Falls back to the default DriveInnovate mark if the
+  // URL is unset or the image fails to load. Reset the broken flag when the URL
+  // changes so a corrected logo gets another chance to render.
+  const [logoBroken, setLogoBroken] = useState(false);
+  useEffect(() => { setLogoBroken(false); }, [user?.logoUrl]);
+  const brandLogo = user?.logoUrl && !logoBroken ? user.logoUrl : null;
 
   const role = user?.role;          // 'papa' | 'dealer' | 'client'
   const perms = user?.permissions || {};
@@ -263,19 +269,35 @@ const Sidebar = ({ collapsed }) => {
         justifyContent: collapsed ? 'center' : 'flex-start',
         flexShrink: 0, position: 'relative', zIndex: 1,
       }}>
-        <div style={{
-          width: '36px', height: '36px',
-          background: 'linear-gradient(135deg, #3B82F6 0%, #60A5FA 100%)',
-          borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          flexShrink: 0, boxShadow: '0 4px 12px rgba(59,130,246,0.5)',
-        }}>
-          <span style={{ color: '#fff', fontWeight: 900, fontSize: '18px', lineHeight: 1, letterSpacing: '-1px' }}>D</span>
-        </div>
-        {!collapsed && (
-          <div>
-            <div style={{ color: '#FFFFFF', fontWeight: 800, fontSize: '16px', letterSpacing: '-0.02em', lineHeight: 1.2 }}>DriveInnovate</div>
-            <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: '10px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', marginTop: '2px' }}>Fleet Management</div>
-          </div>
+        {brandLogo ? (
+          /* Client-supplied logo replaces the default mark + wordmark entirely. */
+          <img
+            src={brandLogo}
+            alt="Logo"
+            onError={() => setLogoBroken(true)}
+            style={{
+              maxHeight: collapsed ? '36px' : '44px',
+              maxWidth: collapsed ? '44px' : '184px',
+              objectFit: 'contain', display: 'block',
+            }}
+          />
+        ) : (
+          <>
+            <div style={{
+              width: '36px', height: '36px',
+              background: 'linear-gradient(135deg, #3B82F6 0%, #60A5FA 100%)',
+              borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0, boxShadow: '0 4px 12px rgba(59,130,246,0.5)',
+            }}>
+              <span style={{ color: '#fff', fontWeight: 900, fontSize: '18px', lineHeight: 1, letterSpacing: '-1px' }}>D</span>
+            </div>
+            {!collapsed && (
+              <div>
+                <div style={{ color: '#FFFFFF', fontWeight: 800, fontSize: '16px', letterSpacing: '-0.02em', lineHeight: 1.2 }}>DriveInnovate</div>
+                <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: '10px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', marginTop: '2px' }}>Fleet Management</div>
+              </div>
+            )}
+          </>
         )}
       </div>
 

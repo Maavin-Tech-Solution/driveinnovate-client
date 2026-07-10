@@ -47,6 +47,10 @@ const Profile = () => {
   const { user, updateUser } = useAuth();
 
   const [profile, setProfile] = useState({ name: '', phone: '', autoRenew: false });
+  // Branding: per-account logo URL + live-preview load status ('idle'|'ok'|'error').
+  const [logoUrl, setLogoUrl] = useState('');
+  const [logoStatus, setLogoStatus] = useState('idle');
+  const [savingLogo, setSavingLogo] = useState(false);
   const [pwForm, setPwForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [notifs, setNotifs] = useState({ emailNotifications: true, smsNotifications: false, marketingNotifications: false });
   const [loading, setLoading] = useState({ profile: false, password: false, notifs: false, sc: false, scTest: false });
@@ -65,6 +69,8 @@ const Profile = () => {
       .then((res) => {
         const u = res.data;
         setProfile({ name: u.name || '', phone: u.phone || '', autoRenew: !!u.autoRenew });
+        setLogoUrl(u.logoUrl || '');
+        setLogoStatus(u.logoUrl ? 'ok' : 'idle');
         setNotifs({
           emailNotifications: u.emailNotifications ?? true,
           smsNotifications: u.smsNotifications ?? false,
@@ -118,6 +124,38 @@ const Profile = () => {
     }
   };
 
+  const handleLogoSave = async () => {
+    const clean = logoUrl.trim();
+    if (clean && logoStatus !== 'ok') return toast.error('Enter a URL that loads a valid image first');
+    setSavingLogo(true);
+    try {
+      const res = await updateProfile({ logoUrl: clean });
+      // Preserve the derived hierarchy fields (role/clientIds/permissions) that
+      // the update response does not carry — only swap in the new logo.
+      updateUser({ ...user, logoUrl: res.data?.logoUrl ?? (clean || null) });
+      toast.success(clean ? 'Logo saved' : 'Logo removed');
+    } catch (err) {
+      toast.error(err.message || 'Failed to save logo');
+    } finally {
+      setSavingLogo(false);
+    }
+  };
+
+  const handleLogoRemove = async () => {
+    setLogoUrl('');
+    setLogoStatus('idle');
+    setSavingLogo(true);
+    try {
+      await updateProfile({ logoUrl: '' });
+      updateUser({ ...user, logoUrl: null });
+      toast.success('Logo removed');
+    } catch (err) {
+      toast.error(err.message || 'Failed to remove logo');
+    } finally {
+      setSavingLogo(false);
+    }
+  };
+
   const initials = user?.name?.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase() || 'U';
 
   return (
@@ -146,6 +184,7 @@ const Profile = () => {
       <div style={{ display: 'flex', gap: '4px', background: '#fff', borderBottom: '1px solid #e2e8f0', paddingLeft: '8px' }}>
         {[
           { key: 'info',          icon: '👤', label: 'Personal Info' },
+          { key: 'branding',      icon: '🖼️', label: 'Branding' },
           { key: 'password',      icon: '🔒', label: 'Security' },
           { key: 'notifications', icon: '🔔', label: 'Notifications' },
           { key: 'rto-challan',   icon: '🚗', label: 'RTO & Challan' },
@@ -256,6 +295,111 @@ const Profile = () => {
               <div style={{ fontSize: '13px', fontWeight: 700, color: '#2563eb', marginBottom: '6px' }}>💡 Profile Tip</div>
               <div style={{ fontSize: '13px', color: '#1e40af', lineHeight: 1.6 }}>
                 Keep your contact details up to date to receive timely challan alerts and RTO reminders for your fleet.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === 'branding' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+          {/* Left: URL input + actions */}
+          <div style={{ background: '#fff', borderRadius: '14px', border: '1px solid #e2e8f0', padding: '28px' }}>
+            <div style={{ fontSize: '15px', fontWeight: 700, color: '#1e293b', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ background: '#ede9fe', borderRadius: '8px', padding: '6px 8px', fontSize: '16px' }}>🖼️</span>
+              Company Logo
+            </div>
+            <p style={{ fontSize: '13px', color: '#94a3b8', margin: '0 0 20px' }}>
+              Paste a public image URL. Once it loads successfully, it replaces the DriveInnovate logo in your sidebar after login.
+            </p>
+
+            <div style={fieldStyle}>
+              <label style={labelStyle}>Logo Image URL</label>
+              <input
+                style={inputStyle}
+                type="url"
+                placeholder="https://example.com/logo.png"
+                value={logoUrl}
+                onChange={(e) => { setLogoUrl(e.target.value); setLogoStatus('idle'); }}
+              />
+              <span style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px', display: 'block' }}>
+                PNG, JPG or SVG hosted on a public URL. A transparent background looks best on the dark sidebar.
+              </span>
+            </div>
+
+            {/* Validity indicator driven by the preview image's load result */}
+            {logoUrl.trim() && (
+              <div style={{
+                fontSize: '12.5px', fontWeight: 600, marginBottom: '16px',
+                color: logoStatus === 'ok' ? '#16a34a' : logoStatus === 'error' ? '#dc2626' : '#94a3b8',
+              }}>
+                {logoStatus === 'ok'
+                  ? '✓ Image loaded — looks good'
+                  : logoStatus === 'error'
+                    ? '✕ Could not load an image from this URL'
+                    : '⏳ Checking image…'}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                onClick={handleLogoSave}
+                disabled={savingLogo || (!!logoUrl.trim() && logoStatus !== 'ok')}
+                style={{
+                  padding: '10px 24px', background: '#2563eb', color: '#fff', border: 'none',
+                  borderRadius: '8px', fontWeight: 600, fontSize: '14px', cursor: 'pointer',
+                  opacity: (savingLogo || (!!logoUrl.trim() && logoStatus !== 'ok')) ? 0.6 : 1,
+                }}
+              >
+                {savingLogo ? 'Saving…' : '💾 Save Logo'}
+              </button>
+              {logoUrl.trim() && (
+                <button
+                  onClick={handleLogoRemove}
+                  disabled={savingLogo}
+                  style={{
+                    padding: '10px 20px', background: '#fff', color: '#dc2626',
+                    border: '1px solid #fecaca', borderRadius: '8px', fontWeight: 600,
+                    fontSize: '14px', cursor: 'pointer',
+                  }}
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Right: live preview on a sidebar-like dark background */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ background: '#fff', borderRadius: '14px', border: '1px solid #e2e8f0', padding: '24px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '16px' }}>Preview</div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '120px', background: '#0f172a', borderRadius: '12px', padding: '20px' }}>
+                {logoUrl.trim() ? (
+                  logoStatus === 'error' ? (
+                    <span style={{ color: '#f87171', fontSize: '13px' }}>⚠️ Image failed to load</span>
+                  ) : (
+                    <img
+                      key={logoUrl.trim()}
+                      src={logoUrl.trim()}
+                      alt="Logo preview"
+                      onLoad={() => setLogoStatus('ok')}
+                      onError={() => setLogoStatus('error')}
+                      style={{ maxHeight: '80px', maxWidth: '100%', objectFit: 'contain', display: 'block' }}
+                    />
+                  )
+                ) : (
+                  <span style={{ color: '#64748b', fontSize: '13px' }}>No logo set — default DriveInnovate branding is shown</span>
+                )}
+              </div>
+              <div style={{ fontSize: '11.5px', color: '#94a3b8', marginTop: '12px', textAlign: 'center' }}>
+                Displayed on a dark background, just like your sidebar.
+              </div>
+            </div>
+
+            <div style={{ background: 'linear-gradient(135deg, #f5f3ff, #ede9fe)', borderRadius: '14px', border: '1px solid #ddd6fe', padding: '20px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: '#6d28d9', marginBottom: '6px' }}>ℹ️ About branding</div>
+              <div style={{ fontSize: '13px', color: '#5b21b6', lineHeight: 1.6 }}>
+                The logo is applied to your account only and shows the moment you log in. Clear the URL and save to return to the default DriveInnovate logo.
               </div>
             </div>
           </div>
