@@ -40,6 +40,42 @@ const inputStyle = {
   borderRadius: '8px', fontSize: '14px', color: '#1e293b',
   background: '#fff', outline: 'none', boxSizing: 'border-box',
 };
+
+// Web-safe / commonly-available font stacks for the sidebar brand text lines.
+// The first is the app's own font; the rest degrade gracefully if absent.
+const FONT_OPTIONS = [
+  { label: 'Default (Plus Jakarta Sans)', value: '' },
+  { label: 'Inter',            value: 'Inter, sans-serif' },
+  { label: 'Roboto',           value: 'Roboto, sans-serif' },
+  { label: 'Poppins',          value: 'Poppins, sans-serif' },
+  { label: 'Montserrat',       value: 'Montserrat, sans-serif' },
+  { label: 'Arial',            value: 'Arial, sans-serif' },
+  { label: 'Helvetica',        value: 'Helvetica, Arial, sans-serif' },
+  { label: 'Verdana',          value: 'Verdana, sans-serif' },
+  { label: 'Trebuchet MS',     value: '"Trebuchet MS", sans-serif' },
+  { label: 'Georgia',          value: 'Georgia, serif' },
+  { label: 'Times New Roman',  value: '"Times New Roman", serif' },
+  { label: 'Courier New',      value: '"Courier New", monospace' },
+];
+
+// Editing defaults for the two brand-text lines (colors read well on the dark sidebar).
+const DEFAULT_BRAND_TEXT = {
+  title:    { text: '', color: '#FFFFFF', size: 16, font: '' },
+  subtitle: { text: '', color: '#94A3B8', size: 10, font: '' },
+};
+// Merge stored (possibly null-holed) branding into a fully-populated editable shape.
+const hydrateBrandText = (bt) => {
+  const merge = (def, l) => ({
+    text:  (l?.text  ?? def.text),
+    color: (l?.color ?? def.color),
+    size:  (l?.size  ?? def.size),
+    font:  (l?.font  ?? def.font),
+  });
+  return {
+    title:    merge(DEFAULT_BRAND_TEXT.title,    bt?.title),
+    subtitle: merge(DEFAULT_BRAND_TEXT.subtitle, bt?.subtitle),
+  };
+};
 const labelStyle = { display: 'block', fontSize: '12px', fontWeight: 600, color: '#64748b', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' };
 const fieldStyle = { marginBottom: '18px' };
 
@@ -51,6 +87,8 @@ const Profile = () => {
   const [logoUrl, setLogoUrl] = useState('');
   const [logoStatus, setLogoStatus] = useState('idle');
   const [logoBgColor, setLogoBgColor] = useState(''); // '' = transparent
+  const [brandText, setBrandText] = useState(hydrateBrandText(null)); // title/subtitle lines + styling
+  const setLine = (line, prop, val) => setBrandText((bt) => ({ ...bt, [line]: { ...bt[line], [prop]: val } }));
   const [savingLogo, setSavingLogo] = useState(false);
   const [pwForm, setPwForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [notifs, setNotifs] = useState({ emailNotifications: true, smsNotifications: false, marketingNotifications: false });
@@ -73,6 +111,7 @@ const Profile = () => {
         setLogoUrl(u.logoUrl || '');
         setLogoStatus(u.logoUrl ? 'ok' : 'idle');
         setLogoBgColor(u.logoBgColor || '');
+        setBrandText(hydrateBrandText(u.brandText));
         setNotifs({
           emailNotifications: u.emailNotifications ?? true,
           smsNotifications: u.smsNotifications ?? false,
@@ -132,17 +171,18 @@ const Profile = () => {
     if (clean && logoStatus !== 'ok') return toast.error('Enter a URL that loads a valid image first');
     setSavingLogo(true);
     try {
-      const res = await updateProfile({ logoUrl: clean, logoBgColor: bgClean });
+      const res = await updateProfile({ logoUrl: clean, logoBgColor: bgClean, brandText });
       // Preserve the derived hierarchy fields (role/clientIds/permissions) that
       // the update response does not carry — only swap in the new branding.
       updateUser({
         ...user,
         logoUrl: res.data?.logoUrl ?? (clean || null),
         logoBgColor: res.data?.logoBgColor ?? (bgClean || null),
+        brandText: res.data?.brandText ?? null,
       });
-      toast.success(clean ? 'Logo saved' : 'Logo removed');
+      toast.success('Branding saved');
     } catch (err) {
-      toast.error(err.message || 'Failed to save logo');
+      toast.error(err.message || 'Failed to save branding');
     } finally {
       setSavingLogo(false);
     }
@@ -380,6 +420,47 @@ const Profile = () => {
               </span>
             </div>
 
+            {/* Sidebar text lines — each shown only when its text is filled */}
+            <div style={{ ...fieldStyle }}>
+              <label style={labelStyle}>Sidebar Text Lines</label>
+              <span style={{ fontSize: '11px', color: '#94a3b8', margin: '0 0 10px', display: 'block' }}>
+                Optional. Leave a line blank to hide it — there is no default text.
+              </span>
+              {[
+                { key: 'title',    label: 'Title Line',    ph: 'e.g. DriveInnovate' },
+                { key: 'subtitle', label: 'Subtitle Line', ph: 'e.g. Fleet Management' },
+              ].map(({ key, label, ph }) => {
+                const l = brandText[key];
+                return (
+                  <div key={key} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '14px 16px', marginBottom: '10px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>{label}</div>
+                    <input style={inputStyle} type="text" placeholder={ph} value={l.text} onChange={(e) => setLine(key, 'text', e.target.value)} />
+                    <div style={{ display: 'flex', gap: '10px', marginTop: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+                      {/* Font color */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} title="Font color">
+                        <input
+                          type="color"
+                          value={/^#[0-9a-fA-F]{6}$/.test((l.color || '').trim()) ? l.color.trim() : '#ffffff'}
+                          onChange={(e) => setLine(key, 'color', e.target.value)}
+                          style={{ width: '40px', height: '34px', padding: 0, border: '1px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer', flexShrink: 0 }}
+                        />
+                        <input style={{ ...inputStyle, width: '94px', padding: '8px 10px' }} type="text" value={l.color} placeholder="#FFFFFF" onChange={(e) => setLine(key, 'color', e.target.value)} />
+                      </div>
+                      {/* Font size */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} title="Font size (px)">
+                        <input style={{ ...inputStyle, width: '64px', padding: '8px 10px' }} type="number" min={8} max={48} value={l.size} onChange={(e) => setLine(key, 'size', e.target.value === '' ? '' : Number(e.target.value))} />
+                        <span style={{ fontSize: '12px', color: '#94a3b8' }}>px</span>
+                      </div>
+                      {/* Font family */}
+                      <select value={l.font} onChange={(e) => setLine(key, 'font', e.target.value)} title="Font family" style={{ ...inputStyle, flex: 1, minWidth: '150px', cursor: 'pointer' }}>
+                        {FONT_OPTIONS.map((f) => <option key={f.label} value={f.value}>{f.label}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
             <div style={{ display: 'flex', gap: '10px' }}>
               <button
                 onClick={handleLogoSave}
@@ -390,7 +471,7 @@ const Profile = () => {
                   opacity: (savingLogo || (!!logoUrl.trim() && logoStatus !== 'ok')) ? 0.6 : 1,
                 }}
               >
-                {savingLogo ? 'Saving…' : '💾 Save Logo'}
+                {savingLogo ? 'Saving…' : '💾 Save Branding'}
               </button>
               {logoUrl.trim() && (
                 <button
@@ -412,35 +493,48 @@ const Profile = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div style={{ background: '#fff', borderRadius: '14px', border: '1px solid #e2e8f0', padding: '24px' }}>
               <div style={{ fontSize: '13px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '16px' }}>Preview</div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '120px', background: logoBgColor.trim() || '#0f172a', borderRadius: '12px', padding: '20px' }}>
-                {logoUrl.trim() ? (
-                  logoStatus === 'error' ? (
-                    <span style={{ color: '#f87171', fontSize: '13px' }}>⚠️ Image failed to load</span>
-                  ) : (
-                    <img
-                      key={logoUrl.trim()}
-                      src={logoUrl.trim()}
-                      alt="Logo preview"
-                      onLoad={() => setLogoStatus('ok')}
-                      onError={() => setLogoStatus('error')}
-                      style={{ maxHeight: '80px', maxWidth: '100%', objectFit: 'contain', display: 'block' }}
-                    />
-                  )
+              {/* Mirrors the sidebar brand row: mark/logo on the left, text lines on the right */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minHeight: '120px', background: logoBgColor.trim() || '#0f172a', borderRadius: '12px', padding: '18px 20px' }}>
+                {logoUrl.trim() && logoStatus === 'error' ? (
+                  <span style={{ color: '#f87171', fontSize: '13px' }}>⚠️ Image failed to load</span>
+                ) : logoUrl.trim() ? (
+                  <img
+                    key={logoUrl.trim()}
+                    src={logoUrl.trim()}
+                    alt="Logo preview"
+                    onLoad={() => setLogoStatus('ok')}
+                    onError={() => setLogoStatus('error')}
+                    style={{ maxHeight: '56px', maxWidth: '160px', objectFit: 'contain', display: 'block', flexShrink: 0 }}
+                  />
                 ) : (
-                  <span style={{ color: '#64748b', fontSize: '13px' }}>No logo set — default DriveInnovate branding is shown</span>
+                  <div style={{ width: '40px', height: '40px', background: 'linear-gradient(135deg, #3B82F6 0%, #60A5FA 100%)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <span style={{ color: '#fff', fontWeight: 900, fontSize: '20px' }}>D</span>
+                  </div>
+                )}
+                {(brandText.title.text.trim() || brandText.subtitle.text.trim()) && (
+                  <div style={{ minWidth: 0 }}>
+                    {brandText.title.text.trim() && (
+                      <div style={{ color: brandText.title.color || '#fff', fontSize: `${brandText.title.size || 16}px`, fontFamily: brandText.title.font || 'inherit', fontWeight: 800, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {brandText.title.text}
+                      </div>
+                    )}
+                    {brandText.subtitle.text.trim() && (
+                      <div style={{ color: brandText.subtitle.color || '#94A3B8', fontSize: `${brandText.subtitle.size || 10}px`, fontFamily: brandText.subtitle.font || 'inherit', fontWeight: 600, marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {brandText.subtitle.text}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
               <div style={{ fontSize: '11.5px', color: '#94a3b8', marginTop: '12px', textAlign: 'center' }}>
-                {logoBgColor.trim()
-                  ? `Shown on your chosen background (${logoBgColor.trim()}), just like your sidebar.`
-                  : 'Shown on the default dark sidebar background.'}
+                Live preview of your sidebar brand row{logoBgColor.trim() ? ` on ${logoBgColor.trim()}` : ''}.
               </div>
             </div>
 
             <div style={{ background: 'linear-gradient(135deg, #f5f3ff, #ede9fe)', borderRadius: '14px', border: '1px solid #ddd6fe', padding: '20px' }}>
               <div style={{ fontSize: '13px', fontWeight: 700, color: '#6d28d9', marginBottom: '6px' }}>ℹ️ About branding</div>
               <div style={{ fontSize: '13px', color: '#5b21b6', lineHeight: 1.6 }}>
-                The logo is applied to your account only and shows the moment you log in. Clear the URL and save to return to the default DriveInnovate logo.
+                Branding applies to your account only and shows the moment you log in. The title and subtitle lines appear only when you fill them in — leave them blank to show no text.
               </div>
             </div>
           </div>
