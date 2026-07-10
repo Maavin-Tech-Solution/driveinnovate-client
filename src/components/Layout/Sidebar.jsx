@@ -163,10 +163,10 @@ const Sidebar = ({ collapsed }) => {
   const [logoBroken, setLogoBroken] = useState(false);
   useEffect(() => { setLogoBroken(false); }, [user?.logoUrl]);
   const brandLogo = user?.logoUrl && !logoBroken ? user.logoUrl : null;
-  // Optional per-line brand text (title/subtitle). Each line shows ONLY when its
-  // text is set — there is no default "DriveInnovate" / "Fleet Management".
-  const brandTitle    = user?.brandText?.title?.text    ? user.brandText.title    : null;
-  const brandSubtitle = user?.brandText?.subtitle?.text ? user.brandText.subtitle : null;
+  // Optional per-line brand text (title/subtitle), each a raw HTML snippet.
+  // Rendered ONLY when set — there is no default "DriveInnovate"/"Fleet Management".
+  const brandTitle    = (user?.brandText?.title    || '').trim() || null;
+  const brandSubtitle = (user?.brandText?.subtitle || '').trim() || null;
   const hasBranding = !!(brandLogo || brandTitle || brandSubtitle);
   // Optional backdrop behind the branding; null = keep the transparent sidebar.
   const brandBg = hasBranding && user?.logoBgColor ? user.logoBgColor : null;
@@ -299,26 +299,14 @@ const Sidebar = ({ collapsed }) => {
             <span style={{ color: '#fff', fontWeight: 900, fontSize: '18px', lineHeight: 1, letterSpacing: '-1px' }}>D</span>
           </div>
         )}
-        {/* Text lines come from Branding only — blank when unset. */}
+        {/* Text lines come from Branding only (raw HTML) — blank when unset. */}
         {!collapsed && (brandTitle || brandSubtitle) && (
-          <div style={{ minWidth: 0 }}>
+          <div style={{ minWidth: 0, overflow: 'hidden', color: '#FFFFFF' }}>
             {brandTitle && (
-              <div style={{
-                color: brandTitle.color || '#FFFFFF',
-                fontSize: `${brandTitle.size || 16}px`,
-                fontFamily: brandTitle.font || 'inherit',
-                fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1.2,
-                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-              }}>{brandTitle.text}</div>
+              <div style={{ lineHeight: 1.2 }} dangerouslySetInnerHTML={{ __html: brandTitle }} />
             )}
             {brandSubtitle && (
-              <div style={{
-                color: brandSubtitle.color || 'rgba(255,255,255,0.45)',
-                fontSize: `${brandSubtitle.size || 10}px`,
-                fontFamily: brandSubtitle.font || 'inherit',
-                fontWeight: 600, marginTop: '2px',
-                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-              }}>{brandSubtitle.text}</div>
+              <div style={{ lineHeight: 1.2, marginTop: '2px' }} dangerouslySetInnerHTML={{ __html: brandSubtitle }} />
             )}
           </div>
         )}

@@ -41,41 +41,14 @@ const inputStyle = {
   background: '#fff', outline: 'none', boxSizing: 'border-box',
 };
 
-// Web-safe / commonly-available font stacks for the sidebar brand text lines.
-// The first is the app's own font; the rest degrade gracefully if absent.
-const FONT_OPTIONS = [
-  { label: 'Default (Plus Jakarta Sans)', value: '' },
-  { label: 'Inter',            value: 'Inter, sans-serif' },
-  { label: 'Roboto',           value: 'Roboto, sans-serif' },
-  { label: 'Poppins',          value: 'Poppins, sans-serif' },
-  { label: 'Montserrat',       value: 'Montserrat, sans-serif' },
-  { label: 'Arial',            value: 'Arial, sans-serif' },
-  { label: 'Helvetica',        value: 'Helvetica, Arial, sans-serif' },
-  { label: 'Verdana',          value: 'Verdana, sans-serif' },
-  { label: 'Trebuchet MS',     value: '"Trebuchet MS", sans-serif' },
-  { label: 'Georgia',          value: 'Georgia, serif' },
-  { label: 'Times New Roman',  value: '"Times New Roman", serif' },
-  { label: 'Courier New',      value: '"Courier New", monospace' },
-];
-
-// Editing defaults for the two brand-text lines (colors read well on the dark sidebar).
-const DEFAULT_BRAND_TEXT = {
-  title:    { text: '', color: '#FFFFFF', size: 16, font: '' },
-  subtitle: { text: '', color: '#94A3B8', size: 10, font: '' },
-};
-// Merge stored (possibly null-holed) branding into a fully-populated editable shape.
-const hydrateBrandText = (bt) => {
-  const merge = (def, l) => ({
-    text:  (l?.text  ?? def.text),
-    color: (l?.color ?? def.color),
-    size:  (l?.size  ?? def.size),
-    font:  (l?.font  ?? def.font),
-  });
-  return {
-    title:    merge(DEFAULT_BRAND_TEXT.title,    bt?.title),
-    subtitle: merge(DEFAULT_BRAND_TEXT.subtitle, bt?.subtitle),
-  };
-};
+// Each sidebar brand-text line is a raw HTML snippet the user pastes; it is
+// rendered as-is in the preview and the sidebar. Normalise stored values (plain
+// strings, or the legacy { text/html } object shape) into editable strings.
+const lineToHtml = (l) => (typeof l === 'string' ? l : (l && (l.html || l.text)) || '');
+const hydrateBrandText = (bt) => ({
+  title:    lineToHtml(bt?.title),
+  subtitle: lineToHtml(bt?.subtitle),
+});
 const labelStyle = { display: 'block', fontSize: '12px', fontWeight: 600, color: '#64748b', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' };
 const fieldStyle = { marginBottom: '18px' };
 
@@ -87,8 +60,8 @@ const Profile = () => {
   const [logoUrl, setLogoUrl] = useState('');
   const [logoStatus, setLogoStatus] = useState('idle');
   const [logoBgColor, setLogoBgColor] = useState(''); // '' = transparent
-  const [brandText, setBrandText] = useState(hydrateBrandText(null)); // title/subtitle lines + styling
-  const setLine = (line, prop, val) => setBrandText((bt) => ({ ...bt, [line]: { ...bt[line], [prop]: val } }));
+  const [brandText, setBrandText] = useState(hydrateBrandText(null)); // { title, subtitle } raw HTML
+  const setLine = (line, html) => setBrandText((bt) => ({ ...bt, [line]: html }));
   const [savingLogo, setSavingLogo] = useState(false);
   const [pwForm, setPwForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [notifs, setNotifs] = useState({ emailNotifications: true, smsNotifications: false, marketingNotifications: false });
@@ -420,42 +393,35 @@ const Profile = () => {
               </span>
             </div>
 
-            {/* Sidebar text lines — each shown only when its text is filled */}
+            {/* Sidebar text lines — paste raw HTML; each shows only when filled */}
             <div style={{ ...fieldStyle }}>
-              <label style={labelStyle}>Sidebar Text Lines</label>
+              <label style={labelStyle}>Sidebar Text Lines (HTML)</label>
               <span style={{ fontSize: '11px', color: '#94a3b8', margin: '0 0 10px', display: 'block' }}>
-                Optional. Leave a line blank to hide it — there is no default text.
+                Paste styled HTML for each line — it is rendered as-is. Leave a line blank to hide it (no default text).
+                Scripts and event handlers are stripped for safety.
               </span>
               {[
-                { key: 'title',    label: 'Title Line',    ph: 'e.g. DriveInnovate' },
-                { key: 'subtitle', label: 'Subtitle Line', ph: 'e.g. Fleet Management' },
-              ].map(({ key, label, ph }) => {
-                const l = brandText[key];
+                { key: 'title',    label: 'Title Line (HTML)' },
+                { key: 'subtitle', label: 'Subtitle Line (HTML)' },
+              ].map(({ key, label }) => {
+                const html = brandText[key];
                 return (
                   <div key={key} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '14px 16px', marginBottom: '10px' }}>
                     <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>{label}</div>
-                    <input style={inputStyle} type="text" placeholder={ph} value={l.text} onChange={(e) => setLine(key, 'text', e.target.value)} />
-                    <div style={{ display: 'flex', gap: '10px', marginTop: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
-                      {/* Font color */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} title="Font color">
-                        <input
-                          type="color"
-                          value={/^#[0-9a-fA-F]{6}$/.test((l.color || '').trim()) ? l.color.trim() : '#ffffff'}
-                          onChange={(e) => setLine(key, 'color', e.target.value)}
-                          style={{ width: '40px', height: '34px', padding: 0, border: '1px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer', flexShrink: 0 }}
-                        />
-                        <input style={{ ...inputStyle, width: '94px', padding: '8px 10px' }} type="text" value={l.color} placeholder="#FFFFFF" onChange={(e) => setLine(key, 'color', e.target.value)} />
+                    <textarea
+                      style={{ ...inputStyle, minHeight: '76px', fontFamily: 'ui-monospace, Menlo, Consolas, monospace', fontSize: '12.5px', lineHeight: 1.5, resize: 'vertical' }}
+                      placeholder={'<span style="font-family: Montserrat, sans-serif; font-weight:700; font-size:1.35rem;"><span style="color:rgb(0,46,110)">Connect</span><span style="color:rgb(7,169,148)">M</span></span>'}
+                      value={html}
+                      onChange={(e) => setLine(key, e.target.value)}
+                    />
+                    {html.trim() && (
+                      <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '11px', color: '#94a3b8', flexShrink: 0 }}>Renders:</span>
+                        <div style={{ background: logoBgColor.trim() || '#0f172a', borderRadius: '8px', padding: '8px 12px', overflow: 'hidden' }}>
+                          <div dangerouslySetInnerHTML={{ __html: html }} />
+                        </div>
                       </div>
-                      {/* Font size */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} title="Font size (px)">
-                        <input style={{ ...inputStyle, width: '64px', padding: '8px 10px' }} type="number" min={8} max={48} value={l.size} onChange={(e) => setLine(key, 'size', e.target.value === '' ? '' : Number(e.target.value))} />
-                        <span style={{ fontSize: '12px', color: '#94a3b8' }}>px</span>
-                      </div>
-                      {/* Font family */}
-                      <select value={l.font} onChange={(e) => setLine(key, 'font', e.target.value)} title="Font family" style={{ ...inputStyle, flex: 1, minWidth: '150px', cursor: 'pointer' }}>
-                        {FONT_OPTIONS.map((f) => <option key={f.label} value={f.value}>{f.label}</option>)}
-                      </select>
-                    </div>
+                    )}
                   </div>
                 );
               })}
@@ -511,17 +477,13 @@ const Profile = () => {
                     <span style={{ color: '#fff', fontWeight: 900, fontSize: '20px' }}>D</span>
                   </div>
                 )}
-                {(brandText.title.text.trim() || brandText.subtitle.text.trim()) && (
-                  <div style={{ minWidth: 0 }}>
-                    {brandText.title.text.trim() && (
-                      <div style={{ color: brandText.title.color || '#fff', fontSize: `${brandText.title.size || 16}px`, fontFamily: brandText.title.font || 'inherit', fontWeight: 800, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {brandText.title.text}
-                      </div>
+                {(brandText.title.trim() || brandText.subtitle.trim()) && (
+                  <div style={{ minWidth: 0, color: '#FFFFFF' }}>
+                    {brandText.title.trim() && (
+                      <div style={{ lineHeight: 1.2 }} dangerouslySetInnerHTML={{ __html: brandText.title }} />
                     )}
-                    {brandText.subtitle.text.trim() && (
-                      <div style={{ color: brandText.subtitle.color || '#94A3B8', fontSize: `${brandText.subtitle.size || 10}px`, fontFamily: brandText.subtitle.font || 'inherit', fontWeight: 600, marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {brandText.subtitle.text}
-                      </div>
+                    {brandText.subtitle.trim() && (
+                      <div style={{ marginTop: '2px', lineHeight: 1.2 }} dangerouslySetInnerHTML={{ __html: brandText.subtitle }} />
                     )}
                   </div>
                 )}
