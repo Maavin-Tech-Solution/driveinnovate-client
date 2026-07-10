@@ -50,6 +50,7 @@ const Profile = () => {
   // Branding: per-account logo URL + live-preview load status ('idle'|'ok'|'error').
   const [logoUrl, setLogoUrl] = useState('');
   const [logoStatus, setLogoStatus] = useState('idle');
+  const [logoBgColor, setLogoBgColor] = useState(''); // '' = transparent
   const [savingLogo, setSavingLogo] = useState(false);
   const [pwForm, setPwForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [notifs, setNotifs] = useState({ emailNotifications: true, smsNotifications: false, marketingNotifications: false });
@@ -71,6 +72,7 @@ const Profile = () => {
         setProfile({ name: u.name || '', phone: u.phone || '', autoRenew: !!u.autoRenew });
         setLogoUrl(u.logoUrl || '');
         setLogoStatus(u.logoUrl ? 'ok' : 'idle');
+        setLogoBgColor(u.logoBgColor || '');
         setNotifs({
           emailNotifications: u.emailNotifications ?? true,
           smsNotifications: u.smsNotifications ?? false,
@@ -126,13 +128,18 @@ const Profile = () => {
 
   const handleLogoSave = async () => {
     const clean = logoUrl.trim();
+    const bgClean = logoBgColor.trim();
     if (clean && logoStatus !== 'ok') return toast.error('Enter a URL that loads a valid image first');
     setSavingLogo(true);
     try {
-      const res = await updateProfile({ logoUrl: clean });
+      const res = await updateProfile({ logoUrl: clean, logoBgColor: bgClean });
       // Preserve the derived hierarchy fields (role/clientIds/permissions) that
-      // the update response does not carry — only swap in the new logo.
-      updateUser({ ...user, logoUrl: res.data?.logoUrl ?? (clean || null) });
+      // the update response does not carry — only swap in the new branding.
+      updateUser({
+        ...user,
+        logoUrl: res.data?.logoUrl ?? (clean || null),
+        logoBgColor: res.data?.logoBgColor ?? (bgClean || null),
+      });
       toast.success(clean ? 'Logo saved' : 'Logo removed');
     } catch (err) {
       toast.error(err.message || 'Failed to save logo');
@@ -341,6 +348,38 @@ const Profile = () => {
               </div>
             )}
 
+            {/* Logo background color */}
+            <div style={fieldStyle}>
+              <label style={labelStyle}>Logo Background Color</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <input
+                  type="color"
+                  value={/^#[0-9a-fA-F]{6}$/.test(logoBgColor.trim()) ? logoBgColor.trim() : '#0f172a'}
+                  onChange={(e) => setLogoBgColor(e.target.value)}
+                  style={{ width: '46px', height: '38px', padding: 0, border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff', cursor: 'pointer', flexShrink: 0 }}
+                />
+                <input
+                  style={{ ...inputStyle, flex: 1 }}
+                  type="text"
+                  placeholder="transparent (blends with sidebar)"
+                  value={logoBgColor}
+                  onChange={(e) => setLogoBgColor(e.target.value)}
+                />
+                {logoBgColor.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => setLogoBgColor('')}
+                    style={{ padding: '9px 14px', background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: '8px', fontWeight: 600, fontSize: '13px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <span style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px', display: 'block' }}>
+                Sits behind your logo in the sidebar. Leave blank to keep it transparent (blends with the dark sidebar).
+              </span>
+            </div>
+
             <div style={{ display: 'flex', gap: '10px' }}>
               <button
                 onClick={handleLogoSave}
@@ -373,7 +412,7 @@ const Profile = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div style={{ background: '#fff', borderRadius: '14px', border: '1px solid #e2e8f0', padding: '24px' }}>
               <div style={{ fontSize: '13px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '16px' }}>Preview</div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '120px', background: '#0f172a', borderRadius: '12px', padding: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '120px', background: logoBgColor.trim() || '#0f172a', borderRadius: '12px', padding: '20px' }}>
                 {logoUrl.trim() ? (
                   logoStatus === 'error' ? (
                     <span style={{ color: '#f87171', fontSize: '13px' }}>⚠️ Image failed to load</span>
@@ -392,7 +431,9 @@ const Profile = () => {
                 )}
               </div>
               <div style={{ fontSize: '11.5px', color: '#94a3b8', marginTop: '12px', textAlign: 'center' }}>
-                Displayed on a dark background, just like your sidebar.
+                {logoBgColor.trim()
+                  ? `Shown on your chosen background (${logoBgColor.trim()}), just like your sidebar.`
+                  : 'Shown on the default dark sidebar background.'}
               </div>
             </div>
 

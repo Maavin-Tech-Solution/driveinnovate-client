@@ -163,6 +163,8 @@ const Sidebar = ({ collapsed }) => {
   const [logoBroken, setLogoBroken] = useState(false);
   useEffect(() => { setLogoBroken(false); }, [user?.logoUrl]);
   const brandLogo = user?.logoUrl && !logoBroken ? user.logoUrl : null;
+  // Optional backdrop behind the custom logo; null = keep the transparent sidebar.
+  const brandBg = brandLogo && user?.logoBgColor ? user.logoBgColor : null;
 
   const role = user?.role;          // 'papa' | 'dealer' | 'client'
   const perms = user?.permissions || {};
@@ -268,6 +270,7 @@ const Sidebar = ({ collapsed }) => {
         display: 'flex', alignItems: 'center', gap: '12px',
         justifyContent: collapsed ? 'center' : 'flex-start',
         flexShrink: 0, position: 'relative', zIndex: 1,
+        ...(brandBg ? { background: brandBg } : {}),
       }}>
         {brandLogo ? (
           /* Client-supplied logo replaces the default mark + wordmark entirely. */
