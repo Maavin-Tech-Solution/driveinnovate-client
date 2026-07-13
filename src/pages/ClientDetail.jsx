@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
 import { toast } from 'react-toastify';
 import { useAuth } from '../context/AuthContext';
-import { upgradeClient, extendClientTrial, setClientBillingType, setClientBilling } from '../services/user.service';
+import { upgradeClient, extendClientTrial, setClientBillingType, setClientBilling, resetClientPassword } from '../services/user.service';
 import { VehicleIcon } from '../utils/vehicleIcons';
 import {
   ArrowLeftIcon,
@@ -15,6 +15,7 @@ import {
   UsersIcon,
   PencilSquareIcon,
   CheckIcon,
+  KeyIcon,
 } from '@heroicons/react/24/outline';
 
 /* ─── Permission modal (reused logic) ─────────────────────────────────── */
@@ -227,6 +228,95 @@ const UpgradeModal = ({ client, onClose, onDone }) => {
   );
 };
 
+/* ─── Reset-password modal ─────────────────────────────────────────────── */
+const ResetPasswordModal = ({ client, onClose, onDone }) => {
+  const [pw, setPw] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [show, setShow] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const tooShort = pw.length > 0 && pw.length < 6;
+  const mismatch = confirm.length > 0 && pw !== confirm;
+  const canSubmit = pw.length >= 6 && pw === confirm && !saving;
+
+  const handleSave = async () => {
+    if (!canSubmit) return;
+    setSaving(true);
+    try {
+      await resetClientPassword(client.id, pw);
+      toast.success(`Password reset for ${client.name}`);
+      onDone?.();
+      onClose();
+    } catch (err) {
+      toast.error(err?.message || 'Failed to reset password');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const inputStyle = {
+    width: '100%', padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 8,
+    fontSize: 14, color: '#111827', boxSizing: 'border-box',
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
+      <div style={{ background: '#fff', borderRadius: 14, padding: '28px 32px', width: 460, maxWidth: '95vw', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18 }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 17, color: '#111827' }}>Reset Password</div>
+            <div style={{ fontSize: 13, color: '#6b7280', marginTop: 2 }}>{client.name} · {client.email}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 22, color: '#9ca3af', lineHeight: 1 }}>×</button>
+        </div>
+
+        <div style={{ fontSize: 12.5, color: '#6b7280', marginBottom: 18, lineHeight: 1.6 }}>
+          Set a new login password for this client. Share it with them securely — they can change it later from their own profile.
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>New Password *</label>
+          <input
+            type={show ? 'text' : 'password'}
+            value={pw}
+            autoComplete="new-password"
+            placeholder="At least 6 characters"
+            onChange={e => setPw(e.target.value)}
+            style={{ ...inputStyle, borderColor: tooShort ? '#fca5a5' : '#e5e7eb' }}
+          />
+          {tooShort && <div style={{ fontSize: 11.5, color: '#dc2626', marginTop: 4 }}>Must be at least 6 characters</div>}
+        </div>
+
+        <div style={{ marginBottom: 8 }}>
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Confirm Password *</label>
+          <input
+            type={show ? 'text' : 'password'}
+            value={confirm}
+            autoComplete="new-password"
+            placeholder="Re-enter the new password"
+            onChange={e => setConfirm(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && canSubmit) handleSave(); }}
+            style={{ ...inputStyle, borderColor: mismatch ? '#fca5a5' : '#e5e7eb' }}
+          />
+          {mismatch && <div style={{ fontSize: 11.5, color: '#dc2626', marginTop: 4 }}>Passwords do not match</div>}
+        </div>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: '#6b7280', margin: '10px 0 20px', cursor: 'pointer' }}>
+          <input type="checkbox" checked={show} onChange={e => setShow(e.target.checked)} />
+          Show password
+        </label>
+
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '9px 20px', borderRadius: 8, border: '1px solid #e5e7eb', background: '#f9fafb', color: '#374151', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Cancel</button>
+          <button onClick={handleSave} disabled={!canSubmit} style={{ padding: '9px 20px', borderRadius: 8, border: 'none', background: '#dc2626', color: '#fff', cursor: canSubmit ? 'pointer' : 'not-allowed', fontSize: 13, fontWeight: 700, opacity: canSubmit ? 1 : 0.6 }}>
+            {saving ? 'Resetting…' : 'Reset Password'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 /* ─── Main component ───────────────────────────────────────────────────── */
 const ClientDetail = () => {
   const { id: clientId } = useParams();
@@ -237,6 +327,7 @@ const ClientDetail = () => {
   const [loading, setLoading] = useState(true);
   const [editingPerms, setEditingPerms] = useState(null);
   const [showUpgrade, setShowUpgrade] = useState(false);
+  const [showResetPw, setShowResetPw] = useState(false);
   const [savingBilling, setSavingBilling] = useState(false);
 
   const [graceInput, setGraceInput] = useState('0');
@@ -348,6 +439,11 @@ const ClientDetail = () => {
           {canManage && (client.accountType === 'trial' || client.accountType === 'demo' || !client.accountType) && (
             <button onClick={() => setShowUpgrade(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', border: '1px solid #bfdbfe', background: '#eff6ff', color: '#2563eb', cursor: 'pointer', fontSize: '13px', fontWeight: 700, whiteSpace: 'nowrap' }}>
               Manage Account
+            </button>
+          )}
+          {canManage && (
+            <button onClick={() => setShowResetPw(true)} title="Reset this client's login password" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', cursor: 'pointer', fontSize: '13px', fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 }}>
+              <KeyIcon style={{ width: '15px', height: '15px' }} />Reset Password
             </button>
           )}
           <button onClick={() => setEditingPerms(client)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', border: '1px solid #e5e7eb', background: '#f9fafb', color: '#374151', cursor: 'pointer', fontSize: '13px', fontWeight: 600, flexShrink: 0 }}>
@@ -491,6 +587,10 @@ const ClientDetail = () => {
 
       {showUpgrade && (
         <UpgradeModal client={client} onClose={() => setShowUpgrade(false)} onDone={load} />
+      )}
+
+      {showResetPw && (
+        <ResetPasswordModal client={client} onClose={() => setShowResetPw(false)} onDone={load} />
       )}
     </div>
   );

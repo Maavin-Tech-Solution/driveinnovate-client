@@ -57,3 +57,11 @@ export const upgradeClient = (clientId, plan) =>
  */
 export const extendClientTrial = (clientId, newExpiresAt) =>
   api.post(`/users/clients/${clientId}/extend-trial`, { newExpiresAt });
+
+/**
+ * PUT /api/users/clients/:clientId/password
+ * Dealer/papa resets a network client's login password.
+ * Body: { newPassword }
+ */
+export const resetClientPassword = (clientId, newPassword) =>
+  api.put(`/users/clients/${clientId}/password`, { newPassword });
