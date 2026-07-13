@@ -340,9 +340,13 @@ const Reports = () => {
     }
   };
 
-  const handleExport = () => {
-    exportSpeedViolations(filters);
-    toast.success('Exporting report...');
+  const handleExport = async () => {
+    try {
+      await exportSpeedViolations(filters);
+      toast.success('Report exported');
+    } catch {
+      toast.error('Export failed');
+    }
   };
 
   // Trip Report Functions
@@ -391,9 +395,13 @@ const Reports = () => {
     }
   };
 
-  const handleExportTrips = () => {
-    exportTrips(filters);
-    toast.success('Exporting trip report...');
+  const handleExportTrips = async () => {
+    try {
+      await exportTrips(filters);
+      toast.success('Trip report exported');
+    } catch {
+      toast.error('Export failed');
+    }
   };
 
   // Stop Report Functions
@@ -441,9 +449,13 @@ const Reports = () => {
     }
   };
 
-  const handleExportStops = () => {
-    exportStops(filters);
-    toast.success('Exporting stop report...');
+  const handleExportStops = async () => {
+    try {
+      await exportStops(filters);
+      toast.success('Stop report exported');
+    } catch {
+      toast.error('Export failed');
+    }
   };
 
   // Engine Hours Report Functions
