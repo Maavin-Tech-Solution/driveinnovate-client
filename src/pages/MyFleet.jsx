@@ -1769,8 +1769,10 @@ const MyFleet = () => {
     if (!selectedVehicle) return;
     setPacketsDownloading(true);
     try {
-      const resp = await downloadRawPacketsExcel(selectedVehicle.id, reportFrom, reportTo);
-      const url = window.URL.createObjectURL(new Blob([resp.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      // api's response interceptor unwraps to response.data, so this IS the Blob;
+      // reading `.data` on it gave undefined → a 9-byte "undefined" file. Use it directly.
+      const blob = await downloadRawPacketsExcel(selectedVehicle.id, reportFrom, reportTo);
+      const url = window.URL.createObjectURL(new Blob([blob], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
       const a = document.createElement('a');
       a.href = url;
       a.download = `packets_${selectedVehicle.vehicleNumber || selectedVehicle.id}_${reportFrom.slice(0, 10)}.xlsx`;
