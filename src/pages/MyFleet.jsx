@@ -1303,6 +1303,16 @@ const MyFleet = () => {
         setFirstPollDone(true); // states are now determinable from live data
         if (!positions.length) return;
 
+        // Geofence-as-address: when the account setting is on, the server tags
+        // each position inside a geofence with its name. Seed the shared
+        // address map so every view (card, table, popup, drawer) shows the
+        // geofence name as the primary location and skips reverse-geocoding.
+        for (const p of positions) {
+          if (p.geofenceName && p.lat != null && p.lng != null) {
+            setGeoAddr.current(`${p.lat.toFixed(4)},${p.lng.toFixed(4)}`, p.geofenceName);
+          }
+        }
+
         // Advance the watermark to the newest lastSeenAt actually observed.
         for (const p of positions) {
           if (p.lastSeenAt && (watermark === null || new Date(p.lastSeenAt) > new Date(watermark))) {

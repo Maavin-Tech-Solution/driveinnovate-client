@@ -64,7 +64,14 @@ const SpeedChart = ({ locations, currentIndex, onHover, onLeave, dark = false })
   const tipX = tipIdx !== null ? xOf(tipIdx) : null;
   const tipY = tipIdx !== null ? yOf(locations[tipIdx]?.speed || 0) : null;
   const tipSpd = tipIdx !== null ? (locations[tipIdx]?.speed || 0) : null;
-  const TIP_W = 62;
+  const tipWhen = tipIdx !== null && locations[tipIdx]?.timestamp
+    ? new Date(locations[tipIdx].timestamp).toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        day: '2-digit', month: 'short',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true,
+      })
+    : null;
+  const TIP_W = tipWhen ? 128 : 62;
   const tipLabelX = tipX !== null
     ? Math.min(tipX + 8, PAD_LEFT + chartW - TIP_W - 2)
     : 0;
@@ -132,11 +139,25 @@ const SpeedChart = ({ locations, currentIndex, onHover, onLeave, dark = false })
               stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="3 2"
             />
             <circle cx={tipX} cy={tipY} r={4} fill="#f59e0b" stroke={dark ? '#0f172a' : '#fff'} strokeWidth={1.5} />
-            {/* Tooltip bubble */}
-            <rect x={tipLabelX} y={tipY - 20} width={TIP_W} height={16} rx={3} fill="#0f172a" opacity={0.9} />
-            <text x={tipLabelX + TIP_W / 2} y={tipY - 8} fontSize={10} fill="#fff" textAnchor="middle">
-              {tipSpd} km/h
-            </text>
+            {/* Tooltip bubble: speed + date/time, pinned inside the chart */}
+            {tipWhen ? (
+              <>
+                <rect x={tipLabelX} y={2} width={TIP_W} height={30} rx={3} fill="#0f172a" opacity={0.92} />
+                <text x={tipLabelX + TIP_W / 2} y={14} fontSize={10} fontWeight="600" fill="#fff" textAnchor="middle">
+                  {tipSpd} km/h
+                </text>
+                <text x={tipLabelX + TIP_W / 2} y={27} fontSize={9} fill="#cbd5e1" textAnchor="middle">
+                  {tipWhen}
+                </text>
+              </>
+            ) : (
+              <>
+                <rect x={tipLabelX} y={tipY - 20} width={TIP_W} height={16} rx={3} fill="#0f172a" opacity={0.9} />
+                <text x={tipLabelX + TIP_W / 2} y={tipY - 8} fontSize={10} fill="#fff" textAnchor="middle">
+                  {tipSpd} km/h
+                </text>
+              </>
+            )}
           </>
         )}
       </svg>

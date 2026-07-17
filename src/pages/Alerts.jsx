@@ -10,6 +10,8 @@ const ALERT_TYPES = [
   { value: 'NOT_MOVING',     label: 'Vehicle Not Moving',  icon: '🅿️', color: '#d97706', desc: 'Triggers when vehicle speed stays at 0 for longer than the threshold (minutes)' },
   { value: 'IDLE_ENGINE',    label: 'Engine Idle',         icon: '⏸️', color: '#7c3aed', desc: 'Triggers when engine is ON but vehicle speed is 0 for longer than threshold (minutes)' },
   { value: 'FUEL_THEFT',     label: 'Fuel Theft',          icon: '🛢️', color: '#059669', desc: 'Triggers when fuel drops by at least the threshold (litres) within the window (minutes). FMB devices only; vehicle must have fuel sensor enabled and a tank capacity configured.' },
+  { value: 'OFFLINE',        label: 'Offline / Data Loss', icon: '📡', color: '#64748b', desc: 'Triggers when a device sends no data of any kind for longer than the threshold (minutes). Fires once per offline episode and re-arms when the device comes back online.' },
+  { value: 'ENGINE_ON_OFF',  label: 'Engine On / Off',     icon: '🔑', color: '#0ea5e9', desc: 'Triggers whenever the ignition switches ON or OFF. No threshold needed — set cooldown to 0 to be notified of every switch.' },
 ];
 
 const SCOPES = [
@@ -25,6 +27,7 @@ const thresholdLabel = (type) => ({
   NOT_MOVING:     'Duration (minutes)',
   IDLE_ENGINE:    'Duration (minutes)',
   FUEL_THEFT:     'Minimum Drop (litres)',
+  OFFLINE:        'Offline Duration (minutes)',
 }[type] || 'Threshold');
 
 const thresholdPlaceholder = (type) => ({
@@ -32,6 +35,7 @@ const thresholdPlaceholder = (type) => ({
   NOT_MOVING:     'e.g. 10',
   IDLE_ENGINE:    'e.g. 30',
   FUEL_THEFT:     'e.g. 10',
+  OFFLINE:        'e.g. 30',
 }[type] || '');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -81,7 +85,7 @@ const AlertForm = ({ initial, vehicles, groups, onSave, onClose }) => {
 
   const handleSubmit = async () => {
     if (!form.name.trim()) return toast.error('Alert name is required');
-    if (!form.threshold || isNaN(form.threshold)) return toast.error('Valid threshold is required');
+    if (form.type !== 'ENGINE_ON_OFF' && (!form.threshold || isNaN(form.threshold))) return toast.error('Valid threshold is required');
     if (form.type === 'FUEL_THEFT' && (!form.windowMinutes || isNaN(form.windowMinutes))) {
       return toast.error('Drop window (minutes) is required for fuel-theft alerts');
     }
@@ -141,13 +145,15 @@ const AlertForm = ({ initial, vehicles, groups, onSave, onClose }) => {
             </div>
           </div>
 
-          {/* Threshold + Cooldown row */}
-          <div style={{ display: 'grid', gridTemplateColumns: form.type === 'FUEL_THEFT' ? '1fr 1fr 1fr' : '1fr 1fr', gap: 14 }}>
-            <div>
-              <label style={lbl}>{thresholdLabel(form.type)} *</label>
-              <input type="number" min="0" value={form.threshold} onChange={e => set('threshold', e.target.value)}
-                placeholder={thresholdPlaceholder(form.type)} style={inp} />
-            </div>
+          {/* Threshold + Cooldown row (ENGINE_ON_OFF has no threshold) */}
+          <div style={{ display: 'grid', gridTemplateColumns: form.type === 'FUEL_THEFT' ? '1fr 1fr 1fr' : form.type === 'ENGINE_ON_OFF' ? '1fr' : '1fr 1fr', gap: 14 }}>
+            {form.type !== 'ENGINE_ON_OFF' && (
+              <div>
+                <label style={lbl}>{thresholdLabel(form.type)} *</label>
+                <input type="number" min="0" value={form.threshold} onChange={e => set('threshold', e.target.value)}
+                  placeholder={thresholdPlaceholder(form.type)} style={inp} />
+              </div>
+            )}
             {form.type === 'FUEL_THEFT' && (
               <div>
                 <label style={lbl}>Within (minutes) *</label>
@@ -267,6 +273,7 @@ const AlertCard = ({ alert, onEdit, onToggle, onDelete }) => {
           <strong>Threshold:</strong> {
             alert.type === 'SPEED_EXCEEDED' ? `${alert.threshold} km/h` :
             alert.type === 'FUEL_THEFT'     ? `${alert.threshold} L in ${alert.windowMinutes || '?'} min` :
+            alert.type === 'ENGINE_ON_OFF'  ? 'On every ignition change' :
             `${alert.threshold} min`
           }
         </span>

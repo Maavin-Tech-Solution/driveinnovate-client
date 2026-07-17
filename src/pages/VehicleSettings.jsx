@@ -58,6 +58,7 @@ const VehicleSettings = () => {
   const [saving, setSaving] = useState(false);
   const [speedRanges, setSpeedRanges] = useState([]);
   const [speedThreshold, setSpeedThreshold] = useState(80);
+  const [geofenceAsAddress, setGeofenceAsAddress] = useState(false);
   const [mapStyle,    setMapStyle]    = useState(() => localStorage.getItem('mapStyle')     || 'voyager');
   const [focusZoom,   setFocusZoom]   = useState(() => parseInt(localStorage.getItem('mapFocusZoom') || '13', 10));
   // sidebarTheme stores a hex colour (migrates legacy key → hex on first load)
@@ -103,6 +104,7 @@ const VehicleSettings = () => {
       
       setSpeedRanges(settingsData.speedRanges || []);
       setSpeedThreshold(settingsData.speedThreshold || 80);
+      setGeofenceAsAddress(Boolean(settingsData.geofenceAsAddress));
     } catch (error) {
       toast.error('Failed to load settings');
       console.error('Settings fetch error:', error);
@@ -142,7 +144,7 @@ const VehicleSettings = () => {
       window.dispatchEvent(new Event('dashboard-cards-updated'));
       window.dispatchEvent(new Event('fleet-chips-updated'));
       applyTheme();
-      const res = await updateSettings({ speedRanges, speedThreshold });
+      const res = await updateSettings({ speedRanges, speedThreshold, geofenceAsAddress });
       if (res.data.success) {
         toast.success('Settings saved successfully!');
       }
@@ -542,6 +544,38 @@ const VehicleSettings = () => {
                 Vehicles exceeding this speed will show overspeed alerts on dashboard
               </span>
             </div>
+          </div>
+        </div>
+
+        {/* ── Geofence as Address Card ── */}
+        <div style={{ background: '#fff', borderRadius: '14px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+          <div style={{ padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ background: '#dcfce7', borderRadius: '8px', padding: '7px 9px', fontSize: '16px' }}>⬠</span>
+              <div>
+                <div style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>Geofence as Address</div>
+                <div style={{ fontSize: '12px', color: '#94a3b8' }}>
+                  When a vehicle is inside a geofence, show the geofence name as its location instead of the street address
+                </div>
+              </div>
+            </div>
+            <label style={{ position: 'relative', display: 'inline-block', width: '46px', height: '26px', flexShrink: 0, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={geofenceAsAddress}
+                onChange={e => setGeofenceAsAddress(e.target.checked)}
+                style={{ opacity: 0, width: 0, height: 0 }}
+              />
+              <span style={{
+                position: 'absolute', inset: 0, borderRadius: '26px', transition: 'background 0.2s',
+                background: geofenceAsAddress ? '#16a34a' : '#cbd5e1',
+              }} />
+              <span style={{
+                position: 'absolute', top: '3px', left: geofenceAsAddress ? '23px' : '3px',
+                width: '20px', height: '20px', borderRadius: '50%', background: '#fff',
+                transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
+              }} />
+            </label>
           </div>
         </div>
 

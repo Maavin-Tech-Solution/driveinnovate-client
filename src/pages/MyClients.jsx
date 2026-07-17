@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import api from '../services/api';
 import { getClientTree } from '../services/user.service';
+import { useAuth } from '../context/AuthContext';
 import {
   UserGroupIcon,
   CheckIcon,
@@ -35,10 +36,24 @@ const PERMISSION_LABELS = [
   { key: 'canManageBilling',     label: 'Manage Billing' },
 ];
 
+// Device-data visibility: "see" toggles apply to any account; "allow" toggles
+// are delegation rights shown only when the target account is a dealer.
+// A non-papa editor may only change these if they hold the matching allow right.
+const VISIBILITY_LABELS = [
+  { key: 'canSeeIMEI',   label: 'Can See IMEI',              gate: 'canAllowIMEI' },
+  { key: 'canSeeSIM',    label: 'Can See SIM',               gate: 'canAllowSIM' },
+  { key: 'canAllowIMEI', label: 'Can Allow IMEI Visibility', gate: 'canAllowIMEI', dealerOnly: true },
+  { key: 'canAllowSIM',  label: 'Can Allow SIM Visibility',  gate: 'canAllowSIM',  dealerOnly: true },
+];
+
 // ─── Permission Modal ─────────────────────────────────────────────────────────
-const PermissionModal = ({ client, onClose, onSaved }) => {
+const PermissionModal = ({ client, isDealer, viewer, onClose, onSaved }) => {
   const [perms, setPerms] = useState(null);
   const [saving, setSaving] = useState(false);
+
+  const viewerIsPapa = viewer?.role === 'papa' || Number(viewer?.parentId) === 0 || Number(viewer?.parent_id) === 0;
+  const canEditVisibility = (gate) => viewerIsPapa || viewer?.permissions?.[gate] === true;
+  const visibilityLabels = VISIBILITY_LABELS.filter(v => isDealer || !v.dealerOnly);
 
   useEffect(() => {
     api.get(`/permissions/${client.id}`)
@@ -111,6 +126,39 @@ const PermissionModal = ({ client, onClose, onSaved }) => {
                   </span>
                 </label>
               ))}
+            </div>
+
+            {/* Device data visibility (IMEI / SIM) */}
+            <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '10px' }}>
+              Device Data Visibility
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '24px' }}>
+              {visibilityLabels.map(({ key, label, gate }) => {
+                const editable = canEditVisibility(gate);
+                return (
+                  <label key={key} title={editable ? undefined : 'Your account does not have the right to change this'} style={{
+                    display: 'flex', alignItems: 'center', gap: '10px',
+                    cursor: editable ? 'pointer' : 'not-allowed',
+                    opacity: editable ? 1 : 0.45,
+                    padding: '10px 12px', borderRadius: '8px',
+                    background: perms[key] ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.05)',
+                    border: `1px solid ${perms[key] ? 'rgba(16,185,129,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                  }}>
+                    <div style={{
+                      width: '18px', height: '18px', borderRadius: '5px', flexShrink: 0,
+                      border: `2px solid ${perms[key] ? '#10B981' : 'rgba(255,255,255,0.3)'}`,
+                      background: perms[key] ? '#10B981' : 'transparent',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      {perms[key] && <CheckIcon style={{ width: '11px', height: '11px', color: '#fff' }} />}
+                    </div>
+                    <input type="checkbox" checked={!!perms[key]} disabled={!editable} onChange={() => editable && toggle(key)} style={{ display: 'none' }} />
+                    <span style={{ color: perms[key] ? '#fff' : 'rgba(255,255,255,0.6)', fontSize: '12.5px', fontWeight: perms[key] ? 600 : 400 }}>
+                      {label}
+                    </span>
+                  </label>
+                );
+              })}
             </div>
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
               <button onClick={onClose} style={{ padding: '9px 20px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.2)', background: 'transparent', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', fontSize: '13.5px' }}>
@@ -334,6 +382,7 @@ const SearchItem = ({ node, onSelect }) => (
 // ─── Main page ────────────────────────────────────────────────────────────────
 const MyClients = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [tree, setTree] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
@@ -480,6 +529,8 @@ const MyClients = () => {
       {editing && (
         <PermissionModal
           client={editing}
+          isDealer={editing.children?.length > 0}
+          viewer={user}
           onClose={() => setEditing(null)}
           onSaved={load}
         />

@@ -8,6 +8,11 @@ const TYPE_META = {
   SPEED_EXCEEDED: { icon: '🏎️', color: '#dc2626', label: 'Speed Exceeded' },
   NOT_MOVING:     { icon: '🅿️', color: '#d97706', label: 'Not Moving' },
   IDLE_ENGINE:    { icon: '⏸️', color: '#7c3aed', label: 'Engine Idle' },
+  FUEL_THEFT:     { icon: '🛢️', color: '#059669', label: 'Fuel Theft' },
+  OFFLINE:        { icon: '📡', color: '#64748b', label: 'Offline / Data Loss' },
+  ENGINE_ON_OFF:  { icon: '🔑', color: '#0ea5e9', label: 'Engine On/Off' },
+  GEOFENCE_ENTRY: { icon: '⬠', color: '#16a34a', label: 'Geofence Entry' },
+  GEOFENCE_EXIT:  { icon: '⬠', color: '#dc2626', label: 'Geofence Exit' },
 };
 
 const PAGE_SIZE = 30;

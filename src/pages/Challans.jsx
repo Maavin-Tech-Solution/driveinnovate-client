@@ -228,13 +228,34 @@ const Challans = () => {
 
   return (
     <div>
-      {/* Summary */}
+      {/* Summary — pills are clickable and drive the status filter below */}
       {rows.length > 0 && (
         <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-          <div className="stat-pill stat-pill-blue"><span style={{ fontWeight: 800, fontSize: 18 }}>{rows.length}</span><span>Total</span></div>
-          <div className="stat-pill stat-pill-red"><span style={{ fontWeight: 800, fontSize: 18 }}>{rows.filter(r => r.status === 'pending').length}</span><span>Pending</span></div>
-          <div className="stat-pill stat-pill-green"><span style={{ fontWeight: 800, fontSize: 18 }}>{rows.filter(r => r.status === 'paid' || r.status === 'disposed').length}</span><span>Paid</span></div>
-          {totalPending > 0 && <div className="stat-pill stat-pill-amber"><span style={{ fontWeight: 800, fontSize: 18 }}>₹{totalPending.toLocaleString('en-IN')}</span><span>Pending Amount</span></div>}
+          {[
+            { key: 'all',     cls: 'stat-pill-blue',  value: rows.length, label: 'Total' },
+            { key: 'pending', cls: 'stat-pill-red',   value: rows.filter(r => r.status === 'pending').length, label: 'Pending' },
+            { key: 'paid',    cls: 'stat-pill-green', value: rows.filter(r => r.status === 'paid' || r.status === 'disposed').length, label: 'Paid' },
+            ...(totalPending > 0 ? [{ key: 'pending', cls: 'stat-pill-amber', value: `₹${totalPending.toLocaleString('en-IN')}`, label: 'Pending Amount' }] : []),
+          ].map((p, i) => (
+            <div
+              key={i}
+              className={`stat-pill ${p.cls}`}
+              onClick={() => setFilter(filter === p.key && p.key !== 'all' ? 'all' : p.key)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setFilter(filter === p.key && p.key !== 'all' ? 'all' : p.key); }}
+              title={p.key === 'all' ? 'Show all challans' : `Filter: ${p.label} (click again to clear)`}
+              style={{
+                cursor: 'pointer',
+                userSelect: 'none',
+                outline: filter === p.key ? '2px solid #2563EB' : 'none',
+                outlineOffset: 1,
+                transition: 'transform 0.1s',
+              }}
+            >
+              <span style={{ fontWeight: 800, fontSize: 18 }}>{p.value}</span><span>{p.label}</span>
+            </div>
+          ))}
         </div>
       )}
 

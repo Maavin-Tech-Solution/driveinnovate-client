@@ -245,12 +245,32 @@ const RtoDetails = () => {
 
   return (
     <div>
-      {/* Summary pills */}
+      {/* Summary pills — clickable, drive the expiry filter below */}
       {rows.length > 0 && (
         <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap' }}>
-          <div className="stat-pill stat-pill-blue"><span style={{ fontWeight: 800, fontSize: '18px' }}>{rows.length}</span><span>Total</span></div>
-          {expired > 0  && <div className="stat-pill stat-pill-red"><span style={{ fontWeight: 800, fontSize: '18px' }}>⚠ {expired}</span><span>Expired</span></div>}
-          {expiring > 0 && <div className="stat-pill stat-pill-amber"><span style={{ fontWeight: 800, fontSize: '18px' }}>🔔 {expiring}</span><span>Expiring Soon</span></div>}
+          {[
+            { key: 'all',      cls: 'stat-pill-blue',  value: rows.length,     label: 'Total' },
+            ...(expired  > 0 ? [{ key: 'expired',  cls: 'stat-pill-red',   value: `⚠ ${expired}`,   label: 'Expired' }] : []),
+            ...(expiring > 0 ? [{ key: 'expiring', cls: 'stat-pill-amber', value: `🔔 ${expiring}`, label: 'Expiring Soon' }] : []),
+          ].map(p => (
+            <div
+              key={p.key}
+              className={`stat-pill ${p.cls}`}
+              onClick={() => setFilter(filter === p.key && p.key !== 'all' ? 'all' : p.key)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setFilter(filter === p.key && p.key !== 'all' ? 'all' : p.key); }}
+              title={p.key === 'all' ? 'Show all vehicles' : `Filter: ${p.label} (click again to clear)`}
+              style={{
+                cursor: 'pointer',
+                userSelect: 'none',
+                outline: filter === p.key ? '2px solid #2563EB' : 'none',
+                outlineOffset: 1,
+              }}
+            >
+              <span style={{ fontWeight: 800, fontSize: '18px' }}>{p.value}</span><span>{p.label}</span>
+            </div>
+          ))}
         </div>
       )}
 
